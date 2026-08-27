@@ -4,8 +4,8 @@ import { IpcClient } from "../../daemon/ipc.js";
 export function registerStopCommand(program: Command): void {
   program
     .command("stop")
-    .description("Stop a running session")
-    .argument("<id>", "session id")
+    .description("Stop a running session (graceful interrupt → SIGTERM → SIGKILL)")
+    .argument("<id>", "session id (prefix allowed, e.g. a83f)")
     .option("--json", "output JSON")
     .action(async (id: string, opts: any) => {
       const client = new IpcClient();

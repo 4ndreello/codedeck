@@ -6,16 +6,23 @@ import { loadConfig } from "../../config/config.js";
 export function registerRunCommand(program: Command): void {
   program
     .command("run")
-    .description("Start a new agent session")
-    .argument("<prompt>", "prompt for the agent")
-    .option("--agent <agent>", "agent to use (claude|codex|opencode|omp)")
-    .option("--model <model>", "model to use")
-    .option("--name <name>", "session name")
-    .option("--cwd <cwd>", "working directory")
-    .option("--worktree", "create isolated git worktree")
-    .option("--no-worktree", "do not create worktree")
-    .option("--detach", "run detached, print session id and exit")
-    .option("--json", "output JSON")
+    .description("Start a new agent session (creates a Run Agent session, not a raw harness call)")
+    .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
+    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (default: claude or config.defaultAgent)")
+    .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
+    .option("--name <name>", "human-readable session name (slug for branch)")
+    .option("--cwd <cwd>", "working directory (default: current directory)")
+    .option("--worktree", "create isolated git worktree at ~/.run-agent/worktrees/<hash>/<id>")
+    .option("--no-worktree", "do not create worktree, run in current directory")
+    .option("--detach", "run detached: print session id and exit, keep agent running in daemon")
+    .option("--json", "output JSON instead of human-readable text")
+    .addHelpText("after", `
+Examples:
+  $ ra run "implement authentication" --agent claude
+  $ ra run "fix the tests" --agent codex --model gpt-5 --detach
+  $ ra run "refactor module" --agent opencode --worktree --name refactor
+  $ ra run "investigate bug" --agent omp --cwd ./my-project --json
+`)
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const cfg = loadConfig();

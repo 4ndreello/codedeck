@@ -12,8 +12,8 @@ function check(label: string, ok: boolean, detail?: string): string {
 export function registerDoctorCommand(program: Command): void {
   program
     .command("doctor")
-    .description("Check system and harness health")
-    .option("--json", "output JSON")
+    .description("Check Node, Git, harnesses, daemon, database and paths")
+    .option("--json", "output JSON with full health report")
     .action(async (opts: any) => {
       const client = new IpcClient();
       let daemonRunning = await isDaemonRunning();

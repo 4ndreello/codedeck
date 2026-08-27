@@ -16,9 +16,9 @@ function formatAge(date: string | Date): string {
 export function registerPsCommand(program: Command): void {
   program
     .command("ps")
-    .description("List sessions")
-    .option("--all", "include all sessions")
-    .option("--json", "output JSON")
+    .description("List recent sessions (daemon-owned, not harness IDs)")
+    .option("--all", "include all sessions including completed/failed (default: recent)")
+    .option("--json", "output JSON instead of table")
     .action(async (opts: any) => {
       const client = new IpcClient();
       try { await client.ensureDaemonStarted(); } catch {}

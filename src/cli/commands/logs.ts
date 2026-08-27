@@ -38,11 +38,11 @@ function formatEvent(ev: any): string {
 export function registerLogsCommand(program: Command): void {
   program
     .command("logs")
-    .description("Show session logs")
-    .argument("<id>", "session id")
-    .option("--follow", "follow logs in real time")
-    .option("--json", "output JSON")
-    .option("--raw", "output raw payloads")
+    .description("Show normalized session logs (human, JSON, or raw)")
+    .argument("<id>", "session id (prefix allowed, e.g. a83f)")
+    .option("--follow", "follow logs in real time (Ctrl+C to detach, session keeps running)")
+    .option("--json", "output JSON array of normalized events")
+    .option("--raw", "output raw harness payloads (debug)")
     .action(async (id: string, opts: any) => {
       const client = new IpcClient();
       try { await client.ensureDaemonStarted(); } catch {}

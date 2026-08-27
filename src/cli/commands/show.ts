@@ -4,9 +4,9 @@ import { IpcClient } from "../../daemon/ipc.js";
 export function registerShowCommand(program: Command): void {
   program
     .command("show")
-    .description("Show session details")
-    .argument("<id>", "session id (prefix allowed)")
-    .option("--json", "output JSON")
+    .description("Show full session details (status, worktree, usage, recent events)")
+    .argument("<id>", "session id (prefix allowed, e.g. a83f)")
+    .option("--json", "output JSON with session + events")
     .action(async (id: string, opts: any) => {
       const client = new IpcClient();
       try { await client.ensureDaemonStarted(); } catch {}

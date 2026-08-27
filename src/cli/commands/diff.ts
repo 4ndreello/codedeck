@@ -4,10 +4,10 @@ import { IpcClient } from "../../daemon/ipc.js";
 export function registerDiffCommand(program: Command): void {
   program
     .command("diff")
-    .description("Show git diff for a session")
-    .argument("<id>", "session id")
-    .option("--stat", "show stat only")
-    .option("--json", "output JSON")
+    .description("Show git diff for a session against its base commit (harness-independent)")
+    .argument("<id>", "session id (prefix allowed, e.g. a83f)")
+    .option("--stat", "show diff --stat and file list only")
+    .option("--json", "output JSON { base, diff, stat, files }")
     .action(async (id: string, opts: any) => {
       const client = new IpcClient();
       try { await client.ensureDaemonStarted(); } catch {}
