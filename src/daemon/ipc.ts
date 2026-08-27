@@ -11,15 +11,29 @@ export async function isDaemonRunning(): Promise<boolean> {
   const sock = getSocketPath();
   if (!fs.existsSync(sock)) return false;
   return new Promise((resolve) => {
+    let done = false;
     const c = net.createConnection(sock, () => {
-      c.end();
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { c.end(); } catch {}
+      // Destroy quickly to not keep loop alive
+      setTimeout(() => { try { c.destroy(); } catch {} }, 50).unref?.();
       resolve(true);
     });
-    c.on("error", () => resolve(false));
-    setTimeout(() => {
+    c.on("error", () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(false);
+    });
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
       try { c.destroy(); } catch {}
       resolve(false);
     }, 1000);
+    if ((timer as any).unref) (timer as any).unref();
   });
 }
 
@@ -41,6 +55,21 @@ export class IpcClient {
       let buf = "";
       let resolved = false;
 
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          try { client.destroy(); } catch {}
+          reject(new Error("IPC request timeout"));
+        }
+      }, 15000);
+      // Don't keep process alive just for this timeout if already resolved
+      if ((timeout as any).unref) (timeout as any).unref();
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        try { client.removeAllListeners(); } catch {}
+      };
+
       client.on("data", (chunk) => {
         buf += chunk.toString();
         let idx: number;
@@ -54,20 +83,27 @@ export class IpcClient {
             if (res.error) {
               if (!resolved) {
                 resolved = true;
-                client.end();
+                cleanup();
+                try { client.end(); } catch {}
+                // Destroy shortly after end to free socket quickly
+                setTimeout(() => { try { client.destroy(); } catch {} }, 50).unref?.();
                 reject(new Error(res.error.message));
               }
             } else {
               if (!resolved) {
                 resolved = true;
-                client.end();
+                cleanup();
+                try { client.end(); } catch {}
+                setTimeout(() => { try { client.destroy(); } catch {} }, 50).unref?.();
                 resolve(res.result as T);
               }
             }
           } catch (e) {
             if (!resolved) {
               resolved = true;
-              client.end();
+              cleanup();
+              try { client.end(); } catch {}
+              setTimeout(() => { try { client.destroy(); } catch {} }, 50).unref?.();
               reject(e as Error);
             }
           }
@@ -77,6 +113,7 @@ export class IpcClient {
       client.on("error", (err) => {
         if (!resolved) {
           resolved = true;
+          cleanup();
           reject(err);
         }
       });
@@ -88,21 +125,17 @@ export class IpcClient {
             if (res.error) reject(new Error(res.error.message));
             else resolve(res.result as T);
             resolved = true;
+            cleanup();
           } catch {}
         }
         if (!resolved) {
           resolved = true;
+          cleanup();
           reject(new Error("Connection closed without response"));
+        } else {
+          cleanup();
         }
       });
-
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          try { client.destroy(); } catch {}
-          reject(new Error("IPC request timeout"));
-        }
-      }, 15000);
     });
   }
 
