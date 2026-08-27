@@ -13,21 +13,21 @@ Run Agent is not an agent. It manages the lifecycle of existing harnesses:
 - **OpenCode** (`opencode run --format json`)
 - **OMP** (`omp --mode rpc`)
 
-The `ra` CLI provides a single unified interface for all of them:
+The `run-agent` CLI provides a single unified interface for all of them:
 
 ```bash
-ra run "implement authentication" --agent claude
-ra run "fix the tests" --agent codex
-ra run "investigate this bug" --agent opencode
-ra run "refactor this module" --agent omp
+npx run-agent run "implement authentication" --agent claude
+npx run-agent run "fix the tests" --agent codex
+npx run-agent run "investigate this bug" --agent opencode
+npx run-agent run "refactor this module" --agent omp
 
-ra ps
-ra logs a83f --follow
-ra show a83f
-ra send a83f "add tests"
-ra stop a83f
-ra diff a83f
-ra doctor
+npx run-agent ps
+npx run-agent logs a83f --follow
+npx run-agent show a83f
+npx run-agent send a83f "add tests"
+npx run-agent stop a83f
+npx run-agent diff a83f
+npx run-agent doctor
 ```
 
 ## Stack
@@ -45,7 +45,7 @@ npm install -g run-agent
 npx run-agent
 ```
 
-Binaries: `ra` and `run-agent`
+Binary: `run-agent`
 
 For local development:
 
@@ -55,13 +55,13 @@ npm run build
 node dist/cli/index.js doctor
 # or create a local alias
 npm link
-ra doctor
+npx run-agent doctor
 ```
 
 ## Architecture
 
 ```
-ra CLI
+run-agent CLI
   │ IPC (Unix Socket, NDJSON)
   ▼
 Run Agent Daemon
@@ -81,14 +81,14 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 | Command | Description |
 |---------|-------------|
-| `ra doctor` | Check Node, Git, harnesses, daemon, and database |
-| `ra run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
-| `ra ps [--all] [--json]` | List recent sessions |
-| `ra show <id> [--json]` | Show session details |
-| `ra logs <id> [--follow] [--json] [--raw]` | Show normalized events |
-| `ra send <id> "<msg>"` | Continue a session (new turn) |
-| `ra stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
-| `ra diff <id> [--stat] [--json]` | Git diff against base commit |
+| `npx run-agent doctor` | Check Node, Git, harnesses, daemon, and database |
+| `npx run-agent run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
+| `npx run-agent ps [--all] [--json]` | List recent sessions |
+| `npx run-agent show <id> [--json]` | Show session details |
+| `npx run-agent logs <id> [--follow] [--json] [--raw]` | Show normalized events |
+| `npx run-agent send <id> "<msg>"` | Continue a session (new turn) |
+| `npx run-agent stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
+| `npx run-agent diff <id> [--stat] [--json]` | Git diff against base commit |
 
 ## Session
 
@@ -126,7 +126,7 @@ Tables:
 ## Worktrees
 
 ```bash
-ra run "implement oauth" --worktree
+npx run-agent run "implement oauth" --worktree
 # creates ~/.run-agent/worktrees/<repo-hash>/<session-id>
 # branch: ra/<slug>-<session-id>
 ```
@@ -186,16 +186,16 @@ npm test
 
 ```bash
 cd example-project
-ra doctor
-ra run "find one improvement and implement it" --agent claude --worktree --detach
-ra run "find one improvement and implement it" --agent codex --worktree --detach
-ra ps
-ra logs <claude-session> --follow
-ra show <codex-session>
-ra diff <claude-session>
-ra diff <codex-session>
-ra send <claude-session> "run the tests before finishing"
-ra stop <codex-session>
+npx run-agent doctor
+npx run-agent run "find one improvement and implement it" --agent claude --worktree --detach
+npx run-agent run "find one improvement and implement it" --agent codex --worktree --detach
+npx run-agent ps
+npx run-agent logs <claude-session> --follow
+npx run-agent show <codex-session>
+npx run-agent diff <claude-session>
+npx run-agent diff <codex-session>
+npx run-agent send <claude-session> "run the tests before finishing"
+npx run-agent stop <codex-session>
 ```
 
 The same experience across all four harnesses.

@@ -4,19 +4,31 @@
   "description": "Local runtime for coding agents — session management, process supervision, event normalization, git isolation",
   "type": "module",
   "bin": {
-    "ra": "./dist/cli/index.js",
     "run-agent": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
-    "doctor": "node dist/cli/index.js doctor"
+    "doctor": "node dist/cli/index.js doctor",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": ["agent", "coding-agent", "runtime", "claude", "codex", "opencode", "omp"],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/4ndreello/run-agent.git"
+  },
+  "homepage": "https://github.com/4ndreello/run-agent#readme",
+  "bugs": {
+    "url": "https://github.com/4ndreello/run-agent/issues"
+  },
   "engines": {
     "node": ">=20.0.0"
   },

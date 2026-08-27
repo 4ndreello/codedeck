@@ -18,10 +18,10 @@ export function registerRunCommand(program: Command): void {
     .option("--json", "output JSON instead of human-readable text")
     .addHelpText("after", `
 Examples:
-  $ ra run "implement authentication" --agent claude
-  $ ra run "fix the tests" --agent codex --model gpt-5 --detach
-  $ ra run "refactor module" --agent opencode --worktree --name refactor
-  $ ra run "investigate bug" --agent omp --cwd ./my-project --json
+  $ npx run-agent run "implement authentication" --agent claude
+  $ npx run-agent run "fix the tests" --agent codex --model gpt-5 --detach
+  $ npx run-agent run "refactor module" --agent opencode --worktree --name refactor
+  $ npx run-agent run "investigate bug" --agent omp --cwd ./my-project --json
 `)
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
@@ -65,7 +65,7 @@ Examples:
 
       if (opts.detach) {
         // Just show id and exit
-        if (!opts.json) console.log(`\nUse: ra logs ${session.id} --follow`);
+        if (!opts.json) console.log(`\nUse: npx run-agent logs ${session.id} --follow`);
         process.exit(0);
       }
 
@@ -116,8 +116,8 @@ Examples:
       // Handle Ctrl+C: detach but keep session running
       process.on("SIGINT", () => {
         console.log(`\nDetached from ${session.id}. Session continues in background.`);
-        console.log(`Run: ra logs ${session.id} --follow  to reattach`);
-        console.log(`     ra stop ${session.id}     to stop`);
+        console.log(`Run: npx run-agent logs ${session.id} --follow  to reattach`);
+        console.log(`     npx run-agent stop ${session.id}     to stop`);
         unsubscribe();
         process.exit(0);
       });

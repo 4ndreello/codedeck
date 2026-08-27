@@ -26,7 +26,7 @@ function getVersion(): string {
 const program = new Command();
 
 program
-  .name("ra")
+  .name("run-agent")
   .description("Run Agent — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
   .version(getVersion())
   .helpOption("-h, --help", "display help for command")
@@ -34,19 +34,19 @@ program
   .showSuggestionAfterError(true)
   .addHelpText("after", `
 Examples:
-  $ ra run "implement authentication" --agent claude --worktree
-  $ ra run "fix the tests" --agent codex --detach
-  $ ra ps
-  $ ra ps --json
-  $ ra show a83f
-  $ ra logs a83f --follow
-  $ ra logs a83f --json
-  $ ra send a83f "add tests"
-  $ ra stop a83f
-  $ ra diff a83f --stat
-  $ ra doctor
+  $ npx run-agent run "implement authentication" --agent claude --worktree
+  $ npx run-agent run "fix the tests" --agent codex --detach
+  $ npx run-agent ps
+  $ npx run-agent ps --json
+  $ npx run-agent show a83f
+  $ npx run-agent logs a83f --follow
+  $ npx run-agent logs a83f --json
+  $ npx run-agent send a83f "add tests"
+  $ npx run-agent stop a83f
+  $ npx run-agent diff a83f --stat
+  $ npx run-agent doctor
 
-Run 'ra <command> --help' for command-specific options.
+Run 'npx run-agent <command> --help' for command-specific options.
 Docs: https://github.com/4ndreello/run-agent
 `);
 
@@ -59,10 +59,9 @@ registerStopCommand(program);
 registerDiffCommand(program);
 registerDoctorCommand(program);
 
-// Make `ra help` behave like `ra --help`
+// Make `run-agent help` behave like `run-agent --help`
 program.command("help", { hidden: true }).action(() => program.outputHelp());
 
-// alias run-agent
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
