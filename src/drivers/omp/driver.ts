@@ -14,7 +14,7 @@ interface OmpHandle {
   nativeSessionId?: string;
 }
 
-function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
+export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   let obj: any;
   try { obj = JSON.parse(line); } catch { return []; }
   const ts = new Date().toISOString();
@@ -35,7 +35,10 @@ function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
     return events;
   }
 
-  if (obj.type === "session.started" || obj.type === "session_created") {
+  // `--mode json` opens with {"type":"session","version":3,"id":"<uuid>",...};
+  // `id` is the native session id `--resume` needs, so send/resume depends on
+  // this frame being recognised.
+  if (obj.type === "session.started" || obj.type === "session_created" || obj.type === "session") {
     events.push({
       type: "session.started",
       sessionId,
@@ -45,6 +48,85 @@ function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
     } as any);
     return events;
   }
+
+  // ---- omp `--mode json` frames -------------------------------------------
+  // Streamed assistant text arrives nested, not as a top-level frame:
+  //   {"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"OK"}}
+  if (obj.type === "message_update" && obj.assistantMessageEvent) {
+    const inner = obj.assistantMessageEvent;
+    if (inner.type === "text_delta" && inner.delta) {
+      events.push({
+        type: "text.delta",
+        sessionId,
+        timestamp: ts,
+        delta: String(inner.delta),
+        raw,
+      } as AgentEvent);
+    }
+    return events;
+  }
+
+  // Completed assistant message. `content` is an array of parts and only the
+  // `text` ones are the answer — `thinking` parts carry an encrypted blob that
+  // must never be surfaced as message content.
+  if (obj.type === "message_end" && obj.message?.role === "assistant") {
+    const text = (Array.isArray(obj.message.content) ? obj.message.content : [])
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("");
+    if (text) {
+      events.push({
+        type: "message",
+        sessionId,
+        timestamp: ts,
+        role: "assistant",
+        content: text,
+        raw,
+      } as AgentEvent);
+    }
+    return events;
+  }
+
+  if (obj.type === "tool_execution_start") {
+    events.push({
+      type: "tool.started",
+      sessionId,
+      timestamp: ts,
+      tool: { name: obj.toolName || "tool", id: obj.toolCallId, input: obj.args },
+      raw,
+    } as AgentEvent);
+    return events;
+  }
+
+  if (obj.type === "tool_execution_end") {
+    events.push({
+      type: "tool.completed",
+      sessionId,
+      timestamp: ts,
+      tool: {
+        name: obj.toolName || "tool",
+        id: obj.toolCallId,
+        output: obj.result,
+        success: !obj.isError,
+      },
+      raw,
+    } as AgentEvent);
+    return events;
+  }
+
+  // Terminal frame of a print-mode run. Without this the driver only ever got a
+  // synthesised completion from the process `close` handler.
+  if (obj.type === "agent_end") {
+    events.push({
+      type: "session.completed",
+      sessionId,
+      timestamp: ts,
+      reason: "agent_end",
+      raw,
+    } as AgentEvent);
+    return events;
+  }
+  // -------------------------------------------------------------------------
 
   if (obj.type === "assistant" || obj.type === "message") {
     const content = obj.content || obj.text || obj.delta || "";
@@ -198,48 +280,62 @@ export class OmpDriver implements AgentDriver {
       if (!res2.installed) return { installed: false, error: "omp/pi binary not found" };
       return { installed: true, path: res2.path, version: res2.version, details: "omp via pi binary" };
     }
-    return { installed: true, path: res.path, version: res.version, details: "omp --mode rpc" };
+    return { installed: true, path: res.path, version: res.version, details: "omp -p --mode json" };
   }
 
   async start(options: StartOptions): Promise<DriverSession> {
-    // Use omp --mode rpc --print for non-interactive? But spec says prefer --mode rpc with NDJSON
-    // For MVP we use: omp --mode json -p "prompt"  (print mode with json?)
-    // Let's use: omp --mode rpc -p "prompt" and capture output; fallback to text mode
-    // Simpler: Use omp --mode json -p "prompt" if rpc not available
-    // We'll try omp --mode rpc -p "prompt" first; if fails, fallback to omp -p
+    // `--mode` picks the OUTPUT format: text (default), json, rpc, rpc-ui.
+    // `rpc` is the interactive protocol SERVER — it prints a handshake and then
+    // waits for request frames on stdin. Driving it with `-p <prompt>` never
+    // runs a turn: measured against omp 18.0.7, `omp --mode rpc -p "..."` emits
+    // only `ready` / `available_commands_update` and exits 0 in under a second,
+    // with zero assistant frames. That is what made every OMP session here
+    // complete instantly and empty.
+    //
+    // `-p/--print` is a BOOLEAN flag ("process prompt and exit") and the prompt
+    // is POSITIONAL (`MESSAGES` in `omp --help`), so it must not be passed as
+    // `-p <prompt>`. The non-interactive NDJSON stream this driver parses is
+    // `--mode json`.
+    const args: string[] = [];
+    if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
+    args.push("-p", "--mode", "json");
+    if (options.model) args.push("--model", options.model);
+    args.push(options.prompt);
 
-    const baseArgs: string[] = [];
-    // Determine args based on resume
-    let args: string[];
-    if (options.resumeSessionId) {
-      // OMP resume: omp --resume <id> --mode rpc -p "prompt"
-      args = ["--resume", options.resumeSessionId, "--mode", "rpc", "-p", options.prompt];
-    } else {
-      args = ["--mode", "rpc", "-p", options.prompt];
-    }
-    if (options.model) {
-      args.unshift("--model", options.model);
-      // Actually model flag should be before --mode? order doesn't matter much
-    }
-
+    // stdin is ignored rather than an immediately-closed pipe. A closed pipe
+    // does work (omp falls back to the positional prompt on EOF), but an OPEN
+    // one does not: omp waits for EOF that never comes and hangs indefinitely.
+    // `ignore` removes that failure mode instead of depending on stdin.end().
     const proc = spawn("omp", args, {
       cwd: options.cwd,
       env: { ...process.env },
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    proc.stdin?.end();
 
     const emitter = new EventEmitter();
     const buffer: AgentEvent[] = [];
-    let nativeId: string | undefined = options.resumeSessionId;
-    let done = false;
-    let exitCode: number | null = null;
+
+    // The handle is built HERE, before the handlers, and mutated in place. It
+    // used to be constructed at the END of start() out of local `done` /
+    // `exitCode` / `nativeId` variables — which copies them BY VALUE. The close
+    // handler flipped the locals while `handle.done` stayed false forever, so
+    // events() never left its wait loop (an omp session hung after the process
+    // had already exited), and `handle.nativeSessionId` stayed undefined, so
+    // send() could never resume.
+    const handle: OmpHandle = {
+      proc,
+      emitter,
+      buffer,
+      done: false,
+      exitCode: null,
+      nativeSessionId: options.resumeSessionId,
+    };
 
     const push = (ev: AgentEvent) => {
       ev.sessionId = options.sessionId;
-      if ((ev as any).nativeSessionId) nativeId = (ev as any).nativeSessionId;
-      if ((ev.raw as any)?.session_id) nativeId = (ev.raw as any).session_id;
-      if ((ev.raw as any)?.sessionID) nativeId = (ev.raw as any).sessionID;
+      const native =
+        (ev as any).nativeSessionId ?? (ev.raw as any)?.session_id ?? (ev.raw as any)?.sessionID;
+      if (native) handle.nativeSessionId = native;
       buffer.push(ev);
       emitter.emit("event", ev);
     };
@@ -250,8 +346,8 @@ export class OmpDriver implements AgentDriver {
       // Try to salvage session id
       try {
         const obj = JSON.parse(line);
-        if (obj.session_id && !nativeId) nativeId = obj.session_id;
-        if (obj.sessionID && !nativeId) nativeId = obj.sessionID;
+        if (obj.session_id && !handle.nativeSessionId) handle.nativeSessionId = obj.session_id;
+        if (obj.sessionID && !handle.nativeSessionId) handle.nativeSessionId = obj.sessionID;
         // Sometimes omp rpc emits {"id":"...","result":{...}}
       } catch {
         // If not JSON, treat as text delta?
@@ -271,8 +367,8 @@ export class OmpDriver implements AgentDriver {
     proc.stderr?.on("data", (c) => (stderrBuf += c.toString()));
 
     proc.on("close", (code) => {
-      exitCode = code;
-      done = true;
+      handle.exitCode = code;
+      handle.done = true;
       const hasTerminal = buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
       if (!hasTerminal) {
         // If we got text but no terminal, emit completed
@@ -311,16 +407,15 @@ export class OmpDriver implements AgentDriver {
         error: err.message,
         raw: err,
       } as AgentEvent);
-      done = true;
+      handle.done = true;
       emitter.emit("done");
     });
 
-    const handle: OmpHandle = { proc, emitter, buffer, done, exitCode, nativeSessionId: nativeId };
     this.handles.set(options.sessionId, handle);
 
     return {
       id: options.sessionId,
-      nativeSessionId: nativeId,
+      nativeSessionId: handle.nativeSessionId,
       pid: proc.pid,
       cwd: options.cwd,
       model: options.model,
