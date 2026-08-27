@@ -76,6 +76,7 @@ export class Database {
     const additions: Array<[string, string]> = [
       ["effort", "TEXT"],
       ["fast", "INTEGER NOT NULL DEFAULT 0"],
+      ["failure", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);

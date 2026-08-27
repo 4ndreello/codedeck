@@ -45,7 +45,9 @@ Examples:
       }
 
       // Claude exposes no service-tier flag, so --fast cannot be honoured there.
-      // Say so instead of starting a session that quietly ignores it.
+      // Warn and clear it so the persisted session does not claim a priority
+      // tier that was never applied — the driver ignores it anyway.
+      const effectiveFast = agent !== "claude" && !!opts.fast;
       if (opts.fast && agent === "claude") {
         console.error("Warning: --fast has no effect on claude (no service tier flag); continuing without it.");
       }
@@ -63,7 +65,7 @@ Examples:
         agent,
         model: opts.model,
         effort,
-        fast: !!opts.fast,
+        fast: effectiveFast,
         name: opts.name,
         cwd,
         worktree: opts.worktree,

@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "./driver.js";
+import type { FailureInfo } from "./errors.js";
 export type AgentId = "claude" | "codex" | "opencode" | "omp";
 
 export type SessionStatus =
@@ -40,6 +41,7 @@ export interface Session {
   completedAt?: Date;
   usage?: SessionUsage;
   lastEvent?: string;
+  failure?: FailureInfo;
 }
 
 export interface CreateSessionOptions {

@@ -14,10 +14,9 @@ const base = { sessionId: S, prompt: "do it", cwd: "/work" };
 
 // Args are positional pairs, so asserting "contains X" is not enough: `-c` and
 // its value must be adjacent, or codex reads the next flag as the value.
-const hasPair = (args: readonly string[], flag: string, value: string) => {
-  const i = args.indexOf(flag);
-  return i !== -1 && args[i + 1] === value;
-};
+// Multiple `-c` flags can coexist (effort + fast), so check any occurrence.
+const hasPair = (args: readonly string[], flag: string, value: string) =>
+  args.some((v, i) => v === flag && args[i + 1] === value);
 
 describe("buildCodexArgs", () => {
   it("requests the workspace-write sandbox so the agent can edit files", () => {
@@ -50,6 +49,19 @@ describe("buildCodexArgs", () => {
     expect(args.slice(0, 3)).toEqual(["exec", "resume", "thread-1"]);
     expect(hasPair(args, "-s", "workspace-write")).toBe(true);
     expect(hasPair(args, "-c", 'model_reasoning_effort="high"')).toBe(true);
+  });
+
+  it("keeps both config overrides when effort and fast are set together", () => {
+    const args = buildCodexArgs({ ...base, effort: "max", fast: true });
+    expect(hasPair(args, "-c", 'model_reasoning_effort="max"')).toBe(true);
+    expect(hasPair(args, "-c", 'service_tier="priority"')).toBe(true);
+  });
+
+  it("mirrors fast and effort onto the resume path together", () => {
+    const args = buildCodexArgs({ ...base, resumeSessionId: "thread-1", effort: "high", fast: true });
+    expect(args.slice(0, 3)).toEqual(["exec", "resume", "thread-1"]);
+    expect(hasPair(args, "-c", 'model_reasoning_effort="high"')).toBe(true);
+    expect(hasPair(args, "-c", 'service_tier="priority"')).toBe(true);
   });
 });
 

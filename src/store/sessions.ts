@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Session, SessionStatus, AgentId } from "../core/session.js";
+import type { FailureInfo } from "../core/errors.js";
 
 export interface SessionRow {
   id: string;
@@ -24,9 +25,20 @@ export interface SessionRow {
   last_event: string | null;
   effort: string | null;
   fast: number | null;
+  failure: string | null;
 }
 
+
 function rowToSession(row: SessionRow): Session {
+  // `failure` is stored as JSON text; tolerate a corrupt blob rather than
+  // losing the whole session row over it.
+  let failure: FailureInfo | undefined;
+  if (row.failure) {
+    try {
+      failure = JSON.parse(row.failure) as FailureInfo;
+    } catch {}
+  }
+
   return {
     id: row.id,
     name: row.name ?? undefined,
@@ -59,6 +71,7 @@ function rowToSession(row: SessionRow): Session {
           }
         : undefined,
     lastEvent: row.last_event ?? undefined,
+    failure,
   };
 }
 
@@ -72,8 +85,8 @@ export class SessionStore {
         repository, cwd, worktree, branch, base_commit, pid,
         created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
-        last_event, effort, fast
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_event, effort, fast, failure
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
@@ -98,6 +111,7 @@ export class SessionStore {
       session.lastEvent ?? null,
       session.effort ?? null,
       session.fast ? 1 : 0,
+      session.failure ? JSON.stringify(session.failure) : null,
     );
   }
 
@@ -155,6 +169,7 @@ export class SessionStore {
       last_event: patch.lastEvent,
       effort: patch.effort,
       fast: patch.fast === undefined ? undefined : patch.fast ? 1 : 0,
+      failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
     };
 
     for (const [col, val] of Object.entries(map)) {

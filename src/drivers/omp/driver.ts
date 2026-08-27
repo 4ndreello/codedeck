@@ -4,6 +4,7 @@ import type { AgentDriver, AgentInstallation, StartOptions, DriverSession } from
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
 import { EventEmitter } from "node:events";
+import { classifyFailure, type FailureInfo } from "../../core/errors.js";
 
 interface OmpHandle {
   proc: ChildProcess;
@@ -25,11 +26,13 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   // Observed rpc mode may emit {"type":"text","text":"..."} etc.
   // Handle generic
   if (obj.error) {
+    const errText = typeof obj.error === "string" ? obj.error : obj.error.message || JSON.stringify(obj.error);
     events.push({
       type: "session.failed",
       sessionId,
       timestamp: ts,
-      error: typeof obj.error === "string" ? obj.error : obj.error.message || JSON.stringify(obj.error),
+      error: errText,
+      failure: classifyFailure(errText),
       raw,
     } as AgentEvent);
     return events;
@@ -194,11 +197,14 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   if (obj.type === "session.completed" || obj.type === "done" || obj.type === "result") {
     const isError = obj.is_error || obj.error;
     if (isError) {
+      const rawErr = obj.error || obj.result || "OMP failed";
+      const errText = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
       events.push({
         type: "session.failed",
         sessionId,
         timestamp: ts,
-        error: obj.error || obj.result || "OMP failed",
+        error: errText,
+        failure: classifyFailure(errText),
         raw,
       } as AgentEvent);
     } else {
@@ -266,6 +272,57 @@ export function buildOmpArgs(options: StartOptions): string[] {
   if (options.fast) args.push("--service-tier", "priority");
   args.push(options.prompt);
   return args;
+}
+
+// Pure so the close-handler decision is testable without spawning omp. When
+// omp dies it often does so WITHOUT emitting a terminal frame — the EPIPE
+// class of crash. This decides what the driver reports instead. A ghost
+// "completed" is the one outcome it refuses to produce: an agent that sees
+// completed proceeds on missing work, while a false "failed" only costs one
+// retry of a retryable session.
+export function synthesizeTerminalEvent(input: {
+  sessionId: string;
+  exitCode: number | null;
+  signal?: string | null;
+  hasTerminal: boolean;
+  hasMessage: boolean;
+  stderr: string;
+}): AgentEvent | null {
+  if (input.hasTerminal) return null;
+  const ts = new Date().toISOString();
+  if (input.exitCode === 0) {
+    // Exit 0 with produced output is completion. Exit 0 with NO output but
+    // stderr content is how "exit 0 anyway" crashes look — treat as failure.
+    if (!input.hasMessage && input.stderr.trim()) {
+      return {
+        type: "session.failed",
+        sessionId: input.sessionId,
+        timestamp: ts,
+        error: input.stderr.slice(0, 2000),
+        exitCode: 0,
+        failure: classifyFailure(input.stderr, 0, input.signal ?? null),
+        raw: { stderr: input.stderr.slice(0, 2000) },
+      } as AgentEvent;
+    }
+    return {
+      type: "session.completed",
+      sessionId: input.sessionId,
+      timestamp: ts,
+      reason: "exit 0",
+      exitCode: 0,
+      raw: { stderr: input.stderr.slice(0, 2000) },
+    } as AgentEvent;
+  }
+  const errorText = input.stderr.trim() ? input.stderr.slice(0, 2000) : `OMP exited with code ${input.exitCode}`;
+  return {
+    type: "session.failed",
+    sessionId: input.sessionId,
+    timestamp: ts,
+    error: errorText,
+    exitCode: input.exitCode ?? 1,
+    failure: classifyFailure(input.stderr, input.exitCode, input.signal ?? null),
+    raw: { stderr: input.stderr.slice(0, 2000) },
+  } as AgentEvent;
 }
 
 export class OmpDriver implements AgentDriver {
@@ -376,45 +433,33 @@ export class OmpDriver implements AgentDriver {
     let stderrBuf = "";
     proc.stderr?.on("data", (c) => (stderrBuf += c.toString()));
 
-    proc.on("close", (code) => {
+    proc.on("close", (code, signal) => {
       handle.exitCode = code;
       handle.done = true;
-      const hasTerminal = buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
-      if (!hasTerminal) {
-        // If we got text but no terminal, emit completed
-        const hasMessage = buffer.some((e) => e.type === "message" || e.type === "text.delta");
-        if (code === 0) {
-          if (!hasMessage && stderrBuf.trim()) {
-            // May have printed to stderr?
-          }
-          push({
-            type: "session.completed",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            reason: "exit 0",
-            exitCode: 0,
-            raw: { stderr: stderrBuf.slice(0, 2000) },
-          } as AgentEvent);
-        } else {
-          push({
-            type: "session.failed",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            error: stderrBuf.slice(0, 2000) || `OMP exited with code ${code}`,
-            exitCode: code ?? 1,
-            raw: { stderr: stderrBuf.slice(0, 2000) },
-          } as AgentEvent);
-        }
-      }
+      const terminal = synthesizeTerminalEvent({
+        sessionId: options.sessionId,
+        exitCode: code,
+        signal,
+        hasTerminal: buffer.some((e) => e.type === "session.completed" || e.type === "session.failed"),
+        hasMessage: buffer.some((e) => e.type === "message" || e.type === "text.delta"),
+        stderr: stderrBuf,
+      });
+      if (terminal) push(terminal);
       emitter.emit("done");
     });
 
-    proc.on("error", (err) => {
+    proc.on("error", (err: NodeJS.ErrnoException) => {
+      // Spawn-level failure (ENOENT = binary missing): infra, not task.
+      const failure: FailureInfo =
+        err.code === "ENOENT"
+          ? { code: "SPAWN_FAILED", blame: "infra", retryable: false, detail: err.message }
+          : { code: "SPAWN_FAILED", blame: "infra", retryable: true, detail: err.message };
       push({
         type: "session.failed",
         sessionId: options.sessionId,
         timestamp: new Date().toISOString(),
         error: err.message,
+        failure,
         raw: err,
       } as AgentEvent);
       handle.done = true;

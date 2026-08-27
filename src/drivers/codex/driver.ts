@@ -166,6 +166,14 @@ export class CodexDriver implements AgentDriver {
     proc.on("close", (code) => {
       exitCode = code;
       done = true;
+      // Flush trailing fragment that never got a newline — e.g. process
+      // killed mid-line or truncated write. Without this the only ERROR
+      // signal for a sandbox denial can be lost while exit is 0.
+      if (stderrPending.trim()) {
+        const ev = parseCodexStderrLine(stderrPending, options.sessionId);
+        if (ev) push(ev);
+      }
+      stderrPending = "";
       // If not already completed/failed, emit final
       const hasTerminal = buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
       if (!hasTerminal) {
