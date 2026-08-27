@@ -64,7 +64,7 @@ export function renderPsTable(sessions: readonly PsSession[]): string {
     const status = displayStatus(s).slice(0, 12).padEnd(12);
     const age = formatAge(s.createdAt).padEnd(5);
     const last = formatAge(s.updatedAt).padEnd(5);
-    const lastEvent = (s.lastEvent || "-").slice(0, LAST_EVENT_WIDTH).padEnd(LAST_EVENT_WIDTH);
+    const lastEvent = (s.lastEvent || "-").replace(/[\r\n\t]+/g, " ").slice(0, LAST_EVENT_WIDTH).padEnd(LAST_EVENT_WIDTH);
     const cwd = (s.worktree || s.cwd || "").replace(process.env.HOME || "", "~");
     lines.push(`${id}  ${name}  ${agent}  ${status}  ${age}  ${last}  ${lastEvent}  ${cwd}`);
   }

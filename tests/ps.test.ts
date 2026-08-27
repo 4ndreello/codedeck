@@ -52,6 +52,38 @@ describe("ps table liveness", () => {
     expect(row).not.toContain(lastEvent);
   });
 
+  it("keeps multiline LAST EVENT on one table row", () => {
+    const output = renderPsTable([
+      session({ lastEvent: "tool: Bash\nnext line\r\nthird" }),
+    ]);
+
+    expect(output.split("\n")).toHaveLength(3);
+    expect(output).toContain("tool: Bash next");
+  });
+
+  it("marks every active status dead when its process is gone", () => {
+    const pid = findMissingPid();
+    const output = renderPsTable(
+      (["starting", "working", "needs_input", "idle"] as const).map((status, index) =>
+        session({ id: `a${index}0`, status, pid }),
+      ),
+    );
+
+    expect(output.split("\n").slice(2).every((row) => row.includes("dead"))).toBe(true);
+  });
+
+  it("does not probe liveness when pid is null", () => {
+    const kill = vi.spyOn(process, "kill");
+
+    try {
+      const output = renderPsTable([session({ pid: null })]);
+      expect(output).toContain("working");
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
   it("keeps working for the current process and reports a fresh LAST", () => {
     const output = renderPsTable([session({ updatedAt: new Date(), pid: process.pid })]);
 
