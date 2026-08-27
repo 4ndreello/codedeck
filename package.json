@@ -1,6 +1,6 @@
 {
   "name": "codedeck",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "CodeDeck, a local runtime for coding agents with session management, process supervision, event normalization, and git isolation",
   "type": "module",
   "bin": {
@@ -18,7 +18,15 @@
     "doctor": "node dist/cli/index.js doctor",
     "prepublishOnly": "npm run build && npm test"
   },
-  "keywords": ["agent", "coding-agent", "runtime", "claude", "codex", "opencode", "omp"],
+  "keywords": [
+    "agent",
+    "coding-agent",
+    "runtime",
+    "claude",
+    "codex",
+    "opencode",
+    "omp"
+  ],
   "author": "",
   "license": "MIT",
   "repository": {
