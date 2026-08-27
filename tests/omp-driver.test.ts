@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { parseOmpLine } from "../src/drivers/omp/driver.js";
+import { parseOmpLine, synthesizeTerminalEvent } from "../src/drivers/omp/driver.js";
 
 // Every frame below is a VERBATIM line captured from `omp -p --mode json`
 // (omp 18.0.7), not an invented shape. The driver previously ran omp under
@@ -106,5 +106,57 @@ describe("parseOmpLine — omp --mode json frames", () => {
 
   it("returns nothing for a line that is not JSON", () => {
     expect(parseOmpLine("Working...", S)).toEqual([]);
+  });
+});
+
+describe("parseOmpLine — harness-reported error frames", () => {
+  it("classifies an EPIPE error frame as harness crash, retryable", () => {
+    const evs = parseOmpLine(JSON.stringify({ error: "Unhandled rejection: EPIPE: broken pipe, write" }), S);
+    expect(evs).toHaveLength(1);
+    const ev = evs[0];
+    expect(ev.type).toBe("session.failed");
+    if (ev.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ code: "HARNESS_CRASH", blame: "harness", retryable: true });
+    }
+  });
+});
+
+describe("synthesizeTerminalEvent — close without a terminal frame", () => {
+  const base = { sessionId: S, hasTerminal: false, hasMessage: true, stderr: "" };
+
+  it("emits nothing when a terminal event already exists", () => {
+    expect(synthesizeTerminalEvent({ ...base, exitCode: 1, hasTerminal: true })).toBeNull();
+  });
+
+  it("non-zero exit with EPIPE stderr → harness crash, retryable", () => {
+    const ev = synthesizeTerminalEvent({
+      ...base,
+      exitCode: 1,
+      stderr: "Unhandled rejection: EPIPE: broken pipe, write\nreason: unhandled_rejection\nkind: fatal",
+    });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ code: "HARNESS_CRASH", blame: "harness", retryable: true });
+    }
+  });
+
+  it("non-zero exit without a harness signature → task failure", () => {
+    const ev = synthesizeTerminalEvent({ ...base, exitCode: 1 });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ blame: "task", retryable: false });
+    }
+  });
+
+  it("exit 0 with output → completed", () => {
+    expect(synthesizeTerminalEvent({ ...base, exitCode: 0 })?.type).toBe("session.completed");
+  });
+
+  it("exit 0 with stderr but NO output → failed (crash), never a ghost completion", () => {
+    const ev = synthesizeTerminalEvent({ ...base, exitCode: 0, hasMessage: false, stderr: "Unhandled rejection: EPIPE" });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ blame: "harness", retryable: true });
+    }
   });
 });

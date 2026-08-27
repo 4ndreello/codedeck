@@ -96,15 +96,17 @@ export interface FailureInfo {
   where?: string;
   signal?: string;
 }
-
-// Order matters: more specific signatures first.
+// Order matters: the most specific signatures first. "EPIPE" alone is LAST —
+// it is a substring task output can legitimately contain (e.g. a test grepping
+// for EPIPE), while process-level "unhandled rejection" text virtually never
+// comes from the task's work.
 const HARNESS_CRASH_PATTERNS: Array<[RegExp, string]> = [
-  [/epipe/i, "EPIPE"],
   [/unhandled\s+(rejection|promise)/i, "unhandled_rejection"],
   [/unhandled\s+exception/i, "unhandled_exception"],
-  [/err_stream_/i, "stream_error"],
   [/segmentation fault/i, "segfault"],
   [/heap\s+out\s+of\s+memory|fatal error:/i, "v8_fatal"],
+  [/epipe/i, "EPIPE"],
+  [/err_stream_/i, "stream_error"],
 ];
 
 const FATAL_SIGNALS: Record<string, true> = { SIGSEGV: true, SIGBUS: true, SIGABRT: true, SIGILL: true, SIGKILL: true };

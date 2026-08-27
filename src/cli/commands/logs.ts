@@ -25,7 +25,11 @@ function formatEvent(ev: any): string {
     case "session.completed":
       return `[${t}] ● Session completed ${ev.reason || ""}`;
     case "session.failed":
-      return `[${t}] ✗ Session failed: ${ev.error}`;
+      {
+        const f = ev.failure;
+        const tag = f ? ` [${f.blame}${f.retryable ? ", retryable" : ""}]` : "";
+        return `[${t}] ✗ Session failed${tag}: ${ev.error}`;
+      }
     case "error":
       return `[${t}] ✗ Error: ${ev.error}`;
     case "permission.requested":

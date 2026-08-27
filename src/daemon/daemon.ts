@@ -17,6 +17,7 @@ import { getDiff } from "../git/diff.js";
 import { ProcessManager } from "./process-manager.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
+import { classifyFailure, type FailureInfo } from "../core/errors.js";
 
 class Daemon {
   private db: Database;
@@ -162,8 +163,18 @@ class Daemon {
 
         // Now start driver in background
         this.startDriverForSession(sessionId, prompt, p.model).catch((e) => {
-          try { this.sessions.setStatus(sessionId, "failed", { lastEvent: e instanceof Error ? e.message : String(e) }); } catch {}
-          this.broadcast(sessionId, { type: "session.failed", sessionId, timestamp: new Date().toISOString(), error: e instanceof Error ? e.message : String(e), raw: e } as any);
+          const msg = e instanceof Error ? e.message : String(e);
+          const failure = classifyFailure(msg);
+          const failEv: AgentEvent = {
+            type: "session.failed",
+            sessionId,
+            timestamp: new Date().toISOString(),
+            error: msg,
+            failure,
+            raw: e,
+          };
+          try { this.sessions.setStatus(sessionId, "failed", { lastEvent: msg.slice(0, 200), failure }); } catch {}
+          this.broadcast(sessionId, failEv);
         });
 
         break;
@@ -432,10 +443,21 @@ class Daemon {
         this.broadcast(sessionId, ev);
       }
     } catch (e) {
-      const errEv: AgentEvent = { type: "session.failed", sessionId, timestamp: new Date().toISOString(), error: e instanceof Error ? e.message : String(e), raw: e } as any;
+      // A driver exception mid-stream is a harness/pipe failure, not task
+      // output — classify so agents can retry instead of blaming the work.
+      const msg = e instanceof Error ? e.message : String(e);
+      const failure = classifyFailure(msg);
+      const errEv: AgentEvent = {
+        type: "session.failed",
+        sessionId,
+        timestamp: new Date().toISOString(),
+        error: msg,
+        failure,
+        raw: e,
+      };
       this.events.append(sessionId, errEv);
       this.broadcast(sessionId, errEv);
-      this.sessions.setStatus(sessionId, "failed", { lastEvent: (errEv as any).error });
+      this.sessions.setStatus(sessionId, "failed", { lastEvent: msg.slice(0, 200), failure });
       return;
     }
 
@@ -447,10 +469,23 @@ class Daemon {
       if (last?.type === "session.completed") {
         this.sessions.setStatus(sessionId, "completed", { lastEvent: (last as any).reason || "completed" });
       } else if (last?.type === "session.failed") {
-        this.sessions.setStatus(sessionId, "failed", { lastEvent: (last as any).error });
+        this.sessions.setStatus(sessionId, "failed", { lastEvent: last.error?.slice(0, 200), failure: last.failure });
       } else {
-        // If no terminal, assume completed
-        this.sessions.setStatus(sessionId, "completed");
+        // Stream ended with NO terminal event: the harness died without
+        // reporting (the EPIPE class of crash). A false "completed" makes a
+        // polling agent proceed on missing work; "failed" is the honest
+        // default and matches what the dead process implies.
+        const failure: FailureInfo = {
+          code: "HARNESS_CRASH",
+          blame: "harness",
+          retryable: true,
+          detail: "event stream ended without a terminal event",
+        };
+        const error = sess.lastEvent || "event stream ended without a terminal event";
+        const errEv: AgentEvent = { type: "session.failed", sessionId, timestamp: new Date().toISOString(), error, failure } as AgentEvent;
+        this.events.append(sessionId, errEv);
+        this.broadcast(sessionId, errEv);
+        this.sessions.setStatus(sessionId, "failed", { lastEvent: error.slice(0, 200), failure });
       }
     }
     // Unregister process
@@ -462,7 +497,7 @@ class Daemon {
       if (ev.type === "session.completed") {
         this.sessions.setStatus(sessionId, "completed", { lastEvent: (ev as any).reason || "completed" });
       } else if (ev.type === "session.failed") {
-        this.sessions.setStatus(sessionId, "failed", { lastEvent: (ev as any).error?.slice(0, 200) });
+        this.sessions.setStatus(sessionId, "failed", { lastEvent: (ev as any).error?.slice(0, 200), failure: (ev as any).failure });
       } else if (ev.type === "tool.started") {
         this.sessions.update(sessionId, { lastEvent: `tool: ${(ev as any).tool.name}` } as any);
       } else if (ev.type === "message") {
