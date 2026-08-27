@@ -42,7 +42,9 @@ export class Database {
         usage_output_tokens INTEGER,
         usage_cached_tokens INTEGER,
         usage_cost REAL,
-        last_event TEXT
+        last_event TEXT,
+        effort TEXT,
+        fast INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS events (
@@ -60,6 +62,24 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
     `);
+
+    this.addMissingColumns();
+  }
+
+  // CREATE TABLE IF NOT EXISTS is a no-op on databases that already exist, so
+  // columns added after the first release have to be applied explicitly or
+  // every existing ~/.run-agent/run-agent.db throws "no such column".
+  private addMissingColumns(): void {
+    const existing = new Set(
+      (this.db.prepare(`PRAGMA table_info(sessions)`).all() as any[]).map((c) => c.name as string),
+    );
+    const additions: Array<[string, string]> = [
+      ["effort", "TEXT"],
+      ["fast", "INTEGER NOT NULL DEFAULT 0"],
+    ];
+    for (const [name, type] of additions) {
+      if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
+    }
   }
 
   getHandle(): DatabaseSync {

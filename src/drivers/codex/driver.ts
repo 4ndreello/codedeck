@@ -15,6 +15,57 @@ interface CodexHandle {
   nativeSessionId?: string;
 }
 
+// Arg building is a pure function so the flag spellings can be tested without
+// spawning codex. Measured against codex-cli 0.150.1.
+export function buildCodexArgs(options: StartOptions): string[] {
+  // resume is a SUBCOMMAND with its own arg list; every flag below has to be
+  // mirrored onto it or `send()` silently runs with different settings than
+  // `start()` did.
+  const args: string[] = options.resumeSessionId
+    ? ["exec", "resume", options.resumeSessionId, "--json"]
+    : ["exec", "--json"];
+
+  if (options.model) args.push("-m", options.model);
+
+  // Without this codex uses its read-only default and rejects every patch with
+  // "writing is blocked by read-only sandbox" -- while still exiting 0, so the
+  // session is recorded as completed despite having written nothing.
+  args.push("-s", "workspace-write");
+
+  // codex has no dedicated flags for these; both are config overrides whose
+  // values are parsed as TOML, hence the embedded quotes.
+  if (options.effort) args.push("-c", `model_reasoning_effort="${options.effort}"`);
+  if (options.fast) args.push("-c", 'service_tier="priority"');
+
+  args.push("--skip-git-repo-check");
+  args.push("-C", options.cwd);
+  args.push(options.prompt);
+  return args;
+}
+
+// Tool-level failures (sandbox denials, approval refusals) are logged to stderr
+// by the Rust core and NEVER appear as JSON frames on stdout. Without this the
+// only trace is an agent message saying it could not do the work, followed by a
+// clean turn.completed.
+export function parseCodexStderrLine(line: string, sessionId: string): AgentEvent | null {
+  const match = /\bERROR\b\s+(.+)$/.exec(line);
+  if (!match) return null;
+
+  let message = match[1].trim();
+  // Drop the `<rust::module::path>: error=` prefix; keep the human part.
+  const marker = message.indexOf("error=");
+  if (marker !== -1) message = message.slice(marker + "error=".length).trim();
+  if (!message) return null;
+
+  return {
+    type: "error",
+    sessionId,
+    timestamp: new Date().toISOString(),
+    error: message,
+    raw: { stderr: line },
+  } as AgentEvent;
+}
+
 export class CodexDriver implements AgentDriver {
   readonly id = "codex" as const;
   private handles = new Map<string, CodexHandle>();
@@ -53,29 +104,7 @@ export class CodexDriver implements AgentDriver {
   }
 
   async start(options: StartOptions): Promise<DriverSession> {
-    const args: string[] = ["exec", "--json"];
-    // Model
-    if (options.model) args.push("-m", options.model);
-    // Sandbox: use workspace-write for automation; allow tests to run
-    args.push("--skip-git-repo-check");
-    // Ensure cwd
-    args.push("-C", options.cwd);
-    // If resume, we need to use codex exec resume <id> instead
-    // But for MVP start with prompt arg; codex exec resume expects prior thread id
-    if (options.resumeSessionId) {
-      // Use resume subcommand: codex exec resume --json <id> "prompt"
-      // Actually shape: codex exec resume <thread_id> --json?
-      // Check help: codex exec resume --help shows?
-      // We observed: codex exec resume <id>
-      // Simpler: try codex exec resume <nativeId> --json
-      // We'll build alternative arg list
-      const resumeArgs: string[] = ["exec", "resume", options.resumeSessionId, "--json", "--skip-git-repo-check", "-C", options.cwd];
-      if (options.model) resumeArgs.push("-m", options.model);
-      resumeArgs.push(options.prompt);
-      return this.spawnWithArgs(resumeArgs, options);
-    }
-    args.push(options.prompt);
-    return this.spawnWithArgs(args, options);
+    return this.spawnWithArgs(buildCodexArgs(options), options);
   }
 
   private async spawnWithArgs(args: string[], options: StartOptions): Promise<DriverSession> {
@@ -118,7 +147,21 @@ export class CodexDriver implements AgentDriver {
     });
 
     let stderrBuf = "";
-    proc.stderr?.on("data", (c) => (stderrBuf += c.toString()));
+    let stderrPending = "";
+    proc.stderr?.on("data", (c) => {
+      const chunk = c.toString();
+      stderrBuf += chunk;
+      // Emit as the failure happens. Salvaging stderr in the close handler is
+      // too late and conditional: a rejected tool call still ends with
+      // turn.completed, so the terminal-event check there skips it entirely.
+      stderrPending += chunk;
+      const lines = stderrPending.split("\n");
+      stderrPending = lines.pop() ?? "";
+      for (const line of lines) {
+        const ev = parseCodexStderrLine(line, options.sessionId);
+        if (ev) push(ev);
+      }
+    });
 
     proc.on("close", (code) => {
       exitCode = code;

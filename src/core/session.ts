@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from "./driver.js";
 export type AgentId = "claude" | "codex" | "opencode" | "omp";
 
 export type SessionStatus =
@@ -23,6 +24,10 @@ export interface Session {
   agent: AgentId;
   nativeSessionId?: string;
   model?: string;
+  // Reasoning level and OpenAI priority tier the session was started with.
+  // Persisted so send() rebuilds the next turn with the same settings.
+  effort?: ReasoningEffort;
+  fast?: boolean;
   status: SessionStatus;
   repository?: string;
   cwd: string;

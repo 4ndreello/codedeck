@@ -15,6 +15,21 @@ interface ClaudeHandle {
   nativeSessionId?: string;
 }
 
+// Pure so the flag spellings are testable without spawning claude.
+export function buildClaudeArgs(options: StartOptions): string[] {
+  const args: string[] = ["-p", "--output-format", "stream-json", "--verbose"];
+  // Bypass permissions for automation (as spec allows).
+  args.push("--dangerously-skip-permissions");
+  if (options.model) args.push("--model", options.model);
+  // Claude spells effort as a first-class flag and accepts the same levels as
+  // the others. It has NO service-tier equivalent, so `options.fast` is
+  // deliberately dropped here rather than translated into an invalid flag.
+  if (options.effort) args.push("--effort", options.effort);
+  if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
+  args.push(options.prompt);
+  return args;
+}
+
 export class ClaudeDriver implements AgentDriver {
   readonly id = "claude" as const;
   private handles = new Map<string, ClaudeHandle>();
@@ -63,17 +78,7 @@ export class ClaudeDriver implements AgentDriver {
   }
 
   async start(options: StartOptions): Promise<DriverSession> {
-    const args: string[] = ["-p", "--output-format", "stream-json", "--verbose"];
-    // Use bypass permissions for automation (as spec allows)
-    args.push("--dangerously-skip-permissions");
-    if (options.model) {
-      args.push("--model", options.model);
-    }
-    if (options.resumeSessionId) {
-      args.push("--resume", options.resumeSessionId);
-    }
-    // prompt as final arg
-    args.push(options.prompt);
+    const args = buildClaudeArgs(options);
 
     const proc = spawn("claude", args, {
       cwd: options.cwd,

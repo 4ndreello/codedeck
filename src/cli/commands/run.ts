@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig } from "../../config/config.js";
+import { parseEffort, REASONING_EFFORTS } from "../../core/driver.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -10,6 +11,8 @@ export function registerRunCommand(program: Command): void {
     .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
     .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
+    .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
+    .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
     .option("--name <name>", "human-readable session name (slug for branch)")
     .option("--cwd <cwd>", "working directory (default: current directory)")
     .option("--worktree", "create isolated git worktree at ~/.run-agent/worktrees/<hash>/<id>")
@@ -20,6 +23,7 @@ export function registerRunCommand(program: Command): void {
 Examples:
   $ npx codedeck run "implement authentication" --agent claude
   $ npx codedeck run "fix the tests" --agent codex --model gpt-5 --detach
+  $ npx codedeck run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
   $ npx codedeck run "refactor module" --agent opencode --worktree --name refactor
   $ npx codedeck run "investigate bug" --agent omp --cwd ./my-project --json
 `)
@@ -27,6 +31,24 @@ Examples:
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const cfg = loadConfig();
       const agent = opts.agent || cfg.defaultAgent || "claude";
+
+      // Validate here so a typo fails before a session row is created; codex
+      // would otherwise reject it at spawn time, leaving a dead session behind.
+      let effort;
+      if (opts.effort) {
+        try {
+          effort = parseEffort(opts.effort);
+        } catch (e) {
+          console.error(e instanceof Error ? e.message : String(e));
+          process.exit(1);
+        }
+      }
+
+      // Claude exposes no service-tier flag, so --fast cannot be honoured there.
+      // Say so instead of starting a session that quietly ignores it.
+      if (opts.fast && agent === "claude") {
+        console.error("Warning: --fast has no effect on claude (no service tier flag); continuing without it.");
+      }
 
       const client = new IpcClient();
       try {
@@ -40,6 +62,8 @@ Examples:
         prompt,
         agent,
         model: opts.model,
+        effort,
+        fast: !!opts.fast,
         name: opts.name,
         cwd,
         worktree: opts.worktree,

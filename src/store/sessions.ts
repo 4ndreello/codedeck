@@ -22,6 +22,8 @@ export interface SessionRow {
   usage_cached_tokens: number | null;
   usage_cost: number | null;
   last_event: string | null;
+  effort: string | null;
+  fast: number | null;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -31,6 +33,10 @@ function rowToSession(row: SessionRow): Session {
     agent: row.agent as AgentId,
     nativeSessionId: row.native_session_id ?? undefined,
     model: row.model ?? undefined,
+    effort: (row.effort as Session["effort"]) ?? undefined,
+    // Stored as INTEGER; normalise to a real boolean so `ps --json` and the
+    // resume path never see 0/1/null.
+    fast: !!row.fast,
     status: row.status as SessionStatus,
     repository: row.repository ?? undefined,
     cwd: row.cwd,
@@ -66,8 +72,8 @@ export class SessionStore {
         repository, cwd, worktree, branch, base_commit, pid,
         created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
-        last_event
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_event, effort, fast
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
@@ -90,6 +96,8 @@ export class SessionStore {
       session.usage?.cachedTokens ?? null,
       session.usage?.cost ?? null,
       session.lastEvent ?? null,
+      session.effort ?? null,
+      session.fast ? 1 : 0,
     );
   }
 
@@ -145,6 +153,8 @@ export class SessionStore {
       usage_cached_tokens: patch.usage?.cachedTokens,
       usage_cost: patch.usage?.cost,
       last_event: patch.lastEvent,
+      effort: patch.effort,
+      fast: patch.fast === undefined ? undefined : patch.fast ? 1 : 0,
     };
 
     for (const [col, val] of Object.entries(map)) {

@@ -254,6 +254,20 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   return [];
 }
 
+// Pure so the flag spellings are testable without spawning omp.
+export function buildOmpArgs(options: StartOptions): string[] {
+  const args: string[] = [];
+  if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
+  args.push("-p", "--mode", "json");
+  if (options.model) args.push("--model", options.model);
+  // omp calls reasoning "thinking" and accepts a wider set of levels than the
+  // shared type (off/minimal/auto), but the shared levels map straight through.
+  if (options.effort) args.push("--thinking", options.effort);
+  if (options.fast) args.push("--service-tier", "priority");
+  args.push(options.prompt);
+  return args;
+}
+
 export class OmpDriver implements AgentDriver {
   readonly id = "omp" as const;
   private handles = new Map<string, OmpHandle>();
@@ -296,11 +310,7 @@ export class OmpDriver implements AgentDriver {
     // is POSITIONAL (`MESSAGES` in `omp --help`), so it must not be passed as
     // `-p <prompt>`. The non-interactive NDJSON stream this driver parses is
     // `--mode json`.
-    const args: string[] = [];
-    if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
-    args.push("-p", "--mode", "json");
-    if (options.model) args.push("--model", options.model);
-    args.push(options.prompt);
+    const args = buildOmpArgs(options);
 
     // stdin is ignored rather than an immediately-closed pipe. A closed pipe
     // does work (omp falls back to the positional prompt on EOF), but an OPEN

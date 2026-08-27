@@ -1,4 +1,5 @@
 import type { AgentId, Session } from "../core/session.js";
+import type { ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
 
 export type RequestMethod =
@@ -18,6 +19,8 @@ export interface RunOptions {
   prompt: string;
   agent?: AgentId;
   model?: string;
+  effort?: ReasoningEffort;
+  fast?: boolean;
   name?: string;
   cwd?: string;
   worktree?: boolean;

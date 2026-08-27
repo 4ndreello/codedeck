@@ -141,6 +141,8 @@ class Daemon {
           name: p.name,
           agent,
           model: p.model,
+          effort: p.effort,
+          fast: !!p.fast,
           status: "starting",
           repository,
           cwd,
@@ -386,6 +388,10 @@ class Daemon {
       prompt,
       cwd: session.worktree || session.cwd,
       model: model || session.model,
+      // Read back from the session rather than the request so a follow-up turn
+      // from send() runs with the same effort/tier the session was started with.
+      effort: session.effort,
+      fast: session.fast,
     });
 
     // Update pid and native id when available
