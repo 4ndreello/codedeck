@@ -1,4 +1,5 @@
 import type { AgentId } from "./session.js";
+import type { FailureInfo } from "./errors.js";
 
 export type AgentEventType =
   | "session.started"
@@ -23,6 +24,9 @@ export interface BaseAgentEvent {
   timestamp: string; // ISO
   sequence?: number;
   raw?: unknown;
+  // Stable origin for deduplication when a reattached runtime replays a raw
+  // line whose events were already committed before a daemon restart.
+  sourceKey?: string;
 }
 
 export interface SessionStartedEvent extends BaseAgentEvent {
@@ -116,6 +120,10 @@ export interface SessionCompletedEvent extends BaseAgentEvent {
 export interface SessionFailedEvent extends BaseAgentEvent {
   type: "session.failed";
   error: string;
+  // Structured classification — see core/errors.ts FailureInfo. Agents branch
+  // on `failure.blame` (harness crash → retry; task → fix code) instead of
+  // string-matching `error`.
+  failure?: FailureInfo;
   exitCode?: number;
 }
 

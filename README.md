@@ -123,6 +123,56 @@ Tables:
 - `sessions` — per-session state
 - `events` — monotonic log `(session_id, sequence)`
 
+## Agent contract
+
+Codedeck is consumed by agents as a subprocess, so failures are machine-readable:
+
+- `session.failed` events carry a structured `failure` object:
+
+```json
+{
+  "type": "session.failed",
+  "error": "EPIPE: broken pipe, write",
+  "failure": { "code": "HARNESS_CRASH", "blame": "harness", "retryable": true, "reason": "unhandled_rejection" }
+}
+```
+
+- `blame` separates a harness crash (`harness` → retry the session) from failed
+  work (`task` → fix the code) from a setup problem (`infra`).
+- The same object is hydrated on the session row: `codedeck show <id> --json`
+  → `session.failure`.
+- A harness death without a terminal frame is reported as `session.failed`
+  (blame `harness`, retryable) — never as a silent `completed`.
+
+### Exit codes (`codedeck run`, non-detach)
+
+| Code | Meaning |
+|------|---------|
+| 0 | session completed (or explicitly stopped/detached) |
+| 1 | task failed — the agent's work failed; retrying unchanged won't help |
+| 2 | harness crashed (EPIPE, signal, unhandled rejection) — retryable |
+| 3 | infra — daemon, worktree, spawn, or usage errors |
+
+`run --json` prints one NDJSON event per line on stdout; `--json --detach`
+prints the session object as a single line.
+
+### Daemon restart resilience
+
+Harness processes run detached from the daemon and write stdout/stderr to
+per-session files under `~/.run-agent/logs/`. A daemon restart therefore does
+not close the harness output pipe, send `EPIPE`, or apply pipe backpressure.
+
+On startup the daemon checks each active session's persisted PID. If the
+process is still alive, it reattaches to the session log from the stored byte
+offset and keeps the session `working`; it does not mark the session
+`orphaned` or spawn a duplicate harness. If the process finished while the
+daemon was down, the new daemon drains the log, records any terminal event,
+and synthesizes a structured failure when the harness left no terminal frame.
+
+`codedeck stop <id>` also falls back to the persisted PID, so stopping a
+reattached session works even when no in-memory process handle exists.
+
+
 ## Worktrees
 
 ```bash

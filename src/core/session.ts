@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "./driver.js";
+import type { FailureInfo } from "./errors.js";
 export type AgentId = "claude" | "codex" | "opencode" | "omp";
 
 export type SessionStatus =
@@ -23,6 +25,10 @@ export interface Session {
   agent: AgentId;
   nativeSessionId?: string;
   model?: string;
+  // Reasoning level and OpenAI priority tier the session was started with.
+  // Persisted so send() rebuilds the next turn with the same settings.
+  effort?: ReasoningEffort;
+  fast?: boolean;
   status: SessionStatus;
   repository?: string;
   cwd: string;
@@ -30,11 +36,19 @@ export interface Session {
   branch?: string;
   baseCommit?: string;
   pid?: number;
+  // Monotonic process start identity paired with pid; used to reject PID reuse.
+  pidStartTime?: string;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
   usage?: SessionUsage;
   lastEvent?: string;
+  failure?: FailureInfo;
+  // Byte offsets into the session's log files (see drivers/tailer.ts) after
+  // the last fully persisted line, so a reattaching daemon does not replay
+  // events already in the store.
+  logOffset?: number;
+  stderrOffset?: number;
 }
 
 export interface CreateSessionOptions {

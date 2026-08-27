@@ -40,6 +40,10 @@ export function registerShowCommand(program: Command): void {
       if (s.name) console.log(`Name          ${s.name}`);
       console.log(`Agent         ${s.agent}`);
       console.log(`Status        ${s.status}`);
+      if (s.failure) {
+        const f = s.failure;
+        console.log(`Failure       [${f.blame}${f.retryable ? ", retryable" : ""}] ${f.code}${f.detail ? ` — ${String(f.detail).slice(0, 120)}` : ""}`);
+      }
       if (s.model) console.log(`Model         ${s.model}`);
       console.log(``);
       if (s.repository) console.log(`Repository    ${s.repository}`);

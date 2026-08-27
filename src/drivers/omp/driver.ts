@@ -1,18 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { detectBinary, createLineReader } from "../helpers.js";
-import type { AgentDriver, AgentInstallation, StartOptions, DriverSession } from "../../core/driver.js";
+import { detectBinary } from "../helpers.js";
+import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
-import { EventEmitter } from "node:events";
-
-interface OmpHandle {
-  proc: ChildProcess;
-  emitter: EventEmitter;
-  buffer: AgentEvent[];
-  done: boolean;
-  exitCode: number | null;
-  nativeSessionId?: string;
-}
+import { classifyFailure } from "../../core/errors.js";
+import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   let obj: any;
@@ -25,11 +16,13 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   // Observed rpc mode may emit {"type":"text","text":"..."} etc.
   // Handle generic
   if (obj.error) {
+    const errText = typeof obj.error === "string" ? obj.error : obj.error.message || JSON.stringify(obj.error);
     events.push({
       type: "session.failed",
       sessionId,
       timestamp: ts,
-      error: typeof obj.error === "string" ? obj.error : obj.error.message || JSON.stringify(obj.error),
+      error: errText,
+      failure: classifyFailure(errText),
       raw,
     } as AgentEvent);
     return events;
@@ -194,11 +187,14 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   if (obj.type === "session.completed" || obj.type === "done" || obj.type === "result") {
     const isError = obj.is_error || obj.error;
     if (isError) {
+      const rawErr = obj.error || obj.result || "OMP failed";
+      const errText = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr);
       events.push({
         type: "session.failed",
         sessionId,
         timestamp: ts,
-        error: obj.error || obj.result || "OMP failed",
+        error: errText,
+        failure: classifyFailure(errText),
         raw,
       } as AgentEvent);
     } else {
@@ -254,9 +250,36 @@ export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   return [];
 }
 
-export class OmpDriver implements AgentDriver {
+// Pure so the flag spellings are testable without spawning omp.
+export function buildOmpArgs(options: StartOptions): string[] {
+  const args: string[] = [];
+  if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
+  args.push("-p", "--mode", "json");
+  if (options.model) args.push("--model", options.model);
+  // omp calls reasoning "thinking" and accepts a wider set of levels than the
+  // shared type (off/minimal/auto), but the shared levels map straight through.
+  if (options.effort) args.push("--thinking", options.effort);
+  if (options.fast) args.push("--service-tier", "priority");
+  args.push(options.prompt);
+  return args;
+}
+
+
+export class OmpDriver extends SessionDriver {
   readonly id = "omp" as const;
-  private handles = new Map<string, OmpHandle>();
+
+  protected readonly hooks = createRuntimeHooks({
+    parse: parseOmpLine,
+    nativeKeys: ["session_id", "sessionID"],
+    harness: "OMP",
+    plainTextFallback: true,
+  });
+
+  protected readonly resumeError = "No native session id for OMP resume";
+
+  protected buildArgs(options: StartOptions): string[] {
+    return buildOmpArgs(options);
+  }
 
   capabilities(): AgentCapabilities {
     return {
@@ -281,194 +304,5 @@ export class OmpDriver implements AgentDriver {
       return { installed: true, path: res2.path, version: res2.version, details: "omp via pi binary" };
     }
     return { installed: true, path: res.path, version: res.version, details: "omp -p --mode json" };
-  }
-
-  async start(options: StartOptions): Promise<DriverSession> {
-    // `--mode` picks the OUTPUT format: text (default), json, rpc, rpc-ui.
-    // `rpc` is the interactive protocol SERVER — it prints a handshake and then
-    // waits for request frames on stdin. Driving it with `-p <prompt>` never
-    // runs a turn: measured against omp 18.0.7, `omp --mode rpc -p "..."` emits
-    // only `ready` / `available_commands_update` and exits 0 in under a second,
-    // with zero assistant frames. That is what made every OMP session here
-    // complete instantly and empty.
-    //
-    // `-p/--print` is a BOOLEAN flag ("process prompt and exit") and the prompt
-    // is POSITIONAL (`MESSAGES` in `omp --help`), so it must not be passed as
-    // `-p <prompt>`. The non-interactive NDJSON stream this driver parses is
-    // `--mode json`.
-    const args: string[] = [];
-    if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
-    args.push("-p", "--mode", "json");
-    if (options.model) args.push("--model", options.model);
-    args.push(options.prompt);
-
-    // stdin is ignored rather than an immediately-closed pipe. A closed pipe
-    // does work (omp falls back to the positional prompt on EOF), but an OPEN
-    // one does not: omp waits for EOF that never comes and hangs indefinitely.
-    // `ignore` removes that failure mode instead of depending on stdin.end().
-    const proc = spawn("omp", args, {
-      cwd: options.cwd,
-      env: { ...process.env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const emitter = new EventEmitter();
-    const buffer: AgentEvent[] = [];
-
-    // The handle is built HERE, before the handlers, and mutated in place. It
-    // used to be constructed at the END of start() out of local `done` /
-    // `exitCode` / `nativeId` variables — which copies them BY VALUE. The close
-    // handler flipped the locals while `handle.done` stayed false forever, so
-    // events() never left its wait loop (an omp session hung after the process
-    // had already exited), and `handle.nativeSessionId` stayed undefined, so
-    // send() could never resume.
-    const handle: OmpHandle = {
-      proc,
-      emitter,
-      buffer,
-      done: false,
-      exitCode: null,
-      nativeSessionId: options.resumeSessionId,
-    };
-
-    const push = (ev: AgentEvent) => {
-      ev.sessionId = options.sessionId;
-      const native =
-        (ev as any).nativeSessionId ?? (ev.raw as any)?.session_id ?? (ev.raw as any)?.sessionID;
-      if (native) handle.nativeSessionId = native;
-      buffer.push(ev);
-      emitter.emit("event", ev);
-    };
-
-    createLineReader(proc.stdout!, (line) => {
-      const evs = parseOmpLine(line, options.sessionId);
-      for (const ev of evs) push(ev);
-      // Try to salvage session id
-      try {
-        const obj = JSON.parse(line);
-        if (obj.session_id && !handle.nativeSessionId) handle.nativeSessionId = obj.session_id;
-        if (obj.sessionID && !handle.nativeSessionId) handle.nativeSessionId = obj.sessionID;
-        // Sometimes omp rpc emits {"id":"...","result":{...}}
-      } catch {
-        // If not JSON, treat as text delta?
-        if (line.trim()) {
-          push({
-            type: "text.delta",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            delta: line + "\n",
-            raw: line,
-          } as AgentEvent);
-        }
-      }
-    });
-
-    let stderrBuf = "";
-    proc.stderr?.on("data", (c) => (stderrBuf += c.toString()));
-
-    proc.on("close", (code) => {
-      handle.exitCode = code;
-      handle.done = true;
-      const hasTerminal = buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
-      if (!hasTerminal) {
-        // If we got text but no terminal, emit completed
-        const hasMessage = buffer.some((e) => e.type === "message" || e.type === "text.delta");
-        if (code === 0) {
-          if (!hasMessage && stderrBuf.trim()) {
-            // May have printed to stderr?
-          }
-          push({
-            type: "session.completed",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            reason: "exit 0",
-            exitCode: 0,
-            raw: { stderr: stderrBuf.slice(0, 2000) },
-          } as AgentEvent);
-        } else {
-          push({
-            type: "session.failed",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            error: stderrBuf.slice(0, 2000) || `OMP exited with code ${code}`,
-            exitCode: code ?? 1,
-            raw: { stderr: stderrBuf.slice(0, 2000) },
-          } as AgentEvent);
-        }
-      }
-      emitter.emit("done");
-    });
-
-    proc.on("error", (err) => {
-      push({
-        type: "session.failed",
-        sessionId: options.sessionId,
-        timestamp: new Date().toISOString(),
-        error: err.message,
-        raw: err,
-      } as AgentEvent);
-      handle.done = true;
-      emitter.emit("done");
-    });
-
-    this.handles.set(options.sessionId, handle);
-
-    return {
-      id: options.sessionId,
-      nativeSessionId: handle.nativeSessionId,
-      pid: proc.pid,
-      cwd: options.cwd,
-      model: options.model,
-      handle,
-    };
-  }
-
-  async send(session: DriverSession, message: string): Promise<void> {
-    const h = this.handles.get(session.id);
-    let nativeId = session.nativeSessionId || h?.nativeSessionId;
-    if (!nativeId) throw new Error("No native session id for OMP resume");
-    const newSession = await this.start({
-      sessionId: session.id,
-      prompt: message,
-      cwd: session.cwd,
-      model: session.model,
-      resumeSessionId: nativeId,
-    });
-    session.pid = newSession.pid;
-    session.handle = newSession.handle;
-  }
-
-  async stop(session: DriverSession): Promise<void> {
-    const h = this.handles.get(session.id) as OmpHandle | undefined;
-    const proc = (h?.proc ?? (session.handle as any)?.proc) as ChildProcess | undefined;
-    if (!proc || proc.killed) return;
-    try {
-      proc.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        let done = false;
-        const t = setTimeout(() => { if (!done) { try { proc.kill("SIGKILL"); } catch {}; done = true; resolve(); } }, 3000);
-        proc.once("close", () => { if (!done) { clearTimeout(t); done = true; resolve(); } });
-      });
-    } catch {}
-  }
-
-  async *events(session: DriverSession): AsyncIterable<AgentEvent> {
-    const h = this.handles.get(session.id) as OmpHandle | undefined;
-    if (!h) return;
-    let idx = 0;
-    while (true) {
-      while (idx < h.buffer.length) yield h.buffer[idx++];
-      if (h.done && idx >= h.buffer.length) break;
-      await new Promise<void>((resolve) => {
-        const onEvent = () => { h.emitter.off("event", onEvent); h.emitter.off("done", onDone); resolve(); };
-        const onDone = () => { h.emitter.off("event", onEvent); h.emitter.off("done", onDone); resolve(); };
-        h.emitter.once("event", onEvent);
-        h.emitter.once("done", onDone);
-      });
-    }
-  }
-
-  getHandle(sessionId: string): OmpHandle | undefined {
-    return this.handles.get(sessionId);
   }
 }

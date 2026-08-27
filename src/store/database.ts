@@ -35,6 +35,7 @@ export class Database {
         branch TEXT,
         base_commit TEXT,
         pid INTEGER,
+        pid_start_time TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         completed_at TEXT,
@@ -42,7 +43,9 @@ export class Database {
         usage_output_tokens INTEGER,
         usage_cached_tokens INTEGER,
         usage_cost REAL,
-        last_event TEXT
+        last_event TEXT,
+        effort TEXT,
+        fast INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS events (
@@ -53,6 +56,7 @@ export class Database {
         timestamp TEXT NOT NULL,
         normalized_payload TEXT NOT NULL,
         raw_payload TEXT,
+        source_key TEXT,
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
 
@@ -60,6 +64,33 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
     `);
+
+    this.addMissingColumns();
+  }
+
+  // CREATE TABLE IF NOT EXISTS is a no-op on databases that already exist, so
+  // columns added after the first release have to be applied explicitly or
+  // every existing ~/.run-agent/run-agent.db throws "no such column".
+  private addMissingColumns(): void {
+    const existing = new Set(
+      (this.db.prepare(`PRAGMA table_info(sessions)`).all() as any[]).map((c) => c.name as string),
+    );
+    const additions: Array<[string, string]> = [
+      ["effort", "TEXT"],
+      ["fast", "INTEGER NOT NULL DEFAULT 0"],
+      ["failure", "TEXT"],
+      ["log_offset", "INTEGER"],
+      ["stderr_offset", "INTEGER"],
+      ["pid_start_time", "TEXT"],
+    ];
+    for (const [name, type] of additions) {
+      if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
+    }
+    const eventColumns = new Set(
+      (this.db.prepare(`PRAGMA table_info(events)`).all() as any[]).map((c) => c.name as string),
+    );
+    if (!eventColumns.has("source_key")) this.db.exec(`ALTER TABLE events ADD COLUMN source_key TEXT`);
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
   }
 
   getHandle(): DatabaseSync {

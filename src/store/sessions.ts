@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Session, SessionStatus, AgentId } from "../core/session.js";
+import type { FailureInfo } from "../core/errors.js";
 
 export interface SessionRow {
   id: string;
@@ -14,6 +15,7 @@ export interface SessionRow {
   branch: string | null;
   base_commit: string | null;
   pid: number | null;
+  pid_start_time: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -22,15 +24,34 @@ export interface SessionRow {
   usage_cached_tokens: number | null;
   usage_cost: number | null;
   last_event: string | null;
+  effort: string | null;
+  fast: number | null;
+  failure: string | null;
+  log_offset: number | null;
+  stderr_offset: number | null;
 }
 
+
 function rowToSession(row: SessionRow): Session {
+  // `failure` is stored as JSON text; tolerate a corrupt blob rather than
+  // losing the whole session row over it.
+  let failure: FailureInfo | undefined;
+  if (row.failure) {
+    try {
+      failure = JSON.parse(row.failure) as FailureInfo;
+    } catch {}
+  }
+
   return {
     id: row.id,
     name: row.name ?? undefined,
     agent: row.agent as AgentId,
     nativeSessionId: row.native_session_id ?? undefined,
     model: row.model ?? undefined,
+    effort: (row.effort as Session["effort"]) ?? undefined,
+    // Stored as INTEGER; normalise to a real boolean so `ps --json` and the
+    // resume path never see 0/1/null.
+    fast: !!row.fast,
     status: row.status as SessionStatus,
     repository: row.repository ?? undefined,
     cwd: row.cwd,
@@ -38,6 +59,7 @@ function rowToSession(row: SessionRow): Session {
     branch: row.branch ?? undefined,
     baseCommit: row.base_commit ?? undefined,
     pid: row.pid ?? undefined,
+    pidStartTime: row.pid_start_time ?? undefined,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
@@ -53,6 +75,9 @@ function rowToSession(row: SessionRow): Session {
           }
         : undefined,
     lastEvent: row.last_event ?? undefined,
+    failure,
+    logOffset: row.log_offset ?? undefined,
+    stderrOffset: row.stderr_offset ?? undefined,
   };
 }
 
@@ -64,10 +89,10 @@ export class SessionStore {
       INSERT INTO sessions (
         id, name, agent, native_session_id, model, status,
         repository, cwd, worktree, branch, base_commit, pid,
-        created_at, updated_at, completed_at,
+        pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
-        last_event
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_event, effort, fast, failure, log_offset, stderr_offset
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
@@ -82,6 +107,7 @@ export class SessionStore {
       session.branch ?? null,
       session.baseCommit ?? null,
       session.pid ?? null,
+      session.pidStartTime ?? null,
       session.createdAt.toISOString(),
       session.updatedAt.toISOString(),
       session.completedAt ? session.completedAt.toISOString() : null,
@@ -90,6 +116,11 @@ export class SessionStore {
       session.usage?.cachedTokens ?? null,
       session.usage?.cost ?? null,
       session.lastEvent ?? null,
+      session.effort ?? null,
+      session.fast ? 1 : 0,
+      session.failure ? JSON.stringify(session.failure) : null,
+      session.logOffset ?? null,
+      session.stderrOffset ?? null,
     );
   }
 
@@ -145,6 +176,12 @@ export class SessionStore {
       usage_cached_tokens: patch.usage?.cachedTokens,
       usage_cost: patch.usage?.cost,
       last_event: patch.lastEvent,
+      effort: patch.effort,
+      fast: patch.fast === undefined ? undefined : patch.fast ? 1 : 0,
+      pid_start_time: patch.pidStartTime,
+      log_offset: patch.logOffset,
+      stderr_offset: patch.stderrOffset,
+      failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
     };
 
     for (const [col, val] of Object.entries(map)) {

@@ -23,4 +23,11 @@ Métodos: `session.create`, `session.list`, `session.get`, `session.send`, `sess
 
 Daemon é dono do `pid`; CLI apenas acompanha eventos — fechar terminal não mata agente (graceful `SIGTERM` → 3s → `SIGKILL`).
 
+`session.failed` pode incluir `failure` com `code`, `blame` (`harness`, `task`
+ou `infra`) e `retryable`; agentes não precisam interpretar texto de erro.
+
+Processos de harness são destacados e escrevem em `~/.run-agent/logs/`; se o
+daemon reiniciar, ele reatacha pelo PID + identidade de início persistidos e
+continua do offset salvo, sem iniciar um segundo processo.
+
 Persistência: `sessions` + `events(seq)` monotônico, `raw_payload` preservado.

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 import { parseOmpLine } from "../src/drivers/omp/driver.js";
+import { createRuntimeHooks } from "../src/drivers/session-driver.js";
+import { parseCodexStderrLine } from "../src/drivers/codex/driver.js";
+import type { AgentEvent } from "../src/core/events.js";
+import { synthesizeTerminalEvent } from "../src/drivers/terminal.js";
 
 // Every frame below is a VERBATIM line captured from `omp -p --mode json`
 // (omp 18.0.7), not an invented shape. The driver previously ran omp under
@@ -106,5 +110,105 @@ describe("parseOmpLine — omp --mode json frames", () => {
 
   it("returns nothing for a line that is not JSON", () => {
     expect(parseOmpLine("Working...", S)).toEqual([]);
+  });
+});
+
+describe("parseOmpLine — harness-reported error frames", () => {
+  it("classifies an EPIPE error frame as harness crash, retryable", () => {
+    const evs = parseOmpLine(JSON.stringify({ error: "Unhandled rejection: EPIPE: broken pipe, write" }), S);
+    expect(evs).toHaveLength(1);
+    const ev = evs[0];
+    expect(ev.type).toBe("session.failed");
+    if (ev.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ code: "HARNESS_CRASH", blame: "harness", retryable: true });
+    }
+  });
+});
+
+describe("synthesizeTerminalEvent — close without a terminal frame", () => {
+  const base = { sessionId: S, harness: "OMP", hasTerminal: false, hasMessage: true, stderr: "" };
+
+  it("emits nothing when a terminal event already exists", () => {
+    expect(synthesizeTerminalEvent({ ...base, exitCode: 1, hasTerminal: true })).toBeNull();
+  });
+
+  it("non-zero exit with EPIPE stderr → harness crash, retryable", () => {
+    const ev = synthesizeTerminalEvent({
+      ...base,
+      exitCode: 1,
+      stderr: "Unhandled rejection: EPIPE: broken pipe, write\nreason: unhandled_rejection\nkind: fatal",
+    });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ code: "HARNESS_CRASH", blame: "harness", retryable: true });
+    }
+  });
+
+  it("non-zero exit without a harness signature → task failure", () => {
+    const ev = synthesizeTerminalEvent({ ...base, exitCode: 1 });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ blame: "task", retryable: false });
+    }
+  });
+
+  it("exit 0 with output → completed", () => {
+    expect(synthesizeTerminalEvent({ ...base, exitCode: 0 })?.type).toBe("session.completed");
+  });
+
+  it("exit 0 with stderr but NO output → failed (crash), never a ghost completion", () => {
+    const ev = synthesizeTerminalEvent({ ...base, exitCode: 0, hasMessage: false, stderr: "Unhandled rejection: EPIPE" });
+    expect(ev?.type).toBe("session.failed");
+    if (ev?.type === "session.failed") {
+      expect(ev.failure).toMatchObject({ blame: "harness", retryable: true });
+    }
+  });
+});
+
+describe("createRuntimeHooks", () => {
+  it("keeps native ids and OMP plain text through the shared hook", () => {
+    const events: AgentEvent[] = [];
+    let nativeId: string | undefined;
+    const hooks = createRuntimeHooks({
+      parse: parseOmpLine,
+      nativeKeys: ["session_id", "sessionID"],
+      harness: "OMP",
+      plainTextFallback: true,
+    });
+    const context = {
+      sessionId: S,
+      push: (event: AgentEvent) => events.push(event),
+      setNativeId: (id: string) => {
+        nativeId = id;
+      },
+      isStderr: false,
+    };
+
+    hooks.onLine('{"type":"session","id":"native-1"}', context);
+    hooks.onLine("Working...", context);
+
+    expect(nativeId).toBe("native-1");
+    expect(events.map((event) => event.type)).toEqual(["session.started", "text.delta"]);
+    expect(events[1]).toMatchObject({ delta: "Working...\n", raw: "Working..." });
+  });
+
+  it("routes Codex stderr parsing through the shared hook", () => {
+    const events: AgentEvent[] = [];
+    const hooks = createRuntimeHooks({
+      parse: () => [],
+      parseStderr: parseCodexStderrLine,
+      nativeKeys: ["thread_id", "threadId"],
+      harness: "Codex",
+    });
+
+    hooks.onLine("ERROR codex_core: error=approval denied", {
+      sessionId: S,
+      push: (event) => events.push(event),
+      setNativeId: () => {},
+      isStderr: true,
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "error", error: "approval denied" });
   });
 });

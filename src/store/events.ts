@@ -9,12 +9,19 @@ export interface EventRow {
   timestamp: string;
   normalized_payload: string;
   raw_payload: string | null;
+  source_key: string | null;
 }
 
 export class EventStore {
   constructor(private db: DatabaseSync) {}
 
   append(sessionId: string, event: AgentEvent, raw?: unknown): number {
+    if (event.sourceKey) {
+      const existing = this.db.prepare(
+        `SELECT sequence FROM events WHERE session_id = ? AND source_key = ? LIMIT 1`,
+      ).get(sessionId, event.sourceKey) as { sequence: number } | undefined;
+      if (existing) return 0;
+    }
     // Get next sequence
     const row = this.db.prepare(`SELECT COALESCE(MAX(sequence), 0) as maxSeq FROM events WHERE session_id = ?`).get(sessionId) as { maxSeq: number };
     const nextSeq = (row?.maxSeq ?? 0) + 1;
@@ -22,10 +29,10 @@ export class EventStore {
     const rawStr = raw !== undefined ? JSON.stringify(raw) : event.raw !== undefined ? JSON.stringify(event.raw) : null;
 
     const stmt = this.db.prepare(`
-      INSERT INTO events (session_id, sequence, type, timestamp, normalized_payload, raw_payload)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO events (session_id, sequence, type, timestamp, normalized_payload, raw_payload, source_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const info = stmt.run(sessionId, nextSeq, event.type, event.timestamp, normalized, rawStr);
+    stmt.run(sessionId, nextSeq, event.type, event.timestamp, normalized, rawStr, event.sourceKey ?? null);
     // Update session last_event and updatedAt?
     // Let daemon do it
     return nextSeq;
