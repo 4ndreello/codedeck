@@ -72,11 +72,11 @@ describe("ps table liveness", () => {
     expect(output.split("\n").slice(2).every((row) => row.includes("dead"))).toBe(true);
   });
 
-  it("does not probe liveness when pid is null", () => {
+  it.each([null, undefined])("does not probe liveness when pid is %s", (pid) => {
     const kill = vi.spyOn(process, "kill");
 
     try {
-      const output = renderPsTable([session({ pid: null })]);
+      const output = renderPsTable([session({ pid })]);
       expect(output).toContain("working");
       expect(kill).not.toHaveBeenCalled();
     } finally {
