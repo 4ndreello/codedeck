@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 
 import { parseOmpLine } from "../src/drivers/omp/driver.js";
+import { createRuntimeHooks } from "../src/drivers/session-driver.js";
+import { parseCodexStderrLine } from "../src/drivers/codex/driver.js";
+import type { AgentEvent } from "../src/core/events.js";
 import { synthesizeTerminalEvent } from "../src/drivers/terminal.js";
 
 // Every frame below is a VERBATIM line captured from `omp -p --mode json`
@@ -159,5 +162,53 @@ describe("synthesizeTerminalEvent — close without a terminal frame", () => {
     if (ev?.type === "session.failed") {
       expect(ev.failure).toMatchObject({ blame: "harness", retryable: true });
     }
+  });
+});
+
+describe("createRuntimeHooks", () => {
+  it("keeps native ids and OMP plain text through the shared hook", () => {
+    const events: AgentEvent[] = [];
+    let nativeId: string | undefined;
+    const hooks = createRuntimeHooks({
+      parse: parseOmpLine,
+      nativeKeys: ["session_id", "sessionID"],
+      harness: "OMP",
+      plainTextFallback: true,
+    });
+    const context = {
+      sessionId: S,
+      push: (event: AgentEvent) => events.push(event),
+      setNativeId: (id: string) => {
+        nativeId = id;
+      },
+      isStderr: false,
+    };
+
+    hooks.onLine('{"type":"session","id":"native-1"}', context);
+    hooks.onLine("Working...", context);
+
+    expect(nativeId).toBe("native-1");
+    expect(events.map((event) => event.type)).toEqual(["session.started", "text.delta"]);
+    expect(events[1]).toMatchObject({ delta: "Working...\n", raw: "Working..." });
+  });
+
+  it("routes Codex stderr parsing through the shared hook", () => {
+    const events: AgentEvent[] = [];
+    const hooks = createRuntimeHooks({
+      parse: () => [],
+      parseStderr: parseCodexStderrLine,
+      nativeKeys: ["thread_id", "threadId"],
+      harness: "Codex",
+    });
+
+    hooks.onLine("ERROR codex_core: error=approval denied", {
+      sessionId: S,
+      push: (event) => events.push(event),
+      setNativeId: () => {},
+      isStderr: true,
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "error", error: "approval denied" });
   });
 });

@@ -389,7 +389,7 @@ export class SessionRuntime {
 
 // Shared helper for driver hooks: pull a native session id out of a line's
 // parsed event or raw JSON without duplicating try/catch in every driver.
-export function nativeIdFrom(obj: unknown, keys: string[]): string | undefined {
+export function nativeIdFrom(obj: unknown, keys: readonly string[]): string | undefined {
   if (!obj || typeof obj !== "object") return undefined;
   const record = obj as Record<string, unknown>;
   for (const key of keys) {

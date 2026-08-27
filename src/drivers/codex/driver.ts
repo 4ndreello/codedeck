@@ -1,14 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { detectBinary, safeJsonParse } from "../helpers.js";
+import { detectBinary } from "../helpers.js";
 import { parseCodexLine } from "./parser.js";
-import type { AgentDriver, AgentInstallation, StartOptions, DriverSession, ReattachRequest } from "../../core/driver.js";
-import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
-import { SessionRuntime, nativeIdFrom, type RuntimeHooks } from "../session-runtime.js";
-import { synthesizeTerminalEvent } from "../terminal.js";
-import { killTree } from "../../utils/process.js";
+import type { AgentInstallation, StartOptions } from "../../core/driver.js";
+import type { AgentCapabilities } from "../../core/capabilities.js";
+import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Arg building is a pure function so the flag spellings can be tested without
 // spawning codex. Measured against codex-cli 0.150.1.
@@ -61,38 +59,21 @@ export function parseCodexStderrLine(line: string, sessionId: string): AgentEven
   } as AgentEvent;
 }
 
-export class CodexDriver implements AgentDriver {
+export class CodexDriver extends SessionDriver {
   readonly id = "codex" as const;
-  private handles = new Map<string, SessionRuntime>();
 
-  private readonly hooks: RuntimeHooks = {
-    onLine: (line, { sessionId, push, setNativeId, isStderr }) => {
-      if (isStderr) {
-        // Tool-level failures (sandbox denials, approval refusals) are logged
-        // to stderr by the Rust core and NEVER appear as JSON frames on
-        // stdout. Parse them as they happen — salvaging stderr only in the
-        // exit handler is too late and conditional.
-        const ev = parseCodexStderrLine(line, sessionId);
-        if (ev) push(ev);
-        return;
-      }
-      const evs = parseCodexLine(line, sessionId);
-      if (!evs.length) {
-        const native = nativeIdFrom(safeJsonParse(line), ["thread_id", "threadId"]);
-        if (native) setNativeId(native);
-        return;
-      }
-      for (const ev of evs) {
-        const native = nativeIdFrom(ev.raw, ["thread_id", "threadId"]);
-        if (native) setNativeId(native);
-        push(ev);
-      }
-    },
-    synthesizeTerminal: (ctx) => {
-      const ev = synthesizeTerminalEvent({ ...ctx, harness: "Codex" });
-      return ev ? [ev] : [];
-    },
-  };
+  protected readonly hooks = createRuntimeHooks({
+    parse: parseCodexLine,
+    parseStderr: parseCodexStderrLine,
+    nativeKeys: ["thread_id", "threadId"],
+    harness: "Codex",
+  });
+
+  protected readonly resumeError = "No native session id for Codex resume";
+
+  protected buildArgs(options: StartOptions): string[] {
+    return buildCodexArgs(options);
+  }
 
   capabilities(): AgentCapabilities {
     return {
@@ -122,91 +103,5 @@ export class CodexDriver implements AgentDriver {
       } else if (process.env.OPENAI_API_KEY) authenticated = true;
     } catch {}
     return { installed: true, path: res.path, version: res.version, authenticated, details: "codex exec --json" };
-  }
-
-  async start(options: StartOptions): Promise<DriverSession> {
-    return this.spawnWithArgs(buildCodexArgs(options), options);
-  }
-
-  private async spawnWithArgs(args: string[], options: StartOptions): Promise<DriverSession> {
-    // The runtime spawns codex DETACHED with stdout/stderr in the session's
-    // log files (see helpers.spawnDetached): the process outlives daemon
-    // restarts and its output can always be re-tailed from a persisted offset.
-    const runtime = SessionRuntime.spawn({
-      sessionId: options.sessionId,
-      cmd: "codex",
-      args,
-      cwd: options.cwd,
-      nativeSessionId: options.resumeSessionId,
-      hooks: this.hooks,
-    });
-    this.handles.set(options.sessionId, runtime);
-
-    return {
-      id: options.sessionId,
-      nativeSessionId: runtime.nativeSessionId,
-      pid: runtime.pid,
-      cwd: options.cwd,
-      model: options.model,
-      handle: runtime,
-    };
-  }
-
-  // Daemon-restart path: the detached codex process kept running (or already
-  // died) while no daemon existed. Resume tailing its log files — spawn nothing.
-  async attach(req: ReattachRequest): Promise<void> {
-    if (!req.pid) return;
-    const runtime = SessionRuntime.reattach({
-      sessionId: req.sessionId,
-      pid: req.pid,
-      pidStartTime: req.pidStartTime,
-      nativeSessionId: req.nativeSessionId,
-      logOffset: req.logOffset,
-      stderrOffset: req.stderrOffset,
-      hooks: this.hooks,
-    });
-    this.handles.set(req.sessionId, runtime);
-  }
-
-  async send(session: DriverSession, message: string): Promise<void> {
-    const runtime = this.handles.get(session.id);
-    const nativeId = session.nativeSessionId || runtime?.nativeSessionId;
-    if (!nativeId) throw new Error("No native session id for Codex resume");
-    const newSession = await this.start({
-      sessionId: session.id,
-      prompt: message,
-      cwd: session.cwd,
-      model: session.model,
-      resumeSessionId: nativeId,
-    });
-    session.pid = newSession.pid;
-    session.handle = newSession.handle;
-    session.nativeSessionId = newSession.nativeSessionId || nativeId;
-  }
-
-  async stop(session: DriverSession): Promise<void> {
-    // Works across daemon restarts: falls back to the pid persisted in the
-    const runtime = this.handles.get(session.id);
-    if (runtime) {
-      await runtime.stop();
-      return;
-    }
-    if (!session.pid) return;
-    if (!session.pidStartTime) throw new Error(`Cannot safely stop session ${session.id}: PID identity is unavailable`);
-    await killTree(session.pid, 3000, session.pidStartTime);
-  }
-
-  async *events(session: DriverSession): AsyncIterable<AgentEvent> {
-    const runtime = this.handles.get(session.id);
-    if (!runtime) return;
-    yield* runtime.events();
-  }
-
-  getHandle(sessionId: string): SessionRuntime | undefined {
-    return this.handles.get(sessionId);
-  }
-
-  getOffsets(sessionId: string): { log: number; stderr: number } | undefined {
-    return this.handles.get(sessionId)?.offsets;
   }
 }
