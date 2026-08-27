@@ -34,7 +34,7 @@ export function registerDoctorCommand(program: Command): void {
         return;
       }
 
-      console.log("Run Agent\n");
+      console.log("CodeDeck\n");
 
       console.log("System");
       console.log(`  Node               ${result.node.version}`);

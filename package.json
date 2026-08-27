@@ -1,10 +1,10 @@
 {
-  "name": "run-agent",
+  "name": "codedeck",
   "version": "0.1.0",
-  "description": "Local runtime for coding agents — session management, process supervision, event normalization, git isolation",
+  "description": "CodeDeck, a local runtime for coding agents with session management, process supervision, event normalization, and git isolation",
   "type": "module",
   "bin": {
-    "run-agent": "./dist/cli/index.js"
+    "codedeck": "./dist/cli/index.js"
   },
   "files": [
     "dist",

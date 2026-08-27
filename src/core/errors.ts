@@ -59,7 +59,7 @@ export class WorktreeCreationFailedError extends RunAgentError {
 
 export class DaemonUnavailableError extends RunAgentError {
   constructor(cause?: unknown) {
-    super("Run Agent daemon is unavailable", "DAEMON_UNAVAILABLE", { cause });
+    super("CodeDeck daemon is unavailable", "DAEMON_UNAVAILABLE", { cause });
   }
 }
 

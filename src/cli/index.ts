@@ -26,27 +26,27 @@ function getVersion(): string {
 const program = new Command();
 
 program
-  .name("run-agent")
-  .description("Run Agent — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
+  .name("codedeck")
+  .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
   .version(getVersion())
   .helpOption("-h, --help", "display help for command")
   .showHelpAfterError("(add --help for details)")
   .showSuggestionAfterError(true)
   .addHelpText("after", `
 Examples:
-  $ npx run-agent run "implement authentication" --agent claude --worktree
-  $ npx run-agent run "fix the tests" --agent codex --detach
-  $ npx run-agent ps
-  $ npx run-agent ps --json
-  $ npx run-agent show a83f
-  $ npx run-agent logs a83f --follow
-  $ npx run-agent logs a83f --json
-  $ npx run-agent send a83f "add tests"
-  $ npx run-agent stop a83f
-  $ npx run-agent diff a83f --stat
-  $ npx run-agent doctor
+  $ npx codedeck run "implement authentication" --agent claude --worktree
+  $ npx codedeck run "fix the tests" --agent codex --detach
+  $ npx codedeck ps
+  $ npx codedeck ps --json
+  $ npx codedeck show a83f
+  $ npx codedeck logs a83f --follow
+  $ npx codedeck logs a83f --json
+  $ npx codedeck send a83f "add tests"
+  $ npx codedeck stop a83f
+  $ npx codedeck diff a83f --stat
+  $ npx codedeck doctor
 
-Run 'npx run-agent <command> --help' for command-specific options.
+Run 'npx codedeck <command> --help' for command-specific options.
 Docs: https://github.com/4ndreello/run-agent
 `);
 
@@ -59,7 +59,7 @@ registerStopCommand(program);
 registerDiffCommand(program);
 registerDoctorCommand(program);
 
-// Make `run-agent help` behave like `run-agent --help`
+// Make `codedeck help` behave like `codedeck --help`
 program.command("help", { hidden: true }).action(() => program.outputHelp());
 
 program.parseAsync(process.argv).catch((err) => {

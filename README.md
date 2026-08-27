@@ -1,4 +1,4 @@
-# Run Agent
+# CodeDeck
 
 Local runtime for coding agents — session management, process supervision, event normalization, and git isolation.
 
@@ -6,28 +6,28 @@ Local runtime for coding agents — session management, process supervision, eve
 
 ## Overview
 
-Run Agent is not an agent. It manages the lifecycle of existing harnesses:
+CodeDeck is not an agent. It manages the lifecycle of existing harnesses:
 
 - **Claude Code** (`claude -p --output-format stream-json`)
 - **Codex** (`codex exec --json` / app-server)
 - **OpenCode** (`opencode run --format json`)
 - **OMP** (`omp --mode rpc`)
 
-The `run-agent` CLI provides a single unified interface for all of them:
+The `codedeck` CLI provides a single unified interface for all of them:
 
 ```bash
-npx run-agent run "implement authentication" --agent claude
-npx run-agent run "fix the tests" --agent codex
-npx run-agent run "investigate this bug" --agent opencode
-npx run-agent run "refactor this module" --agent omp
+npx codedeck run "implement authentication" --agent claude
+npx codedeck run "fix the tests" --agent codex
+npx codedeck run "investigate this bug" --agent opencode
+npx codedeck run "refactor this module" --agent omp
 
-npx run-agent ps
-npx run-agent logs a83f --follow
-npx run-agent show a83f
-npx run-agent send a83f "add tests"
-npx run-agent stop a83f
-npx run-agent diff a83f
-npx run-agent doctor
+npx codedeck ps
+npx codedeck logs a83f --follow
+npx codedeck show a83f
+npx codedeck send a83f "add tests"
+npx codedeck stop a83f
+npx codedeck diff a83f
+npx codedeck doctor
 ```
 
 ## Stack
@@ -40,12 +40,12 @@ npx run-agent doctor
 ## Installation
 
 ```bash
-npm install -g run-agent
+npm install -g codedeck
 # or
-npx run-agent
+npx codedeck
 ```
 
-Binary: `run-agent`
+Binary: `codedeck`
 
 For local development:
 
@@ -55,16 +55,16 @@ npm run build
 node dist/cli/index.js doctor
 # or create a local alias
 npm link
-npx run-agent doctor
+npx codedeck doctor
 ```
 
 ## Architecture
 
 ```
-run-agent CLI
+codedeck CLI
   │ IPC (Unix Socket, NDJSON)
   ▼
-Run Agent Daemon
+CodeDeck Daemon
   ├── Session Store (SQLite)
   ├── Event Store (SQLite)
   ├── Process Manager
@@ -81,20 +81,20 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 | Command | Description |
 |---------|-------------|
-| `npx run-agent doctor` | Check Node, Git, harnesses, daemon, and database |
-| `npx run-agent run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
-| `npx run-agent ps [--all] [--json]` | List recent sessions |
-| `npx run-agent show <id> [--json]` | Show session details |
-| `npx run-agent logs <id> [--follow] [--json] [--raw]` | Show normalized events |
-| `npx run-agent send <id> "<msg>"` | Continue a session (new turn) |
-| `npx run-agent stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
-| `npx run-agent diff <id> [--stat] [--json]` | Git diff against base commit |
+| `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
+| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
+| `npx codedeck ps [--all] [--json]` | List recent sessions |
+| `npx codedeck show <id> [--json]` | Show session details |
+| `npx codedeck logs <id> [--follow] [--json] [--raw]` | Show normalized events |
+| `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
+| `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
+| `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
 
 ## Session
 
 ```ts
 Session {
-  id: string          // e.g. a83f (run-agent)
+  id: string          // e.g. a83f (CodeDeck)
   nativeSessionId?    // internal harness id
   agent: "claude" | "codex" | "opencode" | "omp"
   status: "starting" | "working" | "needs_input" | "idle" | "completed" | "failed" | "stopped" | "orphaned"
@@ -103,7 +103,7 @@ Session {
 }
 ```
 
-`nativeSessionId` is an internal detail — users only see the Run Agent ID.
+`nativeSessionId` is an internal detail. Users only see the CodeDeck ID.
 
 ## Normalized Events
 
@@ -126,12 +126,12 @@ Tables:
 ## Worktrees
 
 ```bash
-npx run-agent run "implement oauth" --worktree
+npx codedeck run "implement oauth" --worktree
 # creates ~/.run-agent/worktrees/<repo-hash>/<session-id>
 # branch: ra/<slug>-<session-id>
 ```
 
-The driver receives the worktree as `cwd`. Isolation is the responsibility of Run Agent, not the harness.
+The driver receives the worktree as `cwd`. Isolation is the responsibility of CodeDeck, not the harness.
 
 Global config: `~/.config/run-agent/config.json` or `~/.run-agent/` (fallback)
 
@@ -186,16 +186,16 @@ npm test
 
 ```bash
 cd example-project
-npx run-agent doctor
-npx run-agent run "find one improvement and implement it" --agent claude --worktree --detach
-npx run-agent run "find one improvement and implement it" --agent codex --worktree --detach
-npx run-agent ps
-npx run-agent logs <claude-session> --follow
-npx run-agent show <codex-session>
-npx run-agent diff <claude-session>
-npx run-agent diff <codex-session>
-npx run-agent send <claude-session> "run the tests before finishing"
-npx run-agent stop <codex-session>
+npx codedeck doctor
+npx codedeck run "find one improvement and implement it" --agent claude --worktree --detach
+npx codedeck run "find one improvement and implement it" --agent codex --worktree --detach
+npx codedeck ps
+npx codedeck logs <claude-session> --follow
+npx codedeck show <codex-session>
+npx codedeck diff <claude-session>
+npx codedeck diff <codex-session>
+npx codedeck send <claude-session> "run the tests before finishing"
+npx codedeck stop <codex-session>
 ```
 
 The same experience across all four harnesses.
