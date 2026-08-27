@@ -45,6 +45,9 @@ export interface DriverSession {
   id: string;
   nativeSessionId?: string;
   pid?: number;
+  // Linux /proc start tick captured with the PID; prevents killing/reattaching
+  // an unrelated process after PID reuse.
+  pidStartTime?: string;
   cwd: string;
   model?: string;
   // opaque handle for driver to store process etc
@@ -66,10 +69,35 @@ export interface AgentDriver {
 
   resume?(session: DriverSession, message?: string): Promise<void>;
 
+  // Rebuild the event feed for a session whose detached process outlived a
+  // daemon restart: resume tailing the session's log files from the
+  // persisted offsets. MUST NOT spawn anything — the process is already
+  // running (or already dead, in which case the driver drains and
+  // classifies the death from the logs).
+  attach?(session: ReattachRequest): Promise<void>;
+
+  // Byte offsets of the last fully consumed line in the session's log
+  // files, persisted by the daemon so reattach does not replay events that
+  // are already in the store.
+  getOffsets?(sessionId: string): { log: number; stderr: number } | undefined;
+
+  // Internal lifecycle handle; daemon uses it to distinguish a verified
+  // in-memory process from a PID-only fallback after restart.
+  getHandle?(sessionId: string): unknown;
+
   events(session: DriverSession): AsyncIterable<AgentEvent>;
 
   // Optional cleanup
   dispose?(session: DriverSession): Promise<void>;
+}
+export interface ReattachRequest {
+  sessionId: string;
+  pid?: number;
+  pidStartTime?: string;
+  nativeSessionId?: string;
+  // Persisted byte offsets into the session's log files (drivers/tailer.ts).
+  logOffset?: number;
+  stderrOffset?: number;
 }
 
 export interface DriverRegistry {

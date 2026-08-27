@@ -35,6 +35,7 @@ export class Database {
         branch TEXT,
         base_commit TEXT,
         pid INTEGER,
+        pid_start_time TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         completed_at TEXT,
@@ -55,6 +56,7 @@ export class Database {
         timestamp TEXT NOT NULL,
         normalized_payload TEXT NOT NULL,
         raw_payload TEXT,
+        source_key TEXT,
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
 
@@ -77,10 +79,18 @@ export class Database {
       ["effort", "TEXT"],
       ["fast", "INTEGER NOT NULL DEFAULT 0"],
       ["failure", "TEXT"],
+      ["log_offset", "INTEGER"],
+      ["stderr_offset", "INTEGER"],
+      ["pid_start_time", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
     }
+    const eventColumns = new Set(
+      (this.db.prepare(`PRAGMA table_info(events)`).all() as any[]).map((c) => c.name as string),
+    );
+    if (!eventColumns.has("source_key")) this.db.exec(`ALTER TABLE events ADD COLUMN source_key TEXT`);
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
   }
 
   getHandle(): DatabaseSync {

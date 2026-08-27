@@ -36,12 +36,19 @@ export interface Session {
   branch?: string;
   baseCommit?: string;
   pid?: number;
+  // Monotonic process start identity paired with pid; used to reject PID reuse.
+  pidStartTime?: string;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
   usage?: SessionUsage;
   lastEvent?: string;
   failure?: FailureInfo;
+  // Byte offsets into the session's log files (see drivers/tailer.ts) after
+  // the last fully persisted line, so a reattaching daemon does not replay
+  // events already in the store.
+  logOffset?: number;
+  stderrOffset?: number;
 }
 
 export interface CreateSessionOptions {

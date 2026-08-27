@@ -10,11 +10,13 @@ import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
 import type { AgentId } from "../core/session.js";
+import type { DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { ProcessManager } from "./process-manager.js";
+import { processAlive, processStartTime } from "../utils/process.js";
+import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
 import { classifyFailure, type FailureInfo } from "../core/errors.js";
@@ -24,10 +26,10 @@ class Daemon {
   private sessions: SessionStore;
   private events: EventStore;
   private registry = getRegistry();
-  private pm = new ProcessManager();
   private server?: net.Server;
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
   private startTime = Date.now();
+  private sessionLocks = new Set<string>();
 
   constructor() {
     ensureDirs();
@@ -73,19 +75,98 @@ class Daemon {
     } catch {}
   }
 
+  // Sessions whose detached process outlived the daemon are RE-ATTACHED, not
+  // orphaned: the process is independent (own process group, output in log
+  // files), so a daemon restart is invisible to it. A live process keeps
+  // streaming; a dead one is drained and classified from its log tail.
   private async recover(): Promise<void> {
-    // Mark active sessions as orphaned if process not alive
+    const paths = getPaths();
     const actives = this.sessions.listActive();
     for (const s of actives) {
-      if (s.pid) {
+      const driver = this.registry.get(s.agent);
+      const metadata = readSessionProcessMetadata(s.id);
+      const pid = metadata?.pid ?? s.pid;
+      const recordedStart = metadata?.pidStartTime ?? s.pidStartTime;
+      const processPresent = pid != null && processAlive(pid);
+      const currentStart = pid != null ? processStartTime(pid) : undefined;
+      const pidReused =
+        processPresent &&
+        recordedStart !== undefined &&
+        currentStart !== undefined &&
+        currentStart !== recordedStart;
+
+      // Never attach to or signal a PID whose identity changed while the
+      // daemon was away. The original harness is gone; the replacement is
+      // somebody else's process.
+      if (pidReused) {
+        const failure: FailureInfo = {
+          code: "HARNESS_CRASH",
+          blame: "harness",
+          retryable: true,
+          reason: "pid_reused",
+          detail: `PID ${pid} no longer identifies the launched harness`,
+        };
+        const detail = failure.detail ?? `PID ${pid} no longer identifies the launched harness`;
+        const event: AgentEvent = {
+          type: "session.failed",
+          sessionId: s.id,
+          timestamp: new Date().toISOString(),
+          error: detail,
+          failure,
+          raw: { pid, expectedStartTime: recordedStart, currentStart },
+        };
+        this.events.append(s.id, event);
+        this.sessions.setStatus(s.id, "failed", { lastEvent: detail, failure });
+        continue;
+      }
+
+      const alive = processPresent;
+      const stdoutPath = path.join(paths.logsDir, `${s.id}.ndjson`);
+      const stderrPath = path.join(paths.logsDir, `${s.id}.stderr.log`);
+      const hasDetachedLogs = fs.existsSync(stdoutPath) || fs.existsSync(stderrPath);
+      // A live PID without a recorded identity is unsafe to attach: it may be
+      // a recycled process. A dead PID is safe to drain from its own log.
+      const identityVerified = !processPresent || (recordedStart !== undefined && currentStart === recordedStart);
+
+      if (typeof driver.attach === "function" && pid != null && hasDetachedLogs && identityVerified) {
         try {
-          process.kill(s.pid, 0);
-          // still alive externally but not managed by us; treat as orphaned
-          this.sessions.setStatus(s.id, "orphaned");
-        } catch {
-          // not alive
-          this.sessions.setStatus(s.id, "failed");
+          await driver.attach({
+            sessionId: s.id,
+            pid,
+            pidStartTime: recordedStart,
+            nativeSessionId: s.nativeSessionId,
+            logOffset: s.logOffset,
+            stderrOffset: s.stderrOffset,
+          });
+        } catch (e) {
+          // Corrupt log / fs failure: fall back to the legacy marking.
+          this.sessions.setStatus(s.id, alive ? "orphaned" : "failed", {
+            lastEvent: e instanceof Error ? e.message.slice(0, 200) : "reattach failed",
+          });
+          continue;
         }
+        if (!s.pid || !s.pidStartTime) {
+          this.sessions.update(s.id, { pid, pidStartTime: recordedStart ?? currentStart } as any);
+        }
+        const drvSession = {
+          id: s.id,
+          nativeSessionId: s.nativeSessionId,
+          pid,
+          pidStartTime: recordedStart,
+          cwd: s.worktree || s.cwd,
+          model: s.model,
+        };
+        if (alive) {
+          this.sessions.setStatus(s.id, "working", { lastEvent: "reattached after daemon restart" });
+        }
+        void this.attachDriverEvents(s.id, driver, drvSession);
+        continue;
+      }
+
+      // Sessions created before file transport have no reattachable log, and
+      // live sessions without a PID identity are not safe to trust.
+      if (pid) {
+        this.sessions.setStatus(s.id, alive ? "orphaned" : "failed");
       } else {
         this.sessions.setStatus(s.id, "failed");
       }
@@ -200,66 +281,159 @@ class Daemon {
       }
 
       case "session.send": {
-        const p = params as any;
+        const p = params as { id: string; message: string };
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
         const driver = this.registry.get(s.agent);
-        // Check capabilities resume
+        // Do not start a second harness while the current one is still live:
+        // both runtimes would tail the same per-session file and duplicate
+        // every event from the follow-up turn.
+        if (this.sessionLocks.has(s.id)) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
+          return;
+        }
+        const handle = driver.getHandle?.(s.id);
+        const runtimeState = handle && typeof handle === "object"
+          ? handle as { done?: boolean; drained?: boolean }
+          : undefined;
+        const runtimeDraining = handle !== undefined && (runtimeState?.done !== true || runtimeState?.drained !== true);
+        if (s.status === "starting" || runtimeDraining || (s.status === "working" && s.pid != null && processAlive(s.pid))) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running` } });
+          return;
+        }
         if (!driver.capabilities().resume) {
           send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Agent ${s.agent} does not support resume` } }); return;
         }
-        // Update status to working
-        this.sessions.setStatus(s.id, "working", { lastEvent: `send: ${p.message.slice(0, 80)}` });
 
-        // Emit turn.started
-        const turnEvent: AgentEvent = { type: "turn.started", sessionId: s.id, timestamp: new Date().toISOString(), prompt: p.message } as any;
-        this.events.append(s.id, turnEvent);
-        this.broadcast(s.id, turnEvent);
-
+        this.sessionLocks.add(s.id);
         try {
-          // driver.send will spawn new process
-          // Need to get current handle session object
-          const nativeId = s.nativeSessionId;
-          // Create a ephemeral DriverSession for send
-          const drvSession: any = { id: s.id, nativeSessionId: nativeId, cwd: s.worktree || s.cwd, model: s.model, pid: s.pid };
+          this.sessions.setStatus(s.id, "working", { lastEvent: `send: ${p.message.slice(0, 80)}` });
+
+          const turnEvent: AgentEvent = {
+            type: "turn.started",
+            sessionId: s.id,
+            timestamp: new Date().toISOString(),
+            prompt: p.message,
+          };
+          this.events.append(s.id, turnEvent);
+          this.broadcast(s.id, turnEvent);
+
+          const drvSession: DriverSession = {
+            id: s.id,
+            nativeSessionId: s.nativeSessionId,
+            cwd: s.worktree || s.cwd,
+            model: s.model,
+            pid: s.pid,
+            pidStartTime: s.pidStartTime,
+          };
           await driver.send(drvSession, p.message);
-          // Update nativeSessionId if driver discovered new one
-          const handle: any = (driver as any).getHandle?.(s.id);
-          const newNative = handle?.nativeSessionId || drvSession.nativeSessionId;
+
+          const handle = driver.getHandle?.(s.id);
+          const handleNativeId =
+            handle &&
+            typeof handle === "object" &&
+            "nativeSessionId" in handle &&
+            typeof handle.nativeSessionId === "string"
+              ? handle.nativeSessionId
+              : undefined;
+          const newNative = handleNativeId || drvSession.nativeSessionId;
           if (newNative && newNative !== s.nativeSessionId) {
-            this.sessions.update(s.id, { nativeSessionId: newNative } as any);
+            this.sessions.update(s.id, { nativeSessionId: newNative });
           }
-          if (drvSession.pid) this.sessions.update(s.id, { pid: drvSession.pid } as any);
-          this.sessions.update(s.id, { status: "working" } as any);
+          if (drvSession.pid) {
+            this.sessions.update(s.id, {
+              pid: drvSession.pid,
+              pidStartTime: processStartTime(drvSession.pid),
+            });
+          }
+          this.sessions.update(s.id, { status: "working" });
 
           // Attach event loop for new turn
           this.attachDriverEvents(s.id, driver, drvSession).catch(() => {});
 
           send({ result: { ok: true } });
         } catch (e) {
-          this.sessions.setStatus(s.id, "failed");
-          send({ error: { code: "SEND_FAILED", message: e instanceof Error ? e.message : String(e) } });
+          const message = e instanceof Error ? e.message : String(e);
+          try { this.sessions.setStatus(s.id, "failed"); } catch {}
+          send({ error: { code: "SEND_FAILED", message } });
+        } finally {
+          this.sessionLocks.delete(s.id);
         }
         break;
       }
 
       case "session.stop": {
-        const p = params as any;
+        const p = params as { id: string };
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
         const driver = this.registry.get(s.agent);
+        if (this.sessionLocks.has(s.id)) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
+          return;
+        }
+        const handle = driver.getHandle?.(s.id);
+        const hasRuntime = handle !== undefined;
+        const liveIdentity =
+          s.pid != null &&
+          s.pidStartTime != null &&
+          processAlive(s.pid) &&
+          processStartTime(s.pid) === s.pidStartTime;
+        if (s.status === "stopped" || ((s.status === "completed" || s.status === "failed") && !hasRuntime && !liveIdentity)) {
+          send({ error: { code: "SESSION_NOT_RUNNING", message: `Session ${s.id} is ${s.status}` } });
+          return;
+        }
+        if (s.pid != null && !hasRuntime && !s.pidStartTime) {
+          send({ error: { code: "STOP_UNSAFE", message: `Cannot safely stop session ${s.id}: PID identity is unavailable` } });
+          return;
+        }
+
+        this.sessionLocks.add(s.id);
+        const previousStatus = s.status;
+        const hadTerminalStatus = s.status === "completed" || s.status === "failed";
+        const eventsBeforeStop = this.events.count(s.id);
         try {
-          await driver.stop({ id: s.id, nativeSessionId: s.nativeSessionId, cwd: s.worktree || s.cwd, pid: s.pid } as any);
-        } catch {}
-        // Also try process manager
-        try { await this.pm.stop(s.id); } catch {}
-        this.sessions.setStatus(s.id, "stopped");
-        const ev: AgentEvent = { type: "session.completed", sessionId: s.id, timestamp: new Date().toISOString(), reason: "stopped", exitCode: 130 } as any;
-        this.events.append(s.id, ev);
-        this.broadcast(s.id, ev);
-        send({ result: { ok: true } });
+          // Mark active sessions first so an attached event loop that ends
+          // during stop cannot synthesize a failure or overwrite the outcome.
+          if (!hadTerminalStatus) this.sessions.setStatus(s.id, "stopped");
+          await driver.stop({
+            id: s.id,
+            nativeSessionId: s.nativeSessionId,
+            cwd: s.worktree || s.cwd,
+            pid: s.pid,
+            pidStartTime: s.pidStartTime,
+          });
+
+          const last = this.events.last(s.id);
+          const terminalArrivedDuringStop =
+            this.events.count(s.id) > eventsBeforeStop &&
+            (last?.type === "session.completed" || last?.type === "session.failed");
+          if (terminalArrivedDuringStop) {
+            if (last.type === "session.completed") {
+              this.sessions.setStatus(s.id, "completed", { lastEvent: last.reason || "completed" });
+            } else {
+              this.sessions.setStatus(s.id, "failed", { lastEvent: last.error.slice(0, 200), failure: last.failure });
+            }
+          } else if (!hadTerminalStatus) {
+            const ev: AgentEvent = {
+              type: "session.completed",
+              sessionId: s.id,
+              timestamp: new Date().toISOString(),
+              reason: "stopped",
+              exitCode: 130,
+            };
+            this.events.append(s.id, ev);
+            this.broadcast(s.id, ev);
+          }
+          send({ result: { ok: true } });
+        } catch (e) {
+          try { this.sessions.setStatus(s.id, previousStatus); } catch {}
+          send({ error: { code: "STOP_FAILED", message: e instanceof Error ? e.message : String(e) } });
+        } finally {
+          this.sessionLocks.delete(s.id);
+        }
         break;
       }
+
 
       case "session.logs": {
         const p = params as any;
@@ -406,7 +580,7 @@ class Daemon {
     });
 
     // Update pid and native id when available
-    if (drvSession.pid) this.sessions.update(sessionId, { pid: drvSession.pid } as any);
+    if (drvSession.pid) this.sessions.update(sessionId, { pid: drvSession.pid, pidStartTime: processStartTime(drvSession.pid) } as any);
     // Poll native id shortly
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 200));
@@ -422,12 +596,6 @@ class Daemon {
       }
     }
 
-    // Store proc for manager if handle has proc
-    const handle: any = drvSession.handle;
-    if (handle?.proc) {
-      this.pm.register(sessionId, handle.proc);
-    }
-
     // Attach events
     await this.attachDriverEvents(sessionId, driver, drvSession);
   }
@@ -435,12 +603,32 @@ class Daemon {
   private async attachDriverEvents(sessionId: string, driver: any, drvSession: any): Promise<void> {
     try {
       for await (const ev of driver.events(drvSession)) {
-        // Persist
-        this.events.append(sessionId, ev, (ev as any).raw);
-        // Update session status based on event
-        this.updateSessionFromEvent(sessionId, ev);
-        // Broadcast
-        this.broadcast(sessionId, ev);
+        // A stop operation owns the terminal outcome. A terminal frame already
+        // buffered by the harness must not race it into the event log.
+        if (this.sessionLocks.has(sessionId) && (ev.type === "session.completed" || ev.type === "session.failed")) {
+          continue;
+        }
+        const db = this.db.getHandle();
+        db.exec("BEGIN");
+        let inserted = 0;
+        try {
+          inserted = this.events.append(sessionId, ev, (ev as any).raw);
+          const offsets = driver.getOffsets?.(sessionId);
+          if (offsets) {
+            this.sessions.update(sessionId, { logOffset: offsets.log, stderrOffset: offsets.stderr });
+          }
+          if (inserted !== 0) {
+            // Update session status based on event.
+            this.updateSessionFromEvent(sessionId, ev);
+          }
+          db.exec("COMMIT");
+        } catch (error) {
+          try { db.exec("ROLLBACK"); } catch {}
+          throw error;
+        }
+        // Broadcast only after the durable event+cursor commit, and never
+        // broadcast a replay that was already in the event store.
+        if (inserted !== 0) this.broadcast(sessionId, ev);
       }
     } catch (e) {
       // A driver exception mid-stream is a harness/pipe failure, not task
@@ -488,33 +676,31 @@ class Daemon {
         this.sessions.setStatus(sessionId, "failed", { lastEvent: error.slice(0, 200), failure });
       }
     }
-    // Unregister process
-    this.pm.unregister(sessionId);
   }
 
   private updateSessionFromEvent(sessionId: string, ev: AgentEvent): void {
     try {
-      if (ev.type === "session.completed") {
-        this.sessions.setStatus(sessionId, "completed", { lastEvent: (ev as any).reason || "completed" });
+      const current = this.sessions.get(sessionId);
+      if (current?.status === "stopped" && (ev.type === "session.completed" || ev.type === "session.failed")) {
+        return;
+      }
+      if (ev.type === "session.started") {
+        if (ev.nativeSessionId) this.sessions.update(sessionId, { nativeSessionId: ev.nativeSessionId });
+      } else if (ev.type === "session.completed") {
+        this.sessions.setStatus(sessionId, "completed", { lastEvent: ev.reason || "completed" });
       } else if (ev.type === "session.failed") {
-        this.sessions.setStatus(sessionId, "failed", { lastEvent: (ev as any).error?.slice(0, 200), failure: (ev as any).failure });
+        this.sessions.setStatus(sessionId, "failed", { lastEvent: ev.error.slice(0, 200), failure: ev.failure });
       } else if (ev.type === "tool.started") {
-        this.sessions.update(sessionId, { lastEvent: `tool: ${(ev as any).tool.name}` } as any);
+        this.sessions.update(sessionId, { lastEvent: `tool: ${ev.tool.name}` });
       } else if (ev.type === "message") {
-        const content = (ev as any).content || "";
-        this.sessions.update(sessionId, { lastEvent: content.slice(0, 80) } as any);
-      } else if (ev.type === "text.delta") {
-        // Don't spam updatedAt too much? Just lastEvent
+        this.sessions.update(sessionId, { lastEvent: ev.content.slice(0, 80) });
       } else if (ev.type === "usage.updated") {
-        const u = (ev as any).usage;
         const sess = this.sessions.get(sessionId);
         if (sess) {
-          const usage = { ...(sess.usage || {}), ...u };
-          this.sessions.update(sessionId, { usage } as any);
+          this.sessions.update(sessionId, { usage: { ...(sess.usage || {}), ...ev.usage } });
         }
       }
-      // Also update updatedAt
-      this.sessions.update(sessionId, { updatedAt: new Date() } as any);
+      this.sessions.update(sessionId, { updatedAt: new Date() });
     } catch {}
   }
 

@@ -1,20 +1,11 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { detectBinary, createLineReader } from "../helpers.js";
-import type { AgentDriver, AgentInstallation, StartOptions, DriverSession } from "../../core/driver.js";
+import { detectBinary, safeJsonParse } from "../helpers.js";
+import type { AgentDriver, AgentInstallation, StartOptions, DriverSession, ReattachRequest } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
-import { EventEmitter } from "node:events";
-import { classifyFailure, type FailureInfo } from "../../core/errors.js";
-
-interface OmpHandle {
-  proc: ChildProcess;
-  emitter: EventEmitter;
-  buffer: AgentEvent[];
-  done: boolean;
-  exitCode: number | null;
-  nativeSessionId?: string;
-}
-
+import { classifyFailure } from "../../core/errors.js";
+import { SessionRuntime, nativeIdFrom, type RuntimeHooks } from "../session-runtime.js";
+import { synthesizeTerminalEvent } from "../terminal.js";
+import { killTree } from "../../utils/process.js";
 export function parseOmpLine(line: string, sessionId: string): AgentEvent[] {
   let obj: any;
   try { obj = JSON.parse(line); } catch { return []; }
@@ -274,60 +265,43 @@ export function buildOmpArgs(options: StartOptions): string[] {
   return args;
 }
 
-// Pure so the close-handler decision is testable without spawning omp. When
-// omp dies it often does so WITHOUT emitting a terminal frame — the EPIPE
-// class of crash. This decides what the driver reports instead. A ghost
-// "completed" is the one outcome it refuses to produce: an agent that sees
-// completed proceeds on missing work, while a false "failed" only costs one
-// retry of a retryable session.
-export function synthesizeTerminalEvent(input: {
-  sessionId: string;
-  exitCode: number | null;
-  signal?: string | null;
-  hasTerminal: boolean;
-  hasMessage: boolean;
-  stderr: string;
-}): AgentEvent | null {
-  if (input.hasTerminal) return null;
-  const ts = new Date().toISOString();
-  if (input.exitCode === 0) {
-    // Exit 0 with produced output is completion. Exit 0 with NO output but
-    // stderr content is how "exit 0 anyway" crashes look — treat as failure.
-    if (!input.hasMessage && input.stderr.trim()) {
-      return {
-        type: "session.failed",
-        sessionId: input.sessionId,
-        timestamp: ts,
-        error: input.stderr.slice(0, 2000),
-        exitCode: 0,
-        failure: classifyFailure(input.stderr, 0, input.signal ?? null),
-        raw: { stderr: input.stderr.slice(0, 2000) },
-      } as AgentEvent;
-    }
-    return {
-      type: "session.completed",
-      sessionId: input.sessionId,
-      timestamp: ts,
-      reason: "exit 0",
-      exitCode: 0,
-      raw: { stderr: input.stderr.slice(0, 2000) },
-    } as AgentEvent;
-  }
-  const errorText = input.stderr.trim() ? input.stderr.slice(0, 2000) : `OMP exited with code ${input.exitCode}`;
-  return {
-    type: "session.failed",
-    sessionId: input.sessionId,
-    timestamp: ts,
-    error: errorText,
-    exitCode: input.exitCode ?? 1,
-    failure: classifyFailure(input.stderr, input.exitCode, input.signal ?? null),
-    raw: { stderr: input.stderr.slice(0, 2000) },
-  } as AgentEvent;
-}
 
 export class OmpDriver implements AgentDriver {
   readonly id = "omp" as const;
-  private handles = new Map<string, OmpHandle>();
+  private handles = new Map<string, SessionRuntime>();
+
+  private readonly hooks: RuntimeHooks = {
+    onLine: (line, { sessionId, push, setNativeId, isStderr }) => {
+      if (isStderr) return; // omp stderr is diagnostic; the runtime keeps it for classification
+      const obj = safeJsonParse(line);
+      const parsedEvents = parseOmpLine(line, sessionId);
+      for (const ev of parsedEvents) {
+        const native =
+          ev.type === "session.started" && ev.nativeSessionId
+            ? ev.nativeSessionId
+            : nativeIdFrom(ev.raw, ["session_id", "sessionID"]);
+        if (native) setNativeId(native);
+        push(ev);
+      }
+      // Preserve the driver's old behavior for diagnostics/plain output that
+      // is not JSON; only the parser itself intentionally returns no event.
+      if (parsedEvents.length === 0 && line.trim() && obj === null && line.trim() !== "null") {
+        push({
+          type: "text.delta",
+          sessionId,
+          timestamp: new Date().toISOString(),
+          delta: `${line}\n`,
+          raw: line,
+        });
+      }
+      const native = nativeIdFrom(obj, ["session_id", "sessionID"]);
+      if (native) setNativeId(native);
+    },
+    synthesizeTerminal: (ctx) => {
+      const ev = synthesizeTerminalEvent({ ...ctx, harness: "OMP" });
+      return ev ? [ev] : [];
+    },
+  };
 
   capabilities(): AgentCapabilities {
     return {
@@ -369,118 +343,48 @@ export class OmpDriver implements AgentDriver {
     // `--mode json`.
     const args = buildOmpArgs(options);
 
-    // stdin is ignored rather than an immediately-closed pipe. A closed pipe
-    // does work (omp falls back to the positional prompt on EOF), but an OPEN
-    // one does not: omp waits for EOF that never comes and hangs indefinitely.
-    // `ignore` removes that failure mode instead of depending on stdin.end().
-    const proc = spawn("omp", args, {
+    // The runtime spawns omp DETACHED with stdout/stderr in the session's log
+    // files (see helpers.spawnDetached): the process outlives daemon restarts
+    // and its output can always be re-tailed from a persisted offset.
+    const runtime = SessionRuntime.spawn({
+      sessionId: options.sessionId,
+      cmd: "omp",
+      args,
       cwd: options.cwd,
-      env: { ...process.env },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const emitter = new EventEmitter();
-    const buffer: AgentEvent[] = [];
-
-    // The handle is built HERE, before the handlers, and mutated in place. It
-    // used to be constructed at the END of start() out of local `done` /
-    // `exitCode` / `nativeId` variables — which copies them BY VALUE. The close
-    // handler flipped the locals while `handle.done` stayed false forever, so
-    // events() never left its wait loop (an omp session hung after the process
-    // had already exited), and `handle.nativeSessionId` stayed undefined, so
-    // send() could never resume.
-    const handle: OmpHandle = {
-      proc,
-      emitter,
-      buffer,
-      done: false,
-      exitCode: null,
       nativeSessionId: options.resumeSessionId,
-    };
-
-    const push = (ev: AgentEvent) => {
-      ev.sessionId = options.sessionId;
-      const native =
-        (ev as any).nativeSessionId ?? (ev.raw as any)?.session_id ?? (ev.raw as any)?.sessionID;
-      if (native) handle.nativeSessionId = native;
-      buffer.push(ev);
-      emitter.emit("event", ev);
-    };
-
-    createLineReader(proc.stdout!, (line) => {
-      const evs = parseOmpLine(line, options.sessionId);
-      for (const ev of evs) push(ev);
-      // Try to salvage session id
-      try {
-        const obj = JSON.parse(line);
-        if (obj.session_id && !handle.nativeSessionId) handle.nativeSessionId = obj.session_id;
-        if (obj.sessionID && !handle.nativeSessionId) handle.nativeSessionId = obj.sessionID;
-        // Sometimes omp rpc emits {"id":"...","result":{...}}
-      } catch {
-        // If not JSON, treat as text delta?
-        if (line.trim()) {
-          push({
-            type: "text.delta",
-            sessionId: options.sessionId,
-            timestamp: new Date().toISOString(),
-            delta: line + "\n",
-            raw: line,
-          } as AgentEvent);
-        }
-      }
+      hooks: this.hooks,
     });
-
-    let stderrBuf = "";
-    proc.stderr?.on("data", (c) => (stderrBuf += c.toString()));
-
-    proc.on("close", (code, signal) => {
-      handle.exitCode = code;
-      handle.done = true;
-      const terminal = synthesizeTerminalEvent({
-        sessionId: options.sessionId,
-        exitCode: code,
-        signal,
-        hasTerminal: buffer.some((e) => e.type === "session.completed" || e.type === "session.failed"),
-        hasMessage: buffer.some((e) => e.type === "message" || e.type === "text.delta"),
-        stderr: stderrBuf,
-      });
-      if (terminal) push(terminal);
-      emitter.emit("done");
-    });
-
-    proc.on("error", (err: NodeJS.ErrnoException) => {
-      // Spawn-level failure (ENOENT = binary missing): infra, not task.
-      const failure: FailureInfo =
-        err.code === "ENOENT"
-          ? { code: "SPAWN_FAILED", blame: "infra", retryable: false, detail: err.message }
-          : { code: "SPAWN_FAILED", blame: "infra", retryable: true, detail: err.message };
-      push({
-        type: "session.failed",
-        sessionId: options.sessionId,
-        timestamp: new Date().toISOString(),
-        error: err.message,
-        failure,
-        raw: err,
-      } as AgentEvent);
-      handle.done = true;
-      emitter.emit("done");
-    });
-
-    this.handles.set(options.sessionId, handle);
+    this.handles.set(options.sessionId, runtime);
 
     return {
       id: options.sessionId,
-      nativeSessionId: handle.nativeSessionId,
-      pid: proc.pid,
+      nativeSessionId: runtime.nativeSessionId,
+      pid: runtime.pid,
       cwd: options.cwd,
       model: options.model,
-      handle,
+      handle: runtime,
     };
   }
 
+  // Daemon-restart path: the detached omp process kept running (or already
+  // died) while no daemon existed. Resume tailing its log files — spawn nothing.
+  async attach(req: ReattachRequest): Promise<void> {
+    if (!req.pid) return;
+    const runtime = SessionRuntime.reattach({
+      sessionId: req.sessionId,
+      pid: req.pid,
+      pidStartTime: req.pidStartTime,
+      nativeSessionId: req.nativeSessionId,
+      logOffset: req.logOffset,
+      stderrOffset: req.stderrOffset,
+      hooks: this.hooks,
+    });
+    this.handles.set(req.sessionId, runtime);
+  }
+
   async send(session: DriverSession, message: string): Promise<void> {
-    const h = this.handles.get(session.id);
-    let nativeId = session.nativeSessionId || h?.nativeSessionId;
+    const runtime = this.handles.get(session.id);
+    const nativeId = session.nativeSessionId || runtime?.nativeSessionId;
     if (!nativeId) throw new Error("No native session id for OMP resume");
     const newSession = await this.start({
       sessionId: session.id,
@@ -494,36 +398,28 @@ export class OmpDriver implements AgentDriver {
   }
 
   async stop(session: DriverSession): Promise<void> {
-    const h = this.handles.get(session.id) as OmpHandle | undefined;
-    const proc = (h?.proc ?? (session.handle as any)?.proc) as ChildProcess | undefined;
-    if (!proc || proc.killed) return;
-    try {
-      proc.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        let done = false;
-        const t = setTimeout(() => { if (!done) { try { proc.kill("SIGKILL"); } catch {}; done = true; resolve(); } }, 3000);
-        proc.once("close", () => { if (!done) { clearTimeout(t); done = true; resolve(); } });
-      });
-    } catch {}
+    // Works across daemon restarts: falls back to the pid persisted in the
+    const runtime = this.handles.get(session.id);
+    if (runtime) {
+      await runtime.stop();
+      return;
+    }
+    if (!session.pid) return;
+    if (!session.pidStartTime) throw new Error(`Cannot safely stop session ${session.id}: PID identity is unavailable`);
+    await killTree(session.pid, 3000, session.pidStartTime);
   }
 
   async *events(session: DriverSession): AsyncIterable<AgentEvent> {
-    const h = this.handles.get(session.id) as OmpHandle | undefined;
-    if (!h) return;
-    let idx = 0;
-    while (true) {
-      while (idx < h.buffer.length) yield h.buffer[idx++];
-      if (h.done && idx >= h.buffer.length) break;
-      await new Promise<void>((resolve) => {
-        const onEvent = () => { h.emitter.off("event", onEvent); h.emitter.off("done", onDone); resolve(); };
-        const onDone = () => { h.emitter.off("event", onEvent); h.emitter.off("done", onDone); resolve(); };
-        h.emitter.once("event", onEvent);
-        h.emitter.once("done", onDone);
-      });
-    }
+    const runtime = this.handles.get(session.id);
+    if (!runtime) return;
+    yield* runtime.events();
   }
 
-  getHandle(sessionId: string): OmpHandle | undefined {
+  getHandle(sessionId: string): SessionRuntime | undefined {
     return this.handles.get(sessionId);
+  }
+
+  getOffsets(sessionId: string): { log: number; stderr: number } | undefined {
+    return this.handles.get(sessionId)?.offsets;
   }
 }

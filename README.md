@@ -156,6 +156,23 @@ Codedeck is consumed by agents as a subprocess, so failures are machine-readable
 `run --json` prints one NDJSON event per line on stdout; `--json --detach`
 prints the session object as a single line.
 
+### Daemon restart resilience
+
+Harness processes run detached from the daemon and write stdout/stderr to
+per-session files under `~/.run-agent/logs/`. A daemon restart therefore does
+not close the harness output pipe, send `EPIPE`, or apply pipe backpressure.
+
+On startup the daemon checks each active session's persisted PID. If the
+process is still alive, it reattaches to the session log from the stored byte
+offset and keeps the session `working`; it does not mark the session
+`orphaned` or spawn a duplicate harness. If the process finished while the
+daemon was down, the new daemon drains the log, records any terminal event,
+and synthesizes a structured failure when the harness left no terminal frame.
+
+`codedeck stop <id>` also falls back to the persisted PID, so stopping a
+reattached session works even when no in-memory process handle exists.
+
+
 ## Worktrees
 
 ```bash

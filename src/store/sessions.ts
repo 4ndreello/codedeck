@@ -15,6 +15,7 @@ export interface SessionRow {
   branch: string | null;
   base_commit: string | null;
   pid: number | null;
+  pid_start_time: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -26,6 +27,8 @@ export interface SessionRow {
   effort: string | null;
   fast: number | null;
   failure: string | null;
+  log_offset: number | null;
+  stderr_offset: number | null;
 }
 
 
@@ -56,6 +59,7 @@ function rowToSession(row: SessionRow): Session {
     branch: row.branch ?? undefined,
     baseCommit: row.base_commit ?? undefined,
     pid: row.pid ?? undefined,
+    pidStartTime: row.pid_start_time ?? undefined,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
@@ -72,6 +76,8 @@ function rowToSession(row: SessionRow): Session {
         : undefined,
     lastEvent: row.last_event ?? undefined,
     failure,
+    logOffset: row.log_offset ?? undefined,
+    stderrOffset: row.stderr_offset ?? undefined,
   };
 }
 
@@ -83,10 +89,10 @@ export class SessionStore {
       INSERT INTO sessions (
         id, name, agent, native_session_id, model, status,
         repository, cwd, worktree, branch, base_commit, pid,
-        created_at, updated_at, completed_at,
+        pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
-        last_event, effort, fast, failure
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_event, effort, fast, failure, log_offset, stderr_offset
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
@@ -101,6 +107,7 @@ export class SessionStore {
       session.branch ?? null,
       session.baseCommit ?? null,
       session.pid ?? null,
+      session.pidStartTime ?? null,
       session.createdAt.toISOString(),
       session.updatedAt.toISOString(),
       session.completedAt ? session.completedAt.toISOString() : null,
@@ -112,6 +119,8 @@ export class SessionStore {
       session.effort ?? null,
       session.fast ? 1 : 0,
       session.failure ? JSON.stringify(session.failure) : null,
+      session.logOffset ?? null,
+      session.stderrOffset ?? null,
     );
   }
 
@@ -169,6 +178,9 @@ export class SessionStore {
       last_event: patch.lastEvent,
       effort: patch.effort,
       fast: patch.fast === undefined ? undefined : patch.fast ? 1 : 0,
+      pid_start_time: patch.pidStartTime,
+      log_offset: patch.logOffset,
+      stderr_offset: patch.stderrOffset,
       failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
     };
 

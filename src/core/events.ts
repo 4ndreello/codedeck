@@ -24,6 +24,9 @@ export interface BaseAgentEvent {
   timestamp: string; // ISO
   sequence?: number;
   raw?: unknown;
+  // Stable origin for deduplication when a reattached runtime replays a raw
+  // line whose events were already committed before a daemon restart.
+  sourceKey?: string;
 }
 
 export interface SessionStartedEvent extends BaseAgentEvent {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-import { parseOmpLine, synthesizeTerminalEvent } from "../src/drivers/omp/driver.js";
+import { parseOmpLine } from "../src/drivers/omp/driver.js";
+import { synthesizeTerminalEvent } from "../src/drivers/terminal.js";
 
 // Every frame below is a VERBATIM line captured from `omp -p --mode json`
 // (omp 18.0.7), not an invented shape. The driver previously ran omp under
@@ -122,7 +123,7 @@ describe("parseOmpLine — harness-reported error frames", () => {
 });
 
 describe("synthesizeTerminalEvent — close without a terminal frame", () => {
-  const base = { sessionId: S, hasTerminal: false, hasMessage: true, stderr: "" };
+  const base = { sessionId: S, harness: "OMP", hasTerminal: false, hasMessage: true, stderr: "" };
 
   it("emits nothing when a terminal event already exists", () => {
     expect(synthesizeTerminalEvent({ ...base, exitCode: 1, hasTerminal: true })).toBeNull();
