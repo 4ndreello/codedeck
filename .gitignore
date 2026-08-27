@@ -1,0 +1,10 @@
+node_modules
+dist
+.spikes
+.tmp
+*.db
+*.sock
+*.pid
+.DS_Store
+.env
+coverage

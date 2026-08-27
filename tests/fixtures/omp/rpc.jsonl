@@ -1,0 +1,3 @@
+{"type":"session.started","session_id":"omp_sess_123"}
+{"type":"message","content":"4","session_id":"omp_sess_123"}
+{"type":"session.completed","session_id":"omp_sess_123"}

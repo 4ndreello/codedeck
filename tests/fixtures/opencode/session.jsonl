@@ -1,0 +1,3 @@
+{"type":"session.created","sessionID":"ses_abc123"}
+{"type":"message","text":"4","sessionID":"ses_abc123"}
+{"type":"session.completed","sessionID":"ses_abc123"}

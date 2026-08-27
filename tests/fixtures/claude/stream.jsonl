@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"c3a60d29-5783-4351-ba58-9cad9c23dfe9","cwd":"/tmp","model":"claude-opus-5[1m]","tools":["Bash","Read"]}
+{"type":"assistant","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"4"}]},"session_id":"c3a60d29-5783-4351-ba58-9cad9c23dfe9"}
+{"type":"result","subtype":"success","result":"4","session_id":"c3a60d29-5783-4351-ba58-9cad9c23dfe9","total_cost_usd":0.01,"usage":{"input_tokens":2,"output_tokens":3,"cache_read_input_tokens":16378}}
