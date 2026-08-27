@@ -1,30 +1,30 @@
 # Run Agent
 
-Local runtime for coding agents — session management, process supervision, event normalization, git isolation.
+Local runtime for coding agents — session management, process supervision, event normalization, and git isolation.
 
 > **Process manager for coding agents**: PM2 + tmux + git worktrees + normalized events
 
-## Visão
+## Overview
 
-O Run Agent não é um agente. Ele gerencia o lifecycle de harnesses existentes:
+Run Agent is not an agent. It manages the lifecycle of existing harnesses:
 
 - **Claude Code** (`claude -p --output-format stream-json`)
 - **Codex** (`codex exec --json` / app-server)
 - **OpenCode** (`opencode run --format json`)
 - **OMP** (`omp --mode rpc`)
 
-A CLI `ra` oferece uma interface única para todos:
+The `ra` CLI provides a single unified interface for all of them:
 
 ```bash
-ra run "implemente autenticação" --agent claude
-ra run "corrija os testes" --agent codex
-ra run "investigue esse bug" --agent opencode
-ra run "refatore esse módulo" --agent omp
+ra run "implement authentication" --agent claude
+ra run "fix the tests" --agent codex
+ra run "investigate this bug" --agent opencode
+ra run "refactor this module" --agent omp
 
 ra ps
 ra logs a83f --follow
 ra show a83f
-ra send a83f "adicione testes"
+ra send a83f "add tests"
 ra stop a83f
 ra diff a83f
 ra doctor
@@ -33,32 +33,32 @@ ra doctor
 ## Stack
 
 - TypeScript / Node.js
-- SQLite (`node:sqlite` - DatabaseSync)
-- Unix Domain Socket para IPC
-- Git worktrees para isolamento
+- SQLite (`node:sqlite` — `DatabaseSync`)
+- Unix Domain Socket for IPC
+- Git worktrees for isolation
 
-## Instalação
+## Installation
 
 ```bash
 npm install -g run-agent
-# ou
+# or
 npx run-agent
 ```
 
-Binários: `ra` e `run-agent`
+Binaries: `ra` and `run-agent`
 
-Durante desenvolvimento:
+For local development:
 
 ```bash
 npm install
 npm run build
 node dist/cli/index.js doctor
-# ou alias local
+# or create a local alias
 npm link
 ra doctor
 ```
 
-## Arquitetura
+## Architecture
 
 ```
 ra CLI
@@ -75,37 +75,37 @@ Run Agent Daemon
         └── OmpDriver (rpc)
 ```
 
-O daemon é dono das sessões. A CLI apenas acompanha eventos — fechar o terminal não mata o agente.
+The daemon owns the sessions. The CLI only follows events — closing the terminal does not kill the agent.
 
-## Comandos
+## Commands
 
-| Comando | Descrição |
-|---------|-----------|
-| `ra doctor` | Verifica Node, Git, harnesses, daemon, banco |
-| `ra run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Inicia sessão |
-| `ra ps [--all] [--json]` | Lista sessões recentes |
-| `ra show <id> [--json]` | Detalhes da sessão |
-| `ra logs <id> [--follow] [--json] [--raw]` | Eventos normalizados |
-| `ra send <id> "<msg>"` | Continua sessão (novo turn) |
-| `ra stop <id>` | Interrupção graceful → SIGTERM → SIGKILL |
-| `ra diff <id> [--stat] [--json]` | Git diff vs base commit |
+| Command | Description |
+|---------|-------------|
+| `ra doctor` | Check Node, Git, harnesses, daemon, and database |
+| `ra run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
+| `ra ps [--all] [--json]` | List recent sessions |
+| `ra show <id> [--json]` | Show session details |
+| `ra logs <id> [--follow] [--json] [--raw]` | Show normalized events |
+| `ra send <id> "<msg>"` | Continue a session (new turn) |
+| `ra stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
+| `ra diff <id> [--stat] [--json]` | Git diff against base commit |
 
-## Sessão
+## Session
 
 ```ts
 Session {
-  id: string          // ex: a83f (run-agent)
-  nativeSessionId?    // id interno do harness
-  agent: "claude"|"codex"|"opencode"|"omp"
-  status: "starting"|"working"|"needs_input"|"idle"|"completed"|"failed"|"stopped"|"orphaned"
+  id: string          // e.g. a83f (run-agent)
+  nativeSessionId?    // internal harness id
+  agent: "claude" | "codex" | "opencode" | "omp"
+  status: "starting" | "working" | "needs_input" | "idle" | "completed" | "failed" | "stopped" | "orphaned"
   cwd, worktree, branch, repository, baseCommit
   pid, usage, createdAt, updatedAt
 }
 ```
 
-`nativeSessionId` é detalhe interno — o usuário só vê o ID do Run Agent.
+`nativeSessionId` is an internal detail — users only see the Run Agent ID.
 
-## Eventos normalizados
+## Normalized Events
 
 ```ts
 AgentEvent =
@@ -116,24 +116,24 @@ AgentEvent =
   | session.completed | session.failed | error
 ```
 
-Todo evento persiste com `raw` intacto para debug e compatibilidade futura.
+Every event is persisted with its original `raw` payload intact for debugging and future compatibility.
 
-Tabelas:
+Tables:
 
-- `sessions` — estado por sessão
-- `events` — log monotônico `(session_id, sequence)`
+- `sessions` — per-session state
+- `events` — monotonic log `(session_id, sequence)`
 
 ## Worktrees
 
 ```bash
-ra run "implemente oauth" --worktree
-# cria ~/.run-agent/worktrees/<repo-hash>/<session-id>
+ra run "implement oauth" --worktree
+# creates ~/.run-agent/worktrees/<repo-hash>/<session-id>
 # branch: ra/<slug>-<session-id>
 ```
 
-O driver recebe o worktree como `cwd`. O isolamento é responsabilidade do Run Agent, não do harness.
+The driver receives the worktree as `cwd`. Isolation is the responsibility of Run Agent, not the harness.
 
-Config global: `~/.config/run-agent/config.json` ou `~/.run-agent/` (fallback)
+Global config: `~/.config/run-agent/config.json` or `~/.run-agent/` (fallback)
 
 ```json
 {
@@ -144,7 +144,7 @@ Config global: `~/.config/run-agent/config.json` ou `~/.run-agent/` (fallback)
 
 ## Spikes
 
-Validam cada harness isoladamente antes de abstrações:
+Validates each harness in isolation before abstractions:
 
 ```
 spikes/claude.ts
@@ -153,19 +153,19 @@ spikes/opencode.ts
 spikes/omp.ts
 ```
 
-Rodar com:
+Run with:
 
 ```bash
 npx tsx spikes/claude.ts
 ```
 
-Cada spike prova: detect, start, prompt, eventos, nativeSessionId, conclusão, interrupt, resume, stderr, cleanup.
+Each spike proves: detect, start, prompt, events, nativeSessionId, completion, interrupt, resume, stderr, and cleanup.
 
-## Desenvolvimento
+## Development
 
 ```
 src/
-  cli/       → commander, comandos (run/ps/show/logs/send/stop/diff/doctor)
+  cli/       → commander, commands (run/ps/show/logs/send/stop/diff/doctor)
   core/      → driver interface, session, events, capabilities, errors
   drivers/   → claude / codex / opencode / omp
   daemon/    → daemon, ipc (Unix socket), process-manager, protocol
@@ -182,7 +182,7 @@ npm run build
 npm test
 ```
 
-## Definition of Done (primeiro release)
+## Definition of Done (first release)
 
 ```bash
 cd example-project
@@ -198,14 +198,14 @@ ra send <claude-session> "run the tests before finishing"
 ra stop <codex-session>
 ```
 
-Mesma experiência para os quatro harnesses.
+The same experience across all four harnesses.
 
-## Segurança
+## Security
 
-- Não armazena API keys/tokens — usa auth dos harnesses.
-- Raw events podem conter dados sensíveis (documentado).
-- Não modifica config do usuário silenciosamente.
+- Does not store API keys/tokens — uses harness authentication.
+- Raw events may contain sensitive data (documented).
+- Does not silently modify user configuration.
 
-## Licença
+## License
 
 MIT
