@@ -42,12 +42,12 @@ describe("buildCodexArgs", () => {
     expect(buildCodexArgs(base)).not.toContain("-c");
   });
 
-  it("keeps sandbox and effort on the resume path", () => {
-    // resume builds a SEPARATE arg list (`exec resume <id>`), so flags added to
-    // the start path silently do not apply to `send()` unless mirrored.
+  it("uses only resume-compatible options on the resume path", () => {
     const args = buildCodexArgs({ ...base, resumeSessionId: "thread-1", effort: "high" });
     expect(args.slice(0, 3)).toEqual(["exec", "resume", "thread-1"]);
-    expect(hasPair(args, "-s", "workspace-write")).toBe(true);
+    expect(args).not.toContain("-s");
+    expect(args).not.toContain("-C");
+    expect(args).toContain("--skip-git-repo-check");
     expect(hasPair(args, "-c", 'model_reasoning_effort="high"')).toBe(true);
   });
 

@@ -11,19 +11,19 @@ import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 // Arg building is a pure function so the flag spellings can be tested without
 // spawning codex. Measured against codex-cli 0.150.1.
 export function buildCodexArgs(options: StartOptions): string[] {
-  // resume is a SUBCOMMAND with its own arg list; every flag below has to be
-  // mirrored onto it or `send()` silently runs with different settings than
-  // `start()` did.
-  const args: string[] = options.resumeSessionId
-    ? ["exec", "resume", options.resumeSessionId, "--json"]
+  // resume is a subcommand with its own option set. Keep only flags accepted
+  // by `codex exec resume`; the process cwd already provides the working dir.
+  const resumeSessionId = options.resumeSessionId;
+  const isResume = resumeSessionId !== undefined;
+  const args: string[] = resumeSessionId
+    ? ["exec", "resume", resumeSessionId, "--json"]
     : ["exec", "--json"];
 
   if (options.model) args.push("-m", options.model);
 
-  // Without this codex uses its read-only default and rejects every patch with
-  // "writing is blocked by read-only sandbox" -- while still exiting 0, so the
-  // session is recorded as completed despite having written nothing.
-  args.push("-s", "workspace-write");
+  // `-s` is valid for `exec`, but not for `exec resume` in codex-cli 0.150.1.
+  // A resumed thread keeps its existing sandbox policy.
+  if (!isResume) args.push("-s", "workspace-write");
 
   // codex has no dedicated flags for these; both are config overrides whose
   // values are parsed as TOML, hence the embedded quotes.
@@ -31,7 +31,7 @@ export function buildCodexArgs(options: StartOptions): string[] {
   if (options.fast) args.push("-c", 'service_tier="priority"');
 
   args.push("--skip-git-repo-check");
-  args.push("-C", options.cwd);
+  if (!isResume) args.push("-C", options.cwd);
   args.push(options.prompt);
   return args;
 }
