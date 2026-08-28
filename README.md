@@ -82,7 +82,8 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | Command | Description |
 |---------|-------------|
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
-| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--detach]` | Start a session |
+| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
+| `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
 | `npx codedeck ps [--all] [--json]` | List recent sessions |
 | `npx codedeck show <id> [--json]` | Show session details |
 | `npx codedeck logs <id> [--follow] [--json] [--raw]` | Show normalized events |
@@ -144,17 +145,23 @@ Codedeck is consumed by agents as a subprocess, so failures are machine-readable
 - A harness death without a terminal frame is reported as `session.failed`
   (blame `harness`, retryable) — never as a silent `completed`.
 
-### Exit codes (`codedeck run`, non-detach)
+### Exit codes (`codedeck run` and `codedeck wait`)
 
 | Code | Meaning |
 |------|---------|
-| 0 | session completed (or explicitly stopped/detached) |
+| 0 | session completed or stopped |
 | 1 | task failed — the agent's work failed; retrying unchanged won't help |
 | 2 | harness crashed (EPIPE, signal, unhandled rejection) — retryable |
 | 3 | infra — daemon, worktree, spawn, or usage errors |
 
-`run --json` prints one NDJSON event per line on stdout; `--json --detach`
-prints the session object as a single line.
+`run` blocks and follows events by default. `run --bg` starts the session,
+prints its session object or ID, and exits without waiting. `--detach` remains
+accepted as an alias for `--bg`.
+
+`wait <id>` blocks without printing the event stream, then prints one terminal
+result. `wait --json` prints the final session object as one JSON line. Closing
+the terminal or pressing `Ctrl+C` detaches the waiter; it does not stop the
+session.
 
 ### Daemon restart resilience
 
@@ -237,9 +244,10 @@ npm test
 ```bash
 cd example-project
 npx codedeck doctor
-npx codedeck run "find one improvement and implement it" --agent claude --worktree --detach
-npx codedeck run "find one improvement and implement it" --agent codex --worktree --detach
+npx codedeck run "find one improvement and implement it" --agent claude --worktree --bg
+npx codedeck run "find one improvement and implement it" --agent codex --worktree --bg
 npx codedeck ps
+npx codedeck wait <claude-session>
 npx codedeck logs <claude-session> --follow
 npx codedeck show <codex-session>
 npx codedeck diff <claude-session>

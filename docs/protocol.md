@@ -19,9 +19,10 @@ Streaming (`session.subscribe`, `session.logs --follow`):
 { "type": "done", "id": "sess" }
 ```
 
-Métodos: `session.create`, `session.list`, `session.get`, `session.send`, `session.stop`, `session.logs`, `session.subscribe`, `session.diff`, `daemon.status`, `doctor`.
-
-Daemon é dono do `pid`; CLI apenas acompanha eventos — fechar terminal não mata agente (graceful `SIGTERM` → 3s → `SIGKILL`).
+`session.subscribe` também encerra imediatamente quando a sessão já está em
+estado terminal; quando existe, reenvia o último evento `session.completed` ou
+`session.failed` antes de `done`. O comando `codedeck wait <id>` usa esse
+stream para aguardar sem polling no consumidor.
 
 `session.failed` pode incluir `failure` com `code`, `blame` (`harness`, `task`
 ou `infra`) e `retryable`; agentes não precisam interpretar texto de erro.

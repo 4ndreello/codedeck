@@ -20,12 +20,12 @@ export function registerRunCommand(program: Command): void {
     .option("--cwd <cwd>", "working directory (default: current directory)")
     .option("--worktree", "create isolated git worktree at ~/.run-agent/worktrees/<hash>/<id>")
     .option("--no-worktree", "do not create worktree, run in current directory")
-    .option("--detach", "run detached: print session id and exit, keep agent running in daemon")
+    .option("--bg, --detach", "run in background: print session id and exit")
     .option("--json", "output JSON instead of human-readable text")
     .addHelpText("after", `
 Examples:
   $ npx codedeck run "implement authentication" --agent claude
-  $ npx codedeck run "fix the tests" --agent codex --model gpt-5 --detach
+  $ npx codedeck run "fix the tests" --agent codex --model gpt-5 --bg
   $ npx codedeck run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
   $ npx codedeck run "refactor module" --agent opencode --worktree --name refactor
   $ npx codedeck run "investigate bug" --agent omp --cwd ./my-project --json
@@ -63,6 +63,7 @@ Examples:
         process.exit(3); // infra: daemon unavailable
       }
 
+      const background = !!opts.detach;
       const params: any = {
         prompt,
         agent,
@@ -73,7 +74,7 @@ Examples:
         cwd,
         worktree: opts.worktree,
         noWorktree: opts.noWorktree,
-        detach: !!opts.detach,
+        detach: background,
       };
 
       let result: any;
@@ -86,16 +87,16 @@ Examples:
 
       const session = result.session;
       if (opts.json) {
-        // Session object only in --detach, where it is the entire output.
+        // Session object only in background mode, where it is the entire output.
         // Blocking --json keeps stdout a pure NDJSON event stream; every
         // event carries sessionId, so follow-ups never need the bare row.
-        if (opts.detach) console.log(JSON.stringify(session));
+        if (background) console.log(JSON.stringify(session));
       } else {
         console.log(`Session ${session.id} created (${session.agent})`);
         if (session.worktree) console.log(`Worktree: ${session.worktree} Branch: ${session.branch}`);
       }
 
-      if (opts.detach) {
+      if (background) {
         // Just show id and exit
         if (!opts.json) console.log(`\nUse: npx codedeck logs ${session.id} --follow`);
         process.exit(0);

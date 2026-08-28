@@ -1,6 +1,6 @@
 {
   "name": "codedeck",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "CodeDeck, a local runtime for coding agents with session management, process supervision, event normalization, and git isolation",
   "type": "module",
   "bin": {

@@ -9,7 +9,7 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import type { AgentId } from "../core/session.js";
+import { isTerminalStatus, type AgentId } from "../core/session.js";
 import type { DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
@@ -460,6 +460,19 @@ class Daemon {
         const p = params as any;
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+
+        // A late subscriber must not wait forever for a broadcast that already
+        // happened. Replay the terminal event when available, then close the
+        // stream just like a live terminal broadcast.
+        if (isTerminalStatus(s.status)) {
+          const last = this.events.last(s.id);
+          if (last?.type === "session.completed" || last?.type === "session.failed") {
+            try { socket.write(JSON.stringify({ type: "event", event: last, id: s.id }) + "\n"); } catch {}
+          }
+          try { socket.write(JSON.stringify({ type: "done", id: s.id }) + "\n"); } catch {}
+          return;
+        }
+
         // Send buffered events first?
         // Then keep streaming
         this.addSubscriber(s.id, socket);
