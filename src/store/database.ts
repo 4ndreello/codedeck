@@ -45,7 +45,9 @@ export class Database {
         usage_cost REAL,
         last_event TEXT,
         effort TEXT,
-        fast INTEGER NOT NULL DEFAULT 0
+        fast INTEGER NOT NULL DEFAULT 0,
+        sandbox TEXT,
+        dangerously_bypass_approvals_and_sandbox INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS events (
@@ -78,6 +80,8 @@ export class Database {
     const additions: Array<[string, string]> = [
       ["effort", "TEXT"],
       ["fast", "INTEGER NOT NULL DEFAULT 0"],
+      ["sandbox", "TEXT"],
+      ["dangerously_bypass_approvals_and_sandbox", "INTEGER"],
       ["failure", "TEXT"],
       ["log_offset", "INTEGER"],
       ["stderr_offset", "INTEGER"],

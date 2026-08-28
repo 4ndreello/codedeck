@@ -1,5 +1,5 @@
 import type { AgentId, Session } from "../core/session.js";
-import type { ReasoningEffort } from "../core/driver.js";
+import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
 
 export type RequestMethod =
@@ -21,6 +21,8 @@ export interface RunOptions {
   model?: string;
   effort?: ReasoningEffort;
   fast?: boolean;
+  sandbox?: CodexSandbox;
+  dangerouslyBypassApprovalsAndSandbox?: boolean;
   name?: string;
   cwd?: string;
   worktree?: boolean;

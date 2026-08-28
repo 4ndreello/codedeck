@@ -26,6 +26,18 @@ export function parseEffort(value: string): ReasoningEffort {
   throw new Error(`Invalid effort "${value}". Valid levels: ${REASONING_EFFORTS.join(", ")}`);
 }
 
+// Codex sandbox modes — from `codex exec --help` (-s, --sandbox).
+// workspace-write is the default (allows writes inside the workspace).
+// danger-full-access removes FS restrictions; read-only blocks writes.
+export type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
+
+export const CODEX_SANDBOXES: readonly CodexSandbox[] = ["read-only", "workspace-write", "danger-full-access"];
+
+export function parseSandbox(value: string): CodexSandbox {
+  if ((CODEX_SANDBOXES as readonly string[]).includes(value)) return value as CodexSandbox;
+  throw new Error(`Invalid sandbox "${value}". Valid modes: ${CODEX_SANDBOXES.join(", ")}`);
+}
+
 export interface StartOptions {
   sessionId: string;
   prompt: string;
@@ -35,6 +47,12 @@ export interface StartOptions {
   // OpenAI "priority" service tier (1.5x speed). Codex and omp support it;
   // Claude has no equivalent flag, so its driver ignores this.
   fast?: boolean;
+  // Codex sandbox policy (-s). Only the codex driver reads this; other
+  // agents ignore it. Defaults to workspace-write when omitted.
+  sandbox?: CodexSandbox;
+  // When true, pass --dangerously-bypass-approvals-and-sandbox to codex
+  // (both exec and resume). Only the codex driver reads this.
+  dangerouslyBypassApprovalsAndSandbox?: boolean;
   worktree?: string;
   branch?: string;
   resumeSessionId?: string;
@@ -50,6 +68,10 @@ export interface DriverSession {
   pidStartTime?: string;
   cwd: string;
   model?: string;
+  effort?: ReasoningEffort;
+  fast?: boolean;
+  sandbox?: CodexSandbox;
+  dangerouslyBypassApprovalsAndSandbox?: boolean;
   // opaque handle for driver to store process etc
   handle?: unknown;
 }
