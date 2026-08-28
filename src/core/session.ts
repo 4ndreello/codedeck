@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from "./driver.js";
+import type { CodexSandbox, ReasoningEffort } from "./driver.js";
 import type { FailureInfo } from "./errors.js";
 export type AgentId = "claude" | "codex" | "opencode" | "omp";
 
@@ -29,6 +29,11 @@ export interface Session {
   // Persisted so send() rebuilds the next turn with the same settings.
   effort?: ReasoningEffort;
   fast?: boolean;
+  // Codex sandbox selected at creation time. Persisted so the session
+  // row records how the harness was launched; resume keeps the original
+  // thread's policy (codex exec resume has no -s flag).
+  sandbox?: CodexSandbox;
+  dangerouslyBypassApprovalsAndSandbox?: boolean;
   status: SessionStatus;
   repository?: string;
   cwd: string;

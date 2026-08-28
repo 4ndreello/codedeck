@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig } from "../../config/config.js";
-import { parseEffort, REASONING_EFFORTS } from "../../core/driver.js";
+import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type Session } from "../../core/session.js";
@@ -16,6 +16,8 @@ export function registerRunCommand(program: Command): void {
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
+    .option("--sandbox <mode>", `codex sandbox: ${CODEX_SANDBOXES.join(" | ")} (default: workspace-write)`)
+    .option("--dangerously-bypass-approvals-and-sandbox", "codex: bypass sandbox and approvals (sets sandbox to danger-full-access)")
     .option("--name <name>", "human-readable session name (slug for branch)")
     .option("--cwd <cwd>", "working directory (default: current directory)")
     .option("--worktree", "create isolated git worktree at ~/.run-agent/worktrees/<hash>/<id>")
@@ -47,12 +49,38 @@ Examples:
         }
       }
 
+      let sandbox;
+      if (opts.sandbox) {
+        try {
+          sandbox = parseSandbox(opts.sandbox);
+        } catch (e) {
+          console.error(e instanceof Error ? e.message : String(e));
+          process.exit(3);
+        }
+      }
+      // --dangerously-bypass-approvals-and-sandbox is sugar for
+      // --sandbox danger-full-access plus bypass flag; keep it codex-only.
+      const dangerouslyBypass = !!opts.dangerouslyBypassApprovalsAndSandbox;
+      if (dangerouslyBypass && !sandbox) sandbox = "danger-full-access" as const;
+      if (dangerouslyBypass && sandbox && sandbox !== "danger-full-access") {
+        console.error('Warning: --dangerously-bypass-approvals-and-sandbox implies --sandbox danger-full-access; overriding sandbox to danger-full-access.');
+        sandbox = "danger-full-access" as const;
+      }
+
       // Claude exposes no service-tier flag, so --fast cannot be honoured there.
       // Warn and clear it so the persisted session does not claim a priority
       // tier that was never applied — the driver ignores it anyway.
       const effectiveFast = agent !== "claude" && !!opts.fast;
       if (opts.fast && agent === "claude") {
         console.error("Warning: --fast has no effect on claude (no service tier flag); continuing without it.");
+      }
+
+      const effectiveSandbox = agent === "codex" ? sandbox : undefined;
+      if (sandbox && agent !== "codex") {
+        console.error(`Warning: --sandbox has no effect on ${agent} (only codex supports -s); continuing without it.`);
+      }
+      if (dangerouslyBypass && agent !== "codex") {
+        console.error(`Warning: --dangerously-bypass-approvals-and-sandbox has no effect on ${agent} (only codex); continuing without it.`);
       }
 
       const client = new IpcClient();
@@ -70,6 +98,8 @@ Examples:
         model: opts.model,
         effort,
         fast: effectiveFast,
+        sandbox: effectiveSandbox,
+        dangerouslyBypassApprovalsAndSandbox: agent === "codex" ? dangerouslyBypass : undefined,
         name: opts.name,
         cwd,
         worktree: opts.worktree,

@@ -225,6 +225,8 @@ class Daemon {
           model: p.model,
           effort: p.effort,
           fast: !!p.fast,
+          sandbox: p.sandbox,
+          dangerouslyBypassApprovalsAndSandbox: !!p.dangerouslyBypassApprovalsAndSandbox,
           status: "starting",
           repository,
           cwd,
@@ -323,6 +325,10 @@ class Daemon {
             nativeSessionId: s.nativeSessionId,
             cwd: s.worktree || s.cwd,
             model: s.model,
+            effort: s.effort,
+            fast: s.fast,
+            sandbox: s.sandbox,
+            dangerouslyBypassApprovalsAndSandbox: s.dangerouslyBypassApprovalsAndSandbox,
             pid: s.pid,
             pidStartTime: s.pidStartTime,
           };
@@ -590,6 +596,8 @@ class Daemon {
       // from send() runs with the same effort/tier the session was started with.
       effort: session.effort,
       fast: session.fast,
+      sandbox: session.sandbox,
+      dangerouslyBypassApprovalsAndSandbox: session.dangerouslyBypassApprovalsAndSandbox,
     });
 
     // Update pid and native id when available

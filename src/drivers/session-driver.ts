@@ -96,6 +96,10 @@ export abstract class SessionDriver implements AgentDriver {
       pid: runtime.pid,
       cwd: options.cwd,
       model: options.model,
+      effort: options.effort,
+      fast: options.fast,
+      sandbox: options.sandbox,
+      dangerouslyBypassApprovalsAndSandbox: options.dangerouslyBypassApprovalsAndSandbox,
       handle: runtime,
     };
   }
@@ -123,6 +127,10 @@ export abstract class SessionDriver implements AgentDriver {
       prompt: message,
       cwd: session.cwd,
       model: session.model,
+      effort: session.effort,
+      fast: session.fast,
+      sandbox: session.sandbox,
+      dangerouslyBypassApprovalsAndSandbox: session.dangerouslyBypassApprovalsAndSandbox,
       resumeSessionId: nativeId,
     });
     session.pid = newSession.pid;

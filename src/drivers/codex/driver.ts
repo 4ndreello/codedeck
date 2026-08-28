@@ -6,6 +6,7 @@ import { parseCodexLine } from "./parser.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
+import type { CodexSandbox } from "../../core/driver.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Arg building is a pure function so the flag spellings can be tested without
@@ -23,7 +24,14 @@ export function buildCodexArgs(options: StartOptions): string[] {
 
   // `-s` is valid for `exec`, but not for `exec resume` in codex-cli 0.150.1.
   // A resumed thread keeps its existing sandbox policy.
-  if (!isResume) args.push("-s", "workspace-write");
+  if (!isResume) {
+    const sandbox: CodexSandbox = options.sandbox ?? "workspace-write";
+    args.push("-s", sandbox);
+  }
+
+  if (options.dangerouslyBypassApprovalsAndSandbox) {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  }
 
   // codex has no dedicated flags for these; both are config overrides whose
   // values are parsed as TOML, hence the embedded quotes.
