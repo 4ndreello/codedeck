@@ -74,83 +74,66 @@ describe("SessionStore ps 24h window", () => {
     };
   }
 
-  function setup() {
+  function withStore(fn: (store: SessionStore) => void): void {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-ps-window-"));
     const db = new Database(path.join(dir, "test.db"));
-    const store = new SessionStore(db.getHandle());
-    return { dir, db, store };
+    try {
+      fn(new SessionStore(db.getHandle()));
+    } finally {
+      db.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   it("keeps an old active session in the default view", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const ancient = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       store.create(makeSession("old-active", "working", ancient));
       const ids = store.list(50, false).map((s) => s.id);
       expect(ids).toContain("old-active");
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("hides an old terminated session by default but shows it with includeAll", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const old = new Date(Date.now() - PS_RECENT_WINDOW_MS - 60_000);
       store.create(makeSession("old-done", "completed", old));
       expect(store.list(50, false).map((s) => s.id)).not.toContain("old-done");
       expect(store.list(50, true).map((s) => s.id)).toContain("old-done");
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("keeps a recently terminated session in the default view", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const recent = new Date(Date.now() - 60 * 60 * 1000);
       store.create(makeSession("recent-done", "failed", recent));
       expect(store.list(50, false).map((s) => s.id)).toContain("recent-done");
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("orders by updatedAt DESC in both modes", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const now = Date.now();
       store.create(makeSession("s-old", "completed", new Date(now - 3 * 60 * 60 * 1000)));
       store.create(makeSession("s-new", "completed", new Date(now - 60 * 60 * 1000)));
       store.create(makeSession("s-mid", "completed", new Date(now - 2 * 60 * 60 * 1000)));
       expect(store.list(50, false).map((s) => s.id)).toEqual(["s-new", "s-mid", "s-old"]);
       expect(store.list(50, true).map((s) => s.id)).toEqual(["s-new", "s-mid", "s-old"]);
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("countHiddenByWindow counts only rows excluded by the window", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const old = new Date(Date.now() - PS_RECENT_WINDOW_MS - 60_000);
       store.create(makeSession("count-old", "completed", old));
       store.create(makeSession("count-new", "working", new Date()));
       store.create(makeSession("count-recent", "failed", new Date()));
       expect(store.countHiddenByWindow()).toBe(1);
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   it("countHiddenByWindow ignores LIMIT truncation", () => {
-    const { dir, db, store } = setup();
-    try {
+    withStore((store) => {
       const old = new Date(Date.now() - PS_RECENT_WINDOW_MS - 60_000);
       store.create(makeSession("trunc-old", "completed", old));
       store.create(makeSession("trunc-a", "completed", new Date()));
@@ -158,9 +141,6 @@ describe("SessionStore ps 24h window", () => {
       // Only 2 of 3 visible rows fit, but hidden counts just the window-excluded one.
       expect(store.list(2, false)).toHaveLength(2);
       expect(store.countHiddenByWindow()).toBe(1);
-    } finally {
-      db.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    });
   });
 });
