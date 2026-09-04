@@ -267,7 +267,7 @@ class Daemon {
         const p = params as any;
         const all = p?.all;
         const list = this.sessions.list(100, all);
-        const hidden = all ? 0 : Math.max(0, this.sessions.countTotal() - list.length);
+        const hidden = all ? 0 : this.sessions.countHiddenByWindow();
         // Enrich with last event?
         send({ result: { sessions: list, hidden } });
         break;

@@ -157,10 +157,12 @@ export class SessionStore {
     return rows.map(rowToSession);
   }
 
-  countTotal(): number {
+  /** Rows excluded from the default `ps` view by the 24h window (LIMIT truncation excluded). */
+  countHiddenByWindow(): number {
+    const cutoff = new Date(Date.now() - PS_RECENT_WINDOW_MS).toISOString();
     const row = this.db.prepare(
-      `SELECT COUNT(*) AS count FROM sessions`,
-    ).get() as unknown as { count: number };
+      `SELECT COUNT(*) AS count FROM sessions WHERE status NOT IN ('starting','working','needs_input','idle') AND updated_at < ?`,
+    ).get(cutoff) as unknown as { count: number };
     return row.count;
   }
 

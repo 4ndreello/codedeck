@@ -134,14 +134,30 @@ describe("SessionStore ps 24h window", () => {
     }
   });
 
-  it("countTotal counts every session regardless of the window", () => {
+  it("countHiddenByWindow counts only rows excluded by the window", () => {
     const { dir, db, store } = setup();
     try {
       const old = new Date(Date.now() - PS_RECENT_WINDOW_MS - 60_000);
       store.create(makeSession("count-old", "completed", old));
       store.create(makeSession("count-new", "working", new Date()));
-      expect(store.countTotal()).toBe(2);
-      expect(store.list(50, false)).toHaveLength(1);
+      store.create(makeSession("count-recent", "failed", new Date()));
+      expect(store.countHiddenByWindow()).toBe(1);
+    } finally {
+      db.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("countHiddenByWindow ignores LIMIT truncation", () => {
+    const { dir, db, store } = setup();
+    try {
+      const old = new Date(Date.now() - PS_RECENT_WINDOW_MS - 60_000);
+      store.create(makeSession("trunc-old", "completed", old));
+      store.create(makeSession("trunc-a", "completed", new Date()));
+      store.create(makeSession("trunc-b", "completed", new Date()));
+      // Only 2 of 3 visible rows fit, but hidden counts just the window-excluded one.
+      expect(store.list(2, false)).toHaveLength(2);
+      expect(store.countHiddenByWindow()).toBe(1);
     } finally {
       db.close();
       fs.rmSync(dir, { recursive: true, force: true });

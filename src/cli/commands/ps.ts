@@ -51,6 +51,14 @@ function displayStatus(session: PsSession): string {
   return session.status;
 }
 
+export function psEmptyMessage(all: boolean): string {
+  return all ? "No sessions" : "No sessions in the last 24h (use --all for full history)";
+}
+
+export function formatPsJson(sessions: readonly PsSession[]): string {
+  return JSON.stringify(sessions, null, 2);
+}
+
 export function renderPsTable(sessions: readonly PsSession[]): string {
   const lines = [
     "ID    NAME              AGENT      STATUS        AGE    LAST   LAST EVENT       CWD",
@@ -93,12 +101,12 @@ export function registerPsCommand(program: Command): void {
       const hidden = typeof result.hidden === "number" ? result.hidden : 0;
 
       if (opts.json) {
-        console.log(JSON.stringify({ sessions, hidden }, null, 2));
+        console.log(formatPsJson(sessions));
         return;
       }
 
       if (sessions.length === 0) {
-        console.log("No sessions in the last 24h (use --all for full history)");
+        console.log(psEmptyMessage(!!opts.all));
         return;
       }
 
