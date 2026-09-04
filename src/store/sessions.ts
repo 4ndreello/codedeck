@@ -85,6 +85,9 @@ function rowToSession(row: SessionRow): Session {
   };
 }
 
+/** Window for the default `ps` view: sessions updated within this are "recent". */
+export const PS_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export class SessionStore {
   constructor(private db: DatabaseSync) {}
 
@@ -141,13 +144,26 @@ export class SessionStore {
   }
 
   list(limit = 50, includeAll = false): Session[] {
-    let sql = `SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?`;
-    if (!includeAll) {
-      // Show recent regardless of status, but spec ps shows recent/actives
-      // For now list all
+    if (includeAll) {
+      const rows = this.db.prepare(
+        `SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?`,
+      ).all(limit) as unknown as SessionRow[];
+      return rows.map(rowToSession);
     }
-    const rows = this.db.prepare(sql).all(limit) as unknown as SessionRow[];
+    const cutoff = new Date(Date.now() - PS_RECENT_WINDOW_MS).toISOString();
+    const rows = this.db.prepare(
+      `SELECT * FROM sessions WHERE status IN ('starting','working','needs_input','idle') OR updated_at >= ? ORDER BY updated_at DESC LIMIT ?`,
+    ).all(cutoff, limit) as unknown as SessionRow[];
     return rows.map(rowToSession);
+  }
+
+  /** Rows excluded from the default `ps` view by the 24h window (LIMIT truncation excluded). */
+  countHiddenByWindow(): number {
+    const cutoff = new Date(Date.now() - PS_RECENT_WINDOW_MS).toISOString();
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM sessions WHERE status NOT IN ('starting','working','needs_input','idle') AND updated_at < ?`,
+    ).get(cutoff) as unknown as { count: number };
+    return row.count;
   }
 
   listActive(): Session[] {

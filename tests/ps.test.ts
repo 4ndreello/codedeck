@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderPsTable } from "../src/cli/commands/ps.js";
+import { formatPsJson, psEmptyMessage, renderPsTable } from "../src/cli/commands/ps.js";
 
 function findMissingPid(): number {
   for (let pid = process.pid + 1; pid < process.pid + 10_000; pid++) {
@@ -114,5 +114,18 @@ describe("ps table liveness", () => {
     } finally {
       kill.mockRestore();
     }
+  });
+});
+
+describe("ps output contract", () => {
+  it("suggests --all only in the default view", () => {
+    expect(psEmptyMessage(false)).toBe("No sessions in the last 24h (use --all for full history)");
+    expect(psEmptyMessage(true)).toBe("No sessions");
+  });
+
+  it("keeps --json a bare sessions array", () => {
+    const parsed: unknown = JSON.parse(formatPsJson([session()]));
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(1);
   });
 });
