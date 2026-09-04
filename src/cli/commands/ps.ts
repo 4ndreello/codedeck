@@ -90,18 +90,22 @@ export function registerPsCommand(program: Command): void {
       }
 
       const sessions = result.sessions || [];
+      const hidden = typeof result.hidden === "number" ? result.hidden : 0;
 
       if (opts.json) {
-        console.log(JSON.stringify(sessions, null, 2));
+        console.log(JSON.stringify({ sessions, hidden }, null, 2));
         return;
       }
 
       if (sessions.length === 0) {
-        console.log("No sessions");
+        console.log("No sessions in the last 24h (use --all for full history)");
         return;
       }
 
       // Header and rows share the same fixed-width formatter.
       console.log(renderPsTable(sessions));
+      if (hidden > 0) {
+        console.log(`+${hidden} older hidden — codedeck ps --all`);
+      }
     });
 }
