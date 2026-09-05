@@ -21,6 +21,9 @@ export class Database {
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
+      PRAGMA busy_timeout = 5000;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA wal_autocheckpoint = 1000;
 
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -102,6 +105,11 @@ export class Database {
   }
 
   close(): void {
+    try {
+      this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
+    } catch {
+      // Best-effort: checkpoint must never block closing.
+    }
     this.db.close();
   }
 
