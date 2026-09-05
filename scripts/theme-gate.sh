@@ -26,8 +26,8 @@ fi
 hex="$(node -e '
   const fs = require("node:fs");
   const theme = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  const value = theme.promptBorder ?? theme.colors?.promptBorder;
-  if (!value) { console.error("no promptBorder slot in the theme"); process.exit(1); }
+  const value = theme.overrides?.promptBorder;
+  if (!value) { console.error("no overrides.promptBorder slot in the theme"); process.exit(1); }
   console.log(String(value).replace(/^#/, ""));
 ' "$THEME")"
 

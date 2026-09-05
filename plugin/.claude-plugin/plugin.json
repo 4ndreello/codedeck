@@ -1,0 +1,11 @@
+{
+  "name": "codedeck",
+  "version": "0.1.8",
+  "description": "A focused Claude Code workspace for running and reviewing CodeDeck sessions.",
+  "author": {
+    "name": "CodeDeck"
+  },
+  "experimental": {
+    "themes": "./themes"
+  }
+}
