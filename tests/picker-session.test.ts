@@ -143,3 +143,67 @@ describe("picker session", () => {
     expect(written.join("")).toMatch(/\x1b\[\d+A/);
   });
 });
+
+describe("terminal restoration under a failing write", () => {
+  // Raw mode is on from the second line of setup, and a throw before the loop
+  // used to skip the finally entirely.
+  it("restores raw mode when enabling bracketed paste fails", async () => {
+    const { io, output, rawCalls } = fakeIO();
+    output.write = (() => {
+      throw new Error("EPIPE");
+    }) as typeof output.write;
+
+    await expect(runScreens([screen("a")], io, plain)).rejects.toThrow("EPIPE");
+    expect(rawCalls).toEqual([true, false]);
+  });
+
+  // The closing write is the disposable half of restoring: `codedeck setup | head`
+  // can kill the pipe before it lands, and the tty still has to come back.
+  it("gives raw mode back when only the closing write fails", async () => {
+    const { io, input, output, rawCalls } = fakeIO();
+    drive(input, output, ["\r"]);
+    const real = output.write.bind(output);
+    output.write = ((chunk: string, ...rest: never[]) => {
+      if (String(chunk).includes("\x1b[?2004l")) throw new Error("EPIPE");
+      return real(chunk, ...rest);
+    }) as typeof output.write;
+
+    const results = await runScreens([screen("a")], io, plain);
+
+    expect(results).toEqual([{ kind: "picked", agent: "a", id: "alpha" }]);
+    expect(rawCalls).toEqual([true, false]);
+  });
+});
+
+// The resize repaint is the one path where no key ran to fix the offset.
+describe("resize", () => {
+  it("keeps the cursor on screen after a resize shrinks the viewport", async () => {
+    const { io, input, output, written, resizeListeners } = fakeIO();
+    const many: Screen = {
+      ...screen("a"),
+      known: new Set(),
+      items: Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, label: `m${i}`, group: "g" })),
+    };
+
+    let moves = 0;
+    output.on("data", () =>
+      setImmediate(() => {
+        if (moves < 12) {
+          moves += 1;
+          input.write("\x1b[B");
+        } else if (output.rows !== 10) {
+          output.rows = 10;
+          for (const listener of resizeListeners) listener();
+        } else {
+          input.write("\r");
+        }
+      }),
+    );
+
+    const results = await runScreens([many], io, plain);
+
+    expect(results).toEqual([{ kind: "picked", agent: "a", id: "m12" }]);
+    const frames = written.filter((chunk) => chunk.includes("filtrar"));
+    expect(frames[frames.length - 1]).toContain("\u203a m12");
+  });
+});

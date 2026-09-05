@@ -3,6 +3,7 @@ import { emitKeypressEvents } from "node:readline";
 import {
   applyKey,
   initialState,
+  reanchor,
   type Key,
   type Screen,
   type ScreenResult,
@@ -41,7 +42,12 @@ export async function runScreens(
   const restore = () => {
     if (restored) return;
     restored = true;
-    output.write(`${PASTE_OFF}\n`);
+    try {
+      output.write(`${PASTE_OFF}\n`);
+    } catch {
+      // A dead stdout (EPIPE under `| head`) must not cost the terminal its
+      // cooked mode: the write is the disposable half of restoring.
+    }
     input.setRawMode?.(false);
     input.pause();
   };
@@ -56,17 +62,20 @@ export async function runScreens(
   process.on("exit", onExit);
   process.on("SIGTERM", onSigterm);
 
-  emitKeypressEvents(input);
-  input.setRawMode?.(true);
-  input.resume();
-  output.write(PASTE_ON);
-
   // One frame and one resize listener for the whole run: a listener per screen
   // piled up four of them on a four agent run.
   const frame: Frame = { height: 0, repaint: () => {} };
-  const stopResize = io.onResize?.(() => frame.repaint());
+  let stopResize: (() => void) | undefined;
 
+  // Setup lives inside the try because raw mode is on from its second line: a
+  // throw between there and the loop used to skip the finally entirely.
   try {
+    emitKeypressEvents(input);
+    input.setRawMode?.(true);
+    input.resume();
+    output.write(PASTE_ON);
+    stopResize = io.onResize?.(() => frame.repaint());
+
     for (const screen of screens) {
       const result = await runScreen(screen, io, c, frame);
       results.push(result);
@@ -89,7 +98,12 @@ function runScreen(screen: Screen, io: PickerIO, c: Colors, frame: Frame): Promi
     let state = initialState(screen);
 
     const paint = () => {
-      const lines = renderFrame(state, readDimensions(output), c);
+      const dim = readDimensions(output);
+      // A resize can shrink the viewport under a cursor that was scrolled into
+      // the old one. Reanchoring here covers the repaint the resize triggers,
+      // where no key ran to fix the offset.
+      state = reanchor(state, viewportHeight(state, dim));
+      const lines = renderFrame(state, dim, c);
       // Go up by the previous frame's height and clear from there down, or a
       // smaller frame leaves the bigger one's leftovers on screen.
       const prefix = frame.height > 0 ? `\x1b[${frame.height}A\x1b[0J` : "";
