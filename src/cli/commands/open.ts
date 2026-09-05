@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import * as readline from "node:readline";
+import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 
@@ -56,10 +57,12 @@ function settingsArgument(pluginDir: string, flags: OpenFlags): string {
 
   // Claude accepts an inline settings JSON value. Keep the status line while
   // removing only the theme, without mutating the plugin's shared settings file.
+  // The path is quoted because it is a shell command, and an install under a
+  // directory with a space would otherwise lose the status line.
   return JSON.stringify({
     statusLine: {
       type: "command",
-      command: path.join(pluginDir, "statusline.sh"),
+      command: `bash "${path.join(pluginDir, "statusline.sh")}"`,
     },
   });
 }
@@ -93,6 +96,17 @@ export function buildOpenArgs(
   return args;
 }
 
+/**
+ * Claude honours the last --model on the line and the passthrough is appended
+ * last, so `open --model bad -- --model good` really launches "good". Checking
+ * anything but the last one grounds a launch that would have worked.
+ */
+export function effectiveModel(args: string[]): string | undefined {
+  for (let i = args.length - 1; i > 0; i--) {
+    if (args[i - 1] === "--model") return args[i];
+  }
+}
+
 export function parseRole(input: string | undefined): Role | undefined {
   if (input === undefined) return undefined;
   const normalized = input.trim().toLowerCase();
@@ -120,12 +134,23 @@ function selectRole(): Promise<Role> {
   });
 
   return new Promise<Role>((resolve) => {
+    let settled = false;
+    const finish = (role: Role) => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      resolve(role);
+    };
+
+    // Ctrl+D closes the interface without ever answering the question, so
+    // without this the promise stays pending and the command hangs.
+    rl.once("close", () => finish("general"));
+
     const ask = () => {
       rl.question("Role [general] (general/orchestrator/reviewer): ", (answer) => {
         const role = parseRole(answer || "general");
         if (role) {
-          rl.close();
-          resolve(role);
+          finish(role);
           return;
         }
 
@@ -158,7 +183,11 @@ function resolveRole(input: string | undefined, interactive: boolean): Promise<R
     return Promise.resolve(role);
   }
 
-  if (!interactive || !process.stdout.isTTY) return Promise.resolve("general");
+  // Both streams matter. `tail -f /dev/null | codedeck open` keeps stdout a TTY
+  // while stdin can never answer, and the prompt would wait forever.
+  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return Promise.resolve("general");
+  }
   return selectRole();
 }
 
@@ -172,6 +201,32 @@ interface OpenInvocation {
 // it, so `open -- --print` arrives with "--print" bound to the role argument.
 type CommandWithRawArgs = Command & { rawArgs?: string[] };
 
+/**
+ * Unknown options have to be allowed so the passthrough can carry Claude's own
+ * flags, but that acceptance must stop at the separator. Without this check a
+ * typo in a safety flag is silent: `open --no-bypas` looks like it turned the
+ * permission bypass off and launches with it still on.
+ *
+ * The known set comes from commander's own registry, so it cannot drift from
+ * the options actually declared.
+ */
+function assertOnlyKnownOptions(tokens: string[], command: Command): void {
+  const known = new Set(["-h", "--help"]);
+  for (const option of command.options) {
+    if (option.short) known.add(option.short);
+    if (option.long) known.add(option.long);
+  }
+
+  for (const token of tokens) {
+    if (!token.startsWith("-") || token === "-") continue;
+    const name = token.split("=")[0];
+    if (known.has(name)) continue;
+    throw new Error(
+      `Unknown option "${name}" for codedeck open. Options for Claude go after "--".`,
+    );
+  }
+}
+
 function getInvocation(command: Command, roleArg: string | undefined): OpenInvocation {
   const rawArgs = (command.parent as CommandWithRawArgs | null)?.rawArgs ?? [];
   // Searching forward from the executable and script entries, never backwards:
@@ -182,6 +237,7 @@ function getInvocation(command: Command, roleArg: string | undefined): OpenInvoc
 
   if (separatorIndex >= 0) {
     const beforeSeparator = rawArgs.slice(commandIndex + 1, separatorIndex);
+    assertOnlyKnownOptions(beforeSeparator, command);
     const explicitRole = roleArg !== undefined && !roleArg.startsWith("-") && beforeSeparator.includes(roleArg)
       ? roleArg
       : undefined;
@@ -191,6 +247,7 @@ function getInvocation(command: Command, roleArg: string | undefined): OpenInvoc
     };
   }
 
+  assertOnlyKnownOptions(commandIndex >= 0 ? rawArgs.slice(commandIndex + 1) : [], command);
   const parsedArgs = command.args.slice();
   if (roleArg !== undefined && parsedArgs[0] === roleArg) {
     parsedArgs.shift();
@@ -360,6 +417,18 @@ function relayStderr(child: ChildProcess, output: { value: string }): void {
 }
 
 /**
+ * A signalled death carries no exit code, and collapsing it to 1 tells a caller
+ * the session failed rather than that it was killed. Shells report this as
+ * 128 plus the signal number, so Ctrl+C stays 130 and a SIGKILL stays 137.
+ */
+export function exitCodeFor(code: number | null, signal: NodeJS.Signals | null): number {
+  if (code !== null) return code;
+  if (!signal) return 1;
+  const number = constants.signals[signal];
+  return typeof number === "number" ? 128 + number : 1;
+}
+
+/**
  * The catalog knows which models exist, not which ones this account may use, so
  * an entitlement problem can only be read off the launch itself. Claude Code
  * reports it as a tagged error rather than a distinct exit code.
@@ -414,7 +483,7 @@ function launchClaude(claudeBin: string, model: string, args: string[], cwd: str
         return;
       }
 
-      process.exitCode = signal ? 1 : (code ?? 1);
+      process.exitCode = exitCodeFor(code, signal);
       resolve();
     });
   });
@@ -450,8 +519,9 @@ export function registerOpenCommand(program: Command): void {
         config = await runModelSetupWizard({ config });
       }
 
-      const model = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
-      const args = buildOpenArgs(role, { ...opts, model }, pluginDir, invocation.passthrough);
+      const resolved = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
+      const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
+      const model = effectiveModel(args) ?? resolved;
 
       await preflightModel(model);
       const claudeBin = await resolveClaudeBinary();

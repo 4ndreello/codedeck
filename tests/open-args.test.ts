@@ -1,14 +1,18 @@
 import path from "node:path";
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import type { HarnessModels } from "../src/core/models.js";
 import {
   ROLES,
   buildOpenArgs,
+  effectiveModel,
   entitlementError,
+  exitCodeFor,
   isNonInteractiveLaunch,
   judgeModel,
   parseRole,
+  registerOpenCommand,
   renderBanner,
   resolvePluginDir,
   sanitizeEnv,
@@ -84,10 +88,19 @@ describe("open command argument builder", () => {
     expect(settings).toEqual({
       statusLine: {
         type: "command",
-        command: "/opt/codedeck/plugin/statusline.sh",
+        command: 'bash "/opt/codedeck/plugin/statusline.sh"',
       },
     });
     expect(args).not.toContain("--agent");
+  });
+
+  // statusLine.command is a shell command, so an install under a directory with
+  // a space silently loses the status line if the path is not quoted.
+  it("quotes the statusline path so a space cannot split it", () => {
+    const args = buildOpenArgs("general", { theme: false }, "/opt/Code Deck/plugin", []);
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
+
+    expect(settings.statusLine.command).toBe('bash "/opt/Code Deck/plugin/statusline.sh"');
   });
 });
 
@@ -142,6 +155,69 @@ describe("non-interactive launch detection", () => {
   it("does not mistake a prompt that merely mentions the flag for the flag", () => {
     expect(isNonInteractiveLaunch(["explain --print to me"])).toBe(false);
     expect(isNonInteractiveLaunch(["--printer"])).toBe(false);
+  });
+});
+
+describe("effective model", () => {
+  it("takes the last --model, which is the one claude honours", () => {
+    const args = buildOpenArgs("general", { model: "resolved" }, "/p", ["--model", "override"]);
+
+    expect(effectiveModel(args)).toBe("override");
+  });
+
+  it("falls back to the resolved one when the passthrough carries none", () => {
+    const args = buildOpenArgs("general", { model: "resolved" }, "/p", ["--print"]);
+
+    expect(effectiveModel(args)).toBe("resolved");
+  });
+
+  it("reports nothing when no --model has a value after it", () => {
+    expect(effectiveModel([])).toBeUndefined();
+    expect(effectiveModel(["--model"])).toBeUndefined();
+  });
+});
+
+// Collapsing a signalled death to 1 tells the caller the session failed when it
+// was actually killed. Shells report 128 plus the signal number.
+describe("exit code", () => {
+  it("passes a real exit code through, zero included", () => {
+    expect(exitCodeFor(0, null)).toBe(0);
+    expect(exitCodeFor(2, null)).toBe(2);
+  });
+
+  it("maps a signal to the conventional 128 plus its number", () => {
+    expect(exitCodeFor(null, "SIGINT")).toBe(130);
+    expect(exitCodeFor(null, "SIGKILL")).toBe(137);
+    expect(exitCodeFor(null, "SIGTERM")).toBe(143);
+  });
+
+  it("falls back to 1 when there is neither", () => {
+    expect(exitCodeFor(null, null)).toBe(1);
+  });
+});
+
+// Unknown options must reach claude through the passthrough, but accepting them
+// before the separator makes a typo in a safety flag silent: `--no-bypas` looked
+// like it disabled the permission bypass and launched with it still on.
+describe("unknown options before the separator", () => {
+  const run = (argv: string[]) => {
+    const program = new Command();
+    program.name("codedeck").exitOverride();
+    registerOpenCommand(program);
+    return program.parseAsync(["node", "codedeck", ...argv]);
+  };
+
+  it("rejects a misspelled option instead of ignoring it", async () => {
+    await expect(run(["open", "--no-bypas", "--", "--print"])).rejects.toThrow(/--no-bypas/);
+    await expect(run(["open", "--modl", "x", "--", "--print"])).rejects.toThrow(/--modl/);
+  });
+
+  it("rejects it even without a separator", async () => {
+    await expect(run(["open", "--no-bypas"])).rejects.toThrow(/--no-bypas/);
+  });
+
+  it("says where Claude's own options belong", async () => {
+    await expect(run(["open", "--no-bypas", "--", "-p"])).rejects.toThrow(/after "--"/);
   });
 });
 
