@@ -91,9 +91,11 @@ claude -p "List the exact names of every tool you can call, one per line, nothin
 
 ## What a fan-out slice costs
 
-`plugin/agents/auditor.md` tells the auditor to prefer native subagents over
-separate CodeDeck workers, on the grounds that a worker reads everything again
-from nothing. Half of that was wrong, so here is the measurement.
+`plugin/agents/auditor.md` used to tell the auditor to prefer native subagents
+over separate CodeDeck workers, because they share this session's context
+while a worker reads everything again from nothing. Both halves were wrong,
+and the cost gap that was supposed to back them is not measurable from what
+the two harnesses recorded. Here is what the attempt actually produced.
 
 One review task, dispatched two ways at the same time. Identical prompt: read
 `visibleWidth`, `charWidth` and `truncate` in `src/cli/ui.ts`, report every
@@ -104,28 +106,40 @@ test suite, close with what was not covered.
 | --- | --- | --- |
 | Mechanism | `Agent`, general-purpose | `run --no-worktree --bg`, session `32e2` |
 | Model | `claude-sonnet-5` | `claude-sonnet-4-6` |
-| Tokens | 57,512 | 208,266 (58 in, 189,912 cached, 18,296 out) |
+| Input | 12 | 58 |
+| Cache written | 51,147 | 46,610 |
+| Cache read | 224,057 | 189,912 |
+| Output | 115 | 18,296 |
 | Wall clock | 189 s | 329 s |
-| Reported cost | not broken out | $0.61 |
+| API calls | 6 | 7 turns |
+| Reported cost | none | $0.61 |
 | Findings | none | 3 |
 
-The worker used 3.6x the tokens and 1.7x the wall clock.
+**No cost comparison survives this.** The worker's column is one itemized
+record from the CodeDeck store and it adds up: 254,876 tokens for $0.6112. The
+subagent's column does not. Its completion notification reports 57,512
+`subagent_tokens`; summing every `usage` object in its own output file gives
+464,514; collapsing the pairs that repeat verbatim gives the 275,331 tabulated
+above, whose 115 output tokens cannot be right for the report it actually
+wrote. Three numbers, no way to tell which is comparable to 254,876. Anyone
+who needs that ratio has to measure it again with both arms instrumented the
+same way.
 
-Three things to hold on to before quoting either number. The models differ, so
-this measures the pair, not the mechanism on its own. The worker's total is
-itemized and the subagent's is not, so if `subagent_tokens` excludes cache
-reads while 208,266 includes 189,912 of them, the 3.6x is not like for like,
-and nothing in the harness output settles that. And there is no cost ratio
-here at all: only one arm reported a price.
+What the columns do carry, because they are structural rather than summed:
 
-Two things it does settle:
+**Neither arm shared this session's context.** The subagent's first call was
+35,334 tokens of cache creation against zero cache reads. It started from
+nothing, which is what a general-purpose `Agent` does: only `subagent_type:
+"fork"` inherits the parent conversation. The auditor prompt's "they share
+this session's context" was wrong about the subagent type it would dispatch.
 
-**A separate worker is not cold.** 189,912 of its 208,266 total tokens were
-cache reads, 91%, and as a share of input alone it is 99.97%. What it pays for
-is a large prompt that is mostly cached, not a re-read from scratch. The
-auditor prompt's "from nothing" was wrong.
+**The worker is not cold either.** 189,912 of its 236,580 prompt tokens were
+cache reads, 80%. Its first request already read 35,333 from cache, the shared
+static head. What it pays for is a large prompt that is mostly cached, not a
+re-read from scratch, so the auditor prompt's "from nothing" was wrong too. It
+was wrong about both arms in opposite directions.
 
-**The cheaper arm found less.** The subagent reported no defect. It noticed
+**The arm that returned nothing was the subagent.** It reported no defect. It noticed
 that the `WIDE` table omits the pictograph block around U+2600-U+2BFF and
 declined to call it a defect, since the comment above the table disclaims
 completeness. The worker made the analogous call the other way and reported
@@ -145,10 +159,11 @@ points against Unicode 16.0 East Asian Width:
 | **whole range** | **490** | **77** |
 
 So 77 of the 490 assigned code points the finding names are genuinely missing
-from the table, 16%, and the other 84% belong exactly where they are. The arm
-that cost 3.6x returned a real gap wrapped in an over-broad claim, and the
-cheap arm returned nothing to check. One sample, and the split is worth
-knowing before spending on either.
+from the table, 16%, and the other 84% belong exactly where they are. So the
+worker returned a real gap wrapped in an over-broad claim, and the subagent
+returned nothing to check. One sample, on two different models, and with no
+usable cost figure on one side, so it says which arm found the defect here and
+nothing about which arm to reach for next time.
 
 Anyone writing that fix should take the counted rows and not the range: the 11
 squared latin ones (🆎 through 🆚) are the easiest to hit by accident and sit

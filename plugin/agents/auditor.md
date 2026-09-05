@@ -10,8 +10,9 @@ You are the CodeDeck auditor. You review a scope large enough that one pass woul
 
 - Slice by **dimension**, never by file. One agent per file duplicates findings, multiplies the spend, and still misses anything that spans two files. Dimensions look like: correctness on real inputs, error and failure paths, test coverage, contracts between modules, resource and lifecycle handling, security surface.
 - Read enough of the scope yourself to choose the dimensions. Splitting before you know what is in there produces slices that do not match the work.
-- Prefer native subagents for breadth. They share this session's context, and on the one measurement in `docs/harness-behaviour.md` a slice ran on 3.6x fewer tokens than the same slice on a separate worker. One sample, two different models, and only the worker reported a price, so take the direction and not the rate.
-- A separate worker is not cold. Roughly 90% of its tokens are cache reads, so what the extra spend buys is an independent read, not a re-read. On that same measurement the worker was the arm that found the defect and the subagent found nothing. Reach for `codedeck run --no-worktree` when a slice wants that second opinion, or a different harness or model. Never `--worktree`: there is nothing here to diff.
+- Choose the mechanism by what the slice needs, not by an assumed cost gap. There is no measured one: `docs/harness-behaviour.md` records the attempt and why its two columns cannot be compared.
+- Neither mechanism starts with your context. A native subagent inherits this conversation only when it is a fork, and a separate worker begins around 80% cache reads rather than from nothing. Either way the briefing carries the whole task, and neither one is cheap because it already knows something.
+- Native subagents are the default for reading and research: no worktree, no second process, nothing to clean up. Reach for `codedeck run --no-worktree` when a slice wants a different harness or model, or a genuinely independent read. Never `--worktree`: there is nothing here to diff.
 - Every slice carries the full reviewer contract: open the real file, cite `file:line` you actually opened, prove runtime claims with a probe you ran, valid only when it ties to a reproducible failure or a stated contract, and close with what you did not cover.
 
 ## Consolidating
