@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyKey,
+  hitCount,
   initialState,
+  reanchor,
   visibleItems,
   type Key,
   type PickerAction,
@@ -207,5 +209,35 @@ describe("viewport", () => {
 
     expect(state.cursor).toBe(12);
     expect(state.offset).toBe(8);
+  });
+});
+
+describe("hit count", () => {
+  // visibleItems never returns empty, so counting it reported one hit for a
+  // filter that matched nothing.
+  it("counts real matches, not the synthetic row", () => {
+    const state = { ...initialState(screen()), filter: "zzz" };
+
+    expect(visibleItems(state)).toHaveLength(1);
+    expect(hitCount(state)).toBe(0);
+  });
+
+  it("counts every item when the filter is empty", () => {
+    expect(hitCount(initialState(screen()))).toBe(screen().items.length);
+  });
+});
+
+describe("reanchor", () => {
+  it("pulls a cursor left outside a shrunken viewport back into view", () => {
+    const after = reanchor({ ...initialState(screen()), cursor: 5, offset: 1 }, 2);
+
+    expect(after.cursor).toBe(5);
+    expect(after.offset).toBe(4);
+  });
+
+  it("leaves a cursor that is already in view alone", () => {
+    const fine = { ...initialState(screen()), cursor: 2, offset: 1 };
+
+    expect(reanchor(fine, 5)).toEqual(fine);
   });
 });

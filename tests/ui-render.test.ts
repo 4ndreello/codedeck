@@ -135,3 +135,47 @@ describe("frame", () => {
     expect(viewportHeight(initialState(catalog()), short)).toBeGreaterThan(0);
   });
 });
+
+describe("frame height", () => {
+  // Six providers means six headers, and budgeting by item alone let the frame
+  // outgrow the screen. The redraw then walked up fewer lines than it printed.
+  const dense = () =>
+    catalog({
+      items: ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"].map((group, i) => ({
+        id: `${group}/${i}`,
+        label: `${group}/${i}`,
+        group,
+      })),
+    });
+
+  it.each([8, 9, 12, 15, 24])("draws no more lines than the %i row terminal has", (rows) => {
+    expect(renderFrame(initialState(dense()), { rows, columns: 80 }, plain).length).toBeLessThanOrEqual(
+      rows,
+    );
+  });
+
+  // The header is the first thing to give up: a list with no items reads worse
+  // than one with no group labels.
+  it("still lists an item when the budget cannot hold its header too", () => {
+    const dim = { rows: 8, columns: 80 };
+
+    expect(viewportHeight(initialState(dense()), dim)).toBeGreaterThan(0);
+    expect(renderFrame(initialState(dense()), dim, plain).join("\n")).toContain("alpha/0");
+  });
+
+  // The logo brings its own trailing blank, so counting two was one too many.
+  it("counts the blank above the filter once", () => {
+    const dim = { rows: 40, columns: 80 };
+    const empty = initialState(catalog({ items: [] }));
+
+    // An empty catalog renders its chrome plus the single synthetic row.
+    expect(renderFrame(empty, dim, plain).length).toBe(chromeHeight(empty, dim) + 1);
+  });
+
+  it("reports zero hits when the filter matches nothing", () => {
+    const text = renderFrame(press(catalog(), "z"), { rows: 40, columns: 80 }, plain).join("\n");
+
+    expect(text).toContain("0 de 3");
+    expect(text).toContain('usar "z" como id');
+  });
+});

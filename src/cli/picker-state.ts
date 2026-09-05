@@ -57,6 +57,17 @@ function matches(item: PickerItem, filter: string): boolean {
   return item.label.toLowerCase().includes(filter) || item.id.toLowerCase().includes(filter);
 }
 
+/**
+ * Real catalog matches, which is not `visibleItems().length`: that one never
+ * returns empty, so counting it reported one hit for a filter that matched
+ * nothing.
+ */
+export function hitCount(state: PickerState): number {
+  const filter = state.filter.trim().toLowerCase();
+  if (!filter) return state.screen.items.length;
+  return state.screen.items.filter((item) => matches(item, filter)).length;
+}
+
 export function visibleItems(state: PickerState): PickerItem[] {
   const filter = state.filter.trim().toLowerCase();
   const hits = filter ? state.screen.items.filter((item) => matches(item, filter)) : state.screen.items;
@@ -72,6 +83,15 @@ export function visibleItems(state: PickerState): PickerItem[] {
 function scrolled(state: PickerState, cursor: number, viewport: number): PickerState {
   const offset = Math.min(state.offset, cursor);
   return { ...state, cursor, offset: Math.max(offset, cursor - viewport + 1) };
+}
+
+/**
+ * Pulls the cursor back into view without moving it. A resize can shrink the
+ * viewport under a cursor that was scrolled into the old one, and the frame
+ * then rendered a window the cursor was not in.
+ */
+export function reanchor(state: PickerState, viewport: number): PickerState {
+  return scrolled(state, state.cursor, viewport);
 }
 
 const none = (state: PickerState): { state: PickerState; action: PickerAction } => ({
