@@ -1,7 +1,8 @@
-import { detectBinary } from "../helpers.js";
+import { detectBinary, extractCleanJson, runCommandWithTimeout } from "../helpers.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
+import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
 import { classifyFailure } from "../../core/errors.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
@@ -305,4 +306,68 @@ export class OmpDriver extends SessionDriver {
     }
     return { installed: true, path: res.path, version: res.version, details: "omp -p --mode json" };
   }
+
+  async listModels(options?: ListModelsOptions): Promise<ProviderModels[]> {
+    const install = await this.detect();
+    if (!install.installed || !install.path) return [];
+
+    try {
+      if (options?.refresh) {
+        try {
+          await runCommandWithTimeout(install.path, ["models", "refresh"], { timeoutMs: 10000 });
+        } catch {}
+      }
+
+      const stdout = await runCommandWithTimeout(install.path, ["models", "--json"], {
+        timeoutMs: 12000,
+        maxBuffer: 15 * 1024 * 1024,
+      });
+
+      const data = extractCleanJson<{ models?: any[] }>(stdout);
+      if (!data || !Array.isArray(data.models)) return [];
+
+      const providerMap = new Map<string, ModelInfo[]>();
+
+      for (const m of data.models) {
+        if (!m) continue;
+        const provider = m.provider || "omp";
+        const id = m.selector || m.id;
+        if (!id) continue;
+
+        if (!providerMap.has(provider)) {
+          providerMap.set(provider, []);
+        }
+
+        const thinkingLevels: string[] = Array.isArray(m.thinking) ? m.thinking : [];
+
+        providerMap.get(provider)!.push({
+          id,
+          name: m.name || id,
+          provider,
+          contextWindow: typeof m.contextWindow === "number" ? m.contextWindow : undefined,
+          maxOutputTokens: typeof m.maxTokens === "number" ? m.maxTokens : undefined,
+          reasoningEfforts: thinkingLevels.length > 0 ? thinkingLevels : undefined,
+          supportsThinking: Boolean(m.reasoning || thinkingLevels.length > 0),
+          cost:
+            m.cost && typeof m.cost.input === "number" && typeof m.cost.output === "number"
+              ? { input: m.cost.input, output: m.cost.output }
+              : undefined,
+        });
+      }
+
+      const result: ProviderModels[] = [];
+      for (const [provider, models] of providerMap.entries()) {
+        result.push({
+          provider,
+          displayName: provider.charAt(0).toUpperCase() + provider.slice(1),
+          models,
+        });
+      }
+
+      return result;
+    } catch {
+      return [];
+    }
+  }
 }
+

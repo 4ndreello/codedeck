@@ -32,13 +32,15 @@ export function getPaths() {
     daemonLog: path.join(base, "daemon.log"),
     logsDir: path.join(base, "logs"),
     worktreesDir: path.join(base, "worktrees"),
+    cacheDir: path.join(base, "cache"),
+    modelsCache: path.join(base, "cache", "models.json"),
     configFile: path.join(configBase, "config.json"),
   };
 }
 
 export function ensureDirs(): void {
   const p = getPaths();
-  for (const dir of [p.base, p.logsDir, p.worktreesDir, path.dirname(p.configFile)]) {
+  for (const dir of [p.base, p.logsDir, p.worktreesDir, p.cacheDir, path.dirname(p.configFile)]) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }

@@ -1,6 +1,7 @@
 import type { AgentCapabilities } from "./capabilities.js";
 import type { AgentEvent } from "./events.js";
 import type { AgentId } from "./session.js";
+import type { ListModelsOptions, ProviderModels } from "./models.js";
 
 export interface AgentInstallation {
   installed: boolean;
@@ -82,6 +83,7 @@ export interface AgentDriver {
   detect(): Promise<AgentInstallation>;
 
   capabilities(): AgentCapabilities;
+  listModels?(options?: ListModelsOptions): Promise<ProviderModels[]>;
 
   start(options: StartOptions): Promise<DriverSession>;
 

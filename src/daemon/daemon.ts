@@ -21,6 +21,7 @@ import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
 import { classifyFailure, type FailureInfo } from "../core/errors.js";
+import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -51,6 +52,20 @@ class Daemon {
   // whole life when the binary exists; killed after TRUNCATE in the drain.
   private inhibitChild: ChildProcess | null = null;
   private inhibitExitHookInstalled = false;
+  private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
+
+  private async fetchModels(agent?: AgentId, refresh?: boolean): Promise<HarnessModels[]> {
+    const key = `${agent || "all"}:${Boolean(refresh)}`;
+    const existing = this.inFlightModels.get(key);
+    if (existing) return existing;
+
+    const promise = getCachedOrDiscoverModels(this.registry, { agent, refresh }).finally(() => {
+      this.inFlightModels.delete(key);
+    });
+
+    this.inFlightModels.set(key, promise);
+    return promise;
+  }
 
   constructor() {
     ensureDirs();
@@ -636,6 +651,17 @@ class Daemon {
             },
           },
         });
+        break;
+      }
+
+      case "models.list": {
+        const p = (params || {}) as { agent?: AgentId; refresh?: boolean };
+        if (p.agent && !this.registry.has(p.agent)) {
+          send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${p.agent}` } });
+          return;
+        }
+        const agents = await this.fetchModels(p.agent, p.refresh);
+        send({ result: { agents } });
         break;
       }
 

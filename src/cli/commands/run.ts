@@ -6,6 +6,7 @@ import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from ".
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type Session } from "../../core/session.js";
+import { findClosestModel, loadDiskModelsCache } from "../../core/models.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -83,6 +84,34 @@ Resume with: codedeck send <id> "continue"
       }
       if (dangerouslyBypass && agent !== "codex") {
         console.error(`Warning: --dangerously-bypass-approvals-and-sandbox has no effect on ${agent} (only codex); continuing without it.`);
+      }
+
+      if (opts.model) {
+        const cached = loadDiskModelsCache();
+        if (cached && Array.isArray(cached)) {
+          const harnessData = cached.find((h) => h.agent === agent);
+          if (harnessData && harnessData.providers.length > 0) {
+            const knownIds: string[] = [];
+            for (const p of harnessData.providers) {
+              for (const m of p.models) {
+                knownIds.push(m.id);
+                if (m.aliases) knownIds.push(...m.aliases);
+              }
+            }
+            if (!knownIds.includes(opts.model)) {
+              const suggestion = findClosestModel(opts.model, knownIds);
+              if (suggestion) {
+                console.error(
+                  `Warning: Model "${opts.model}" is not recognized for agent "${agent}". Did you mean "${suggestion}"? Continuing anyway...`,
+                );
+              } else {
+                console.error(
+                  `Warning: Model "${opts.model}" is not in known catalog for agent "${agent}". Continuing anyway...`,
+                );
+              }
+            }
+          }
+        }
       }
 
       const client = new IpcClient();
