@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -105,3 +106,110 @@ export function safeJsonParse(s: string): unknown | null {
     return null;
   }
 }
+
+/**
+ * Extracts and parses JSON even if output contains banners (e.g. from mise, asdf, shell inits)
+ * before or after the JSON payload.
+ */
+export function extractCleanJson<T>(raw: string): T {
+  const trimmed = raw.trim();
+
+  // Try direct parse first
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {}
+
+  // Look for JSON object or array candidates
+  const startCandidates: { idx: number; char: string }[] = [];
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === "{" || ch === "[") {
+      startCandidates.push({ idx: i, char: ch });
+    }
+  }
+
+  // First pass: look for balanced JSON structures by scanning forward with a bracket stack
+  for (const { idx } of startCandidates) {
+    const stack: string[] = [];
+    let inString = false;
+    let escape = false;
+
+    for (let i = idx; i < trimmed.length; i++) {
+      const c = trimmed[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (c === "\\") {
+        if (inString) escape = true;
+        continue;
+      }
+      if (c === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (c === "{" || c === "[") {
+        stack.push(c);
+      } else if (c === "}" || c === "]") {
+        if (stack.length === 0) break;
+        const top = stack[stack.length - 1];
+        if ((c === "}" && top === "{") || (c === "]" && top === "[")) {
+          stack.pop();
+          if (stack.length === 0) {
+            const candidate = trimmed.slice(idx, i + 1);
+            try {
+              return JSON.parse(candidate) as T;
+            } catch {}
+            break;
+          }
+        } else {
+          break; // Mismatched brackets
+        }
+      }
+    }
+  }
+
+  // Second pass fallback: lastIndexOf
+  for (const { idx, char } of startCandidates) {
+    const closingChar = char === "{" ? "}" : "]";
+    const lastIdx = trimmed.lastIndexOf(closingChar);
+    if (lastIdx > idx) {
+      const candidate = trimmed.slice(idx, lastIdx + 1);
+      try {
+        return JSON.parse(candidate) as T;
+      } catch {}
+    }
+  }
+
+  throw new Error(`Failed to locate valid JSON envelope in CLI output: ${trimmed.slice(0, 100)}`);
+}
+
+export interface RunCommandOptions {
+  timeoutMs?: number;
+  maxBuffer?: number;
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+}
+
+export async function runCommandWithTimeout(
+  cmd: string,
+  args: string[],
+  opts?: RunCommandOptions,
+): Promise<string> {
+  const { stdout } = await execFileAsync(cmd, args, {
+    cwd: opts?.cwd ?? os.tmpdir(),
+    timeout: opts?.timeoutMs ?? 10000,
+    maxBuffer: opts?.maxBuffer ?? 10 * 1024 * 1024,
+    env: {
+      ...process.env,
+      MISE_QUIET: "1",
+      NO_COLOR: "1",
+      CI: "1",
+      ...opts?.env,
+    },
+  });
+  return stdout;
+}
+

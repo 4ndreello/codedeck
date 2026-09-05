@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { detectBinary } from "../helpers.js";
+import { detectBinary, extractCleanJson, runCommandWithTimeout } from "../helpers.js";
 import { parseCodexLine } from "./parser.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { CodexSandbox } from "../../core/driver.js";
+import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Arg building is a pure function so the flag spellings can be tested without
@@ -112,4 +113,45 @@ export class CodexDriver extends SessionDriver {
     } catch {}
     return { installed: true, path: res.path, version: res.version, authenticated, details: "codex exec --json" };
   }
+
+  async listModels(_options?: ListModelsOptions): Promise<ProviderModels[]> {
+    const install = await this.detect();
+    if (!install.installed || !install.path) return [];
+
+    try {
+      const stdout = await runCommandWithTimeout(install.path, ["debug", "models"], {
+        timeoutMs: 8000,
+      });
+      const data = extractCleanJson<{ models?: any[] }>(stdout);
+      if (!data || !Array.isArray(data.models)) return [];
+
+      const models: ModelInfo[] = data.models
+        .filter((m) => m && m.slug && m.visibility !== "hide")
+        .map((m) => ({
+          id: m.slug,
+          name: m.display_name || m.slug,
+          provider: "openai",
+          description: m.description,
+          contextWindow: typeof m.max_context_window === "number" ? m.max_context_window : undefined,
+          reasoningEfforts: Array.isArray(m.supported_reasoning_levels)
+            ? m.supported_reasoning_levels.map((l: any) => l.effort).filter(Boolean)
+            : undefined,
+          supportsThinking: Boolean(
+            Array.isArray(m.supported_reasoning_levels) && m.supported_reasoning_levels.length > 0,
+          ),
+          isDefault: m.slug === "gpt-5" || m.priority === 1,
+        }));
+
+      return [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          models,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  }
 }
+

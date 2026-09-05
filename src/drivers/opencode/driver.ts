@@ -1,7 +1,8 @@
-import { detectBinary } from "../helpers.js";
+import { detectBinary, runCommandWithTimeout } from "../helpers.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
+import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
 import { classifyFailure } from "../../core/errors.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
@@ -163,4 +164,52 @@ export class OpencodeDriver extends SessionDriver {
     if (!res.installed) return { installed: false, error: "opencode binary not found" };
     return { installed: true, path: res.path, version: res.version, details: "opencode run --format json" };
   }
+
+  async listModels(options?: ListModelsOptions): Promise<ProviderModels[]> {
+    const install = await this.detect();
+    if (!install.installed || !install.path) return [];
+
+    try {
+      const args = options?.refresh ? ["models", "--refresh"] : ["models"];
+      const stdout = await runCommandWithTimeout(install.path, args, { timeoutMs: 10000 });
+      const lines = stdout.split("\n");
+
+      const providerMap = new Map<string, ModelInfo[]>();
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#") || line.startsWith("[") || line.startsWith("─")) continue;
+
+        const match = line.match(/^([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_.:/-]+)$/);
+        if (!match) continue;
+
+        const provider = match[1];
+        const modelName = match[2];
+
+        if (!providerMap.has(provider)) {
+          providerMap.set(provider, []);
+        }
+
+        providerMap.get(provider)!.push({
+          id: line, // e.g. "opencode/gemini-3.8-flash"
+          name: modelName,
+          provider,
+        });
+      }
+
+      const result: ProviderModels[] = [];
+      for (const [provider, models] of providerMap.entries()) {
+        result.push({
+          provider,
+          displayName: provider.charAt(0).toUpperCase() + provider.slice(1),
+          models,
+        });
+      }
+
+      return result;
+    } catch {
+      return [];
+    }
+  }
 }
+

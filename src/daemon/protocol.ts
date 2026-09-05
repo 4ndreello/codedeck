@@ -1,6 +1,7 @@
 import type { AgentId, Session } from "../core/session.js";
 import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
+import type { HarnessModels } from "../core/models.js";
 
 export type RequestMethod =
   | "session.create"
@@ -13,7 +14,8 @@ export type RequestMethod =
   | "session.subscribe"
   | "daemon.status"
   | "daemon.stop"
-  | "doctor";
+  | "doctor"
+  | "models.list";
 
 export interface RunOptions {
   prompt: string;
@@ -75,6 +77,15 @@ export interface DaemonStatusRequest {
   params: Record<string, never>;
 }
 
+export interface ListModelsRequest {
+  method: "models.list";
+  params: { agent?: AgentId; refresh?: boolean };
+}
+
+export interface ListModelsResult {
+  agents: HarnessModels[];
+}
+
 export type RequestParams =
   | CreateSessionRequest
   | ListSessionsRequest
@@ -84,7 +95,8 @@ export type RequestParams =
   | LogsSessionRequest
   | DiffSessionRequest
   | SubscribeSessionRequest
-  | DaemonStatusRequest;
+  | DaemonStatusRequest
+  | ListModelsRequest;
 
 export interface IpcRequest {
   id: string;
