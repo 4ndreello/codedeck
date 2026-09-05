@@ -34,3 +34,37 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+  plugin:
+    # The plugin ships inside the package, so a broken manifest is a broken
+    # release. `plugin validate` covers the manifest and agent frontmatter,
+    # but NOT themes: a theme file containing invalid JSON passes it without
+    # a word, which is why tests/plugin-manifest.test.ts pins the theme
+    # spellings separately and runs in the job above.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install the claude CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Validate the plugin manifest
+        run: claude plugin validate --strict plugin/
+
+      - name: Theme render gate
+        # The only real theme check is launching a session and grepping the
+        # output for the colour code, which needs an authenticated claude.
+        # Public CI has no credential, so this is skipped loudly rather than
+        # reported as a pass it never earned.
+        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: ./scripts/theme-gate.sh
+
+      - name: Theme render gate skipped
+        if: ${{ secrets.ANTHROPIC_API_KEY == '' }}
+        run: echo "::warning title=Theme gate skipped::No ANTHROPIC_API_KEY, the theme spelling was not verified against a real launch."

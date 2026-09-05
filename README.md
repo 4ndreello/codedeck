@@ -81,6 +81,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 | Command | Description |
 |---------|-------------|
+| `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
@@ -90,6 +91,28 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
 | `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
 | `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
+
+## Open
+
+`codedeck open` launches Claude Code already configured: the CodeDeck plugin, an appended system prompt, Opus 4.8 at `xhigh` effort, and permissions bypassed. Nothing is written to `~/.claude/`; the plugin is loaded for that session only, from the installed package.
+
+```bash
+npx codedeck open              # asks which role, defaults to general
+npx codedeck open reviewer     # straight into a role
+npx codedeck open -- --add-dir ../other-repo   # anything after -- goes to claude verbatim
+```
+
+Three roles, and the restriction is a tool allowlist rather than an instruction:
+
+| Role | Can write? | For |
+|------|-----------|-----|
+| `general` | yes | ordinary work |
+| `orchestrator` | no `Edit`/`Write`, keeps `Bash` | conducting work, delegating writes to `codedeck run` |
+| `reviewer` | no `Edit`/`Write`/`Bash` | reading and judging, structurally unable to edit |
+
+The `reviewer` restriction holds even with permissions bypassed, because a tool allowlist is orthogonal to permission bypass. The `orchestrator` keeps `Bash`, so its boundary is only partly enforced: with `Bash` it can still write by redirection, and the rest rests on the prompt.
+
+`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
 
 ## Session
 

@@ -151,6 +151,31 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 ---
 
+### P2: Config de modelo por agente, com wizard na primeira execução
+
+**User Story**: As a dev que usa mais de um harness, I want escolher uma vez qual modelo cada agente usa so that eu não repita `--model` em todo `codedeck run` nem fique preso ao default de outra pessoa.
+
+**Why P2**: Não bloqueia o launcher, mas é o que faz o despacho paralelo parar de ser digitação repetida. Depende do catálogo de modelos, que já existe na `main`.
+
+**Escopo**: a config é do CodeDeck inteiro e serve principalmente o `codedeck run`, que despacha nos quatro harnesses. O `open` só é o gatilho conveniente da primeira vez. **O `open` continua abrindo só Claude Code**: `--plugin-dir`, `--append-system-prompt-file`, `--agent` e tema não têm equivalente em codex, opencode ou omp, então abrir sessão nesses harnesses seria outra feature e está fora daqui.
+
+**Acceptance Criteria** (each line is one EARS pattern):
+
+1. The `RunAgentConfig` SHALL ganhar `models` como mapa parcial de `AgentId` pra id de modelo, preservando `defaultModel` como fallback pra quem já tem config <!-- ubiquitous --> `OPEN-21`
+2. WHEN o `open` roda E o arquivo de config não existe ou não tem `models` E o stdout é TTY THEN o CodeDeck SHALL rodar o wizard antes de abrir a sessão <!-- event-driven --> `OPEN-22`
+3. IF o stdout não é TTY THEN o CodeDeck SHALL pular o wizard e seguir com os defaults, nunca bloquear esperando input <!-- unwanted-behavior --> `OPEN-22`
+4. WHEN o wizard roda THEN ele SHALL oferecer, pra cada harness **instalado**, os modelos vindos de `getCachedOrDiscoverModels`, e SHALL omitir harness não instalado <!-- event-driven --> `OPEN-23`
+5. IF a descoberta não devolver modelo pra um harness THEN o wizard SHALL permitir digitar o id à mão e seguir <!-- unwanted-behavior --> `OPEN-23`
+6. WHEN o wizard termina THEN o CodeDeck SHALL gravar a escolha no arquivo de config e não perguntar de novo <!-- event-driven --> `OPEN-24`
+7. The CodeDeck SHALL expor `codedeck setup` pra rodar o mesmo wizard sob demanda <!-- ubiquitous --> `OPEN-24`
+8. WHEN `codedeck run` roda sem `--model` THEN ele SHALL usar `models[agent]`, caindo em `defaultModel` e depois no default do driver <!-- event-driven --> `OPEN-25`
+9. WHEN o `open` roda sem `--model` THEN ele SHALL usar `models.claude`, caindo em `claude-opus-4-8` <!-- event-driven --> `OPEN-25`
+10. IF a gravação da config falhar THEN o CodeDeck SHALL avisar e abrir a sessão mesmo assim, porque preferência não é pré-requisito de trabalho <!-- unwanted-behavior --> `OPEN-24`
+
+**Independent Test**: Com `RUN_AGENT_CONFIG_DIR` apontando pra diretório vazio, rodar o wizard sem TTY e confirmar que ele não bloqueia; rodar com TTY falso injetado, escolher um modelo por harness instalado, e conferir que o arquivo gravado é lido na execução seguinte sem nova pergunta.
+
+---
+
 ### P2: Disciplina de despacho do orquestrador
 
 **User Story**: As a dev conduzindo trabalho paralelo, I want o orquestrador delegando toda escrita pra sessões CodeDeck e conferindo artefato antes de dizer pronto so that ele nunca reporte concluído o que ninguém fez.
@@ -214,12 +239,17 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OPEN-18 | Pipeline de build e teste | P1 Launcher | Done |
 | OPEN-19 | Tradução do erro de entitlement | P1 Launcher | Pending |
 | OPEN-20 | Edge cases de ambiente (plugin ausente, `claude` fora do `PATH`, `cwd` morto, sem git, terminal sem truecolor) | Edge Cases | Pending |
+| OPEN-21 | `models` por agente na config | P2 Config | Pending |
+| OPEN-22 | Gatilho do wizard na primeira execução | P2 Config | Pending |
+| OPEN-23 | Oferta de modelo a partir do catálogo | P2 Config | Pending |
+| OPEN-24 | Persistência e `codedeck setup` | P2 Config | Pending |
+| OPEN-25 | Precedência de modelo no `run` e no `open` | P2 Config | Pending |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 
 **Status values:** Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 20 requisitos. `OPEN-18` já está entregue (`.github/workflows/ci.yml`); os outros 19 esperam `tasks.md`. `OPEN-20` agrupa os edge cases de ambiente, que antes não tinham ID nenhum e podiam sumir da implementação sem violar a tabela.
+**Coverage:** 25 requisitos. `OPEN-18` já está entregue (`.github/workflows/ci.yml`); os outros 19 esperam `tasks.md`. `OPEN-20` agrupa os edge cases de ambiente, que antes não tinham ID nenhum e podiam sumir da implementação sem violar a tabela.
 
 **Aviso sobre o CI atual:** o workflow cobre build e a suíte existente (28 arquivos, 168 testes, sobre runtime, power, models e drivers). Ele **não** cobre nenhum AC desta spec, porque `open` e `plugin/` ainda não existem. CI verde aqui não é evidência de `OPEN-01` a `OPEN-17`.
 

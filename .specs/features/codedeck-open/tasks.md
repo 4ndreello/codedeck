@@ -70,7 +70,10 @@ Cada arquivo tem exatamente um dono. Worker que escrever fora da sua fatia tem o
 | ----- | ---- | -------- |
 | A: conteúdo do plugin | worker A | `plugin/**`, `tests/plugin-manifest.test.ts` |
 | B: comando CLI | worker B | `src/cli/commands/open.ts`, `src/cli/index.ts`, `tests/open-*.test.ts` |
-| C: empacotamento e CI | orquestrador | `package.json`, `.github/workflows/**`, `README.md`, `.specs/**` |
+| C: empacotamento e CI | orquestrador | `package.json`, `.github/workflows/**`, `scripts/**`, `README.md`, `.specs/**` |
+| D: config por agente | worker D | `src/config/config.ts`, `src/cli/commands/setup.ts`, `src/cli/commands/run.ts`, `tests/setup-*.test.ts`, `tests/config-*.test.ts` |
+
+O worker D **não** registra o comando em `src/cli/index.ts` nem chama o wizard de dentro do `open.ts`: os dois arquivos são do worker B. O orquestrador faz essa ligação no merge, quando B já terminou.
 
 Nenhum worker roda `npm test` inteiro nem `npm run build`. Cada um roda só o próprio arquivo de teste: `npx vitest run tests/<seu-arquivo>.test.ts`. O build e a suíte completa rodam uma vez no fim, pelo orquestrador.
 
@@ -115,6 +118,19 @@ Nenhum worker roda `npm test` inteiro nem `npm run build`. Cada um roda só o pr
 | C4 | README documentando `codedeck open` | - |
 
 ---
+
+## Fatia D: config de modelo por agente
+
+| # | Tarefa | AC coberto |
+| - | ------ | ---------- |
+| D1 | `RunAgentConfig` ganha `models?: Partial<Record<AgentId, string>>`, mantendo `defaultModel` funcionando como fallback | OPEN-21 |
+| D2 | `resolveModel(agent, explicit, config)` puro e exportado, com precedência `--model` > `models[agent]` > `defaultModel` > default do driver | OPEN-25 |
+| D3 | Wizard que, por harness **instalado**, oferece os modelos de `getCachedOrDiscoverModels` e aceita id digitado à mão quando a descoberta vier vazia | OPEN-23 |
+| D4 | Wizard exportado como função pura de "precisa perguntar?" mais a parte interativa, pra ser testável sem TTY | OPEN-22 |
+| D5 | `src/cli/commands/setup.ts` expondo `registerSetupCommand`, seguindo o padrão dos comandos existentes | OPEN-24 |
+| D6 | Gravação da config, e falha de escrita vira aviso em vez de erro fatal | OPEN-24 |
+| D7 | `run.ts` passa a usar `resolveModel` quando `--model` estiver ausente | OPEN-25 |
+| D8 | Testes em `tests/setup-wizard.test.ts` e `tests/config-models.test.ts`, usando `RUN_AGENT_CONFIG_DIR` pra isolar o disco | OPEN-21 a OPEN-25 |
 
 ## Gates
 
