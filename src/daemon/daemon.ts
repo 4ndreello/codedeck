@@ -1,5 +1,5 @@
-#!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { Database, getDatabase } from "../store/database.js";
@@ -9,17 +9,28 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import { isTerminalStatus, type AgentId } from "../core/session.js";
+import { isTerminalStatus, type AgentId, type Session } from "../core/session.js";
 import type { DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { processAlive, processStartTime } from "../utils/process.js";
+import { killTree, processAlive, processStartTime, sleep, which } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
 import { classifyFailure, type FailureInfo } from "../core/errors.js";
+
+// Daemon's view of power readiness for the doctor IPC result (field names
+// fixed by cross-worker contract; the CLI falls back to local detection
+// when the daemon is unreachable).
+function powerServiceInstalled(): boolean {
+  try {
+    return fs.existsSync(path.join(os.homedir(), ".config", "systemd", "user", "codedeck.service"));
+  } catch {
+    return false;
+  }
+}
 
 class Daemon {
   private db: Database;
@@ -30,6 +41,11 @@ class Daemon {
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
   private startTime = Date.now();
   private sessionLocks = new Set<string>();
+  // Power-shutdown state. `shuttingDown` is set synchronously by the signal
+  // handler so concurrent handleRequest calls are refused during the drain.
+  private shuttingDown = false;
+  // Exactly-once drain: concurrent handleShutdown callers share one promise.
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor() {
     ensureDirs();
@@ -61,10 +77,12 @@ class Daemon {
     // Write pid file
     try { fs.writeFileSync(paths.daemonPid, String(process.pid), "utf-8"); } catch {}
 
-    // Handle shutdown
-    process.on("SIGTERM", () => this.shutdown());
-    process.on("SIGINT", () => this.shutdown());
-    process.on("exit", () => this.shutdown());
+    // Graceful power shutdown: exactly-once drain on power signals. SIGHUP
+    // covers lid-close/logout via logind. No "exit" handler: synchronous
+    // cleanup on "exit" cannot flush, and it would double-run after drain.
+    process.once("SIGTERM", () => this.onSignal("SIGTERM"));
+    process.once("SIGINT", () => this.onSignal("SIGINT"));
+    process.once("SIGHUP", () => this.onSignal("SIGHUP"));
 
     console.log(`[daemon] listening on ${paths.daemonSock} pid=${process.pid}`);
 
@@ -178,6 +196,14 @@ class Daemon {
     const send = (res: Omit<IpcResponse, "id">) => {
       try { socket.write(JSON.stringify({ id, ...res }) + "\n"); } catch {}
     };
+
+    // Power-shutdown guard: while draining, refuse new work so a send/stop
+    // cannot race the interrupted persist. daemon.stop is the shutdown
+    // trigger itself, so it stays admitted (idempotent via handleShutdown).
+    if (this.shuttingDown && method !== "daemon.stop") {
+      send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+      return;
+    }
 
     switch (method) {
       case "session.create": {
@@ -539,8 +565,20 @@ class Daemon {
             agents: agentsWithCaps,
             daemon: { running: true, pid: process.pid, uptime: Date.now() - this.startTime },
             database: { path: paths.db, exists: dbExists },
+            // Power readiness from the daemon's view (field names fixed by
+            // cross-worker contract; CLI falls back to local detection).
+            power: {
+              serviceInstalled: powerServiceInstalled(),
+              inhibitAvailable: which("systemd-inhibit") !== null,
+            },
           },
         });
+        break;
+      }
+
+      case "daemon.stop": {
+        send({ result: { ok: true } });
+        void this.handleShutdown("daemon.stop").finally(() => process.exit(0));
         break;
       }
 
@@ -671,9 +709,11 @@ class Daemon {
       return;
     }
 
-    // When events done, ensure terminal status if not already
+    // When events done, ensure terminal status if not already. Any terminal
+    // status counts — including `interrupted`, which must survive the drain
+    // instead of flipping to a synthesized `failed`.
     const sess = this.sessions.get(sessionId);
-    if (sess && !["completed", "failed", "stopped", "orphaned"].includes(sess.status)) {
+    if (sess && !isTerminalStatus(sess.status)) {
       // Check last event
       const last = this.events.last(sessionId);
       if (last?.type === "session.completed") {
@@ -726,7 +766,49 @@ class Daemon {
     } catch {}
   }
 
-  shutdown(): void {
+  private onSignal(reason: string): void {
+    // Synchronous guard: a repeated signal while draining is ignored instead
+    // of restarting the flush. (process.once already consumes one listener
+    // per signal; this covers cross-signal repeats like TERM-then-INT.)
+    if (this.shuttingDown) return;
+    void this.handleShutdown(reason).finally(() => process.exit(0));
+  }
+
+  // Graceful power shutdown. Exposed as a method so tests can drive the
+  // drain without signals/systemd: exactly-once (concurrent callers share
+  // one drain), never throws, never exits — callers decide on exit.
+  public handleShutdown(reason: string): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shuttingDown = true;
+      this.shutdownPromise = this.runShutdown(reason).catch(() => {});
+    }
+    return this.shutdownPromise;
+  }
+
+  private async runShutdown(reason: string): Promise<void> {
+    const handle = this.db.getHandle();
+    // Never close mid-transaction: roll back a stale BEGIN (best-effort)
+    // BEFORE persisting, so the interrupted writes below stay durable.
+    try { handle.exec("ROLLBACK"); } catch {}
+    // Incremental checkpoint first: protects the DB even if SIGKILL lands
+    // mid-drain. Order: PASSIVE -> persist -> kill -> TRUNCATE -> close.
+    try { handle.exec("PRAGMA wal_checkpoint(PASSIVE)"); } catch {}
+
+    const actives = this.safeListActive();
+    for (const s of actives) {
+      await this.markInterrupted(s, reason);
+    }
+
+    // Bounded grace per session, in parallel so 5+ sessions fit the delay
+    // budget. Identity-checked: a recycled PID is never signaled.
+    await Promise.allSettled(
+      actives
+        .filter((s) => s.pid != null)
+        .map((s) => killTree(s.pid as number, 1500, s.pidStartTime)),
+    );
+
+    try { handle.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+
     try {
       const paths = getPaths();
       try { fs.unlinkSync(paths.daemonSock); } catch {}
@@ -734,7 +816,47 @@ class Daemon {
       try { this.server?.close(); } catch {}
       try { this.db.close(); } catch {}
     } catch {}
-    process.exit(0);
+  }
+
+  private safeListActive(): Session[] {
+    try {
+      return this.sessions.listActive();
+    } catch {
+      // EROFS/EIO with the FS already gone: abort the flush, still close.
+      return [];
+    }
+  }
+
+  private async markInterrupted(s: Session, reason: string): Promise<void> {
+    try {
+      // Serialize against an in-flight send/stop owner (bounded: the drain
+      // must fit in InhibitDelayMaxSec), then hold the lock so attached
+      // event loops discard terminal frames instead of overwriting
+      // `interrupted` (see attachDriverEvents).
+      const deadline = Date.now() + 500;
+      while (this.sessionLocks.has(s.id) && Date.now() < deadline) {
+        await sleep(50);
+      }
+      this.sessionLocks.add(s.id);
+      const detail = `interrupted by ${reason}`;
+      const failure: FailureInfo = {
+        code: "SHUTDOWN",
+        blame: "infra",
+        retryable: true,
+        detail,
+      };
+      const event: AgentEvent = {
+        type: "session.failed",
+        sessionId: s.id,
+        timestamp: new Date().toISOString(),
+        error: detail,
+        failure,
+        raw: { reason },
+      };
+      this.events.append(s.id, event);
+      this.broadcast(s.id, event);
+      this.sessions.setStatus(s.id, "interrupted", { lastEvent: detail.slice(0, 200), failure });
+    } catch {}
   }
 }
 
