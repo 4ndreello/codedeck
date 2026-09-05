@@ -27,6 +27,29 @@ interface Frame {
 }
 
 /**
+ * `emitKeypressEvents` attaches a parser to the stream and offers no way to
+ * take it back: it adds a `newListener` hook that swaps itself for a `data`
+ * handler once something listens for keypresses. Removing our own `keypress`
+ * handler leaves that parser turning every later byte into keypress events for
+ * a picker that is gone. Both names are watched because which one is left
+ * behind depends on whether a screen ever started.
+ */
+function detachKeypressParser(
+  input: PickerIO["input"],
+  before: { data: unknown[]; newListener: unknown[] },
+): void {
+  const stream = input as unknown as {
+    listeners(event: string): unknown[];
+    removeListener(event: string, listener: never): void;
+  };
+  for (const event of ["data", "newListener"] as const) {
+    for (const listener of stream.listeners(event)) {
+      if (!before[event].includes(listener)) stream.removeListener(event, listener as never);
+    }
+  }
+}
+
+/**
  * Sole owner of raw mode, the listeners and the cleanup. Acquiring per screen
  * would let one screen's type-ahead leak into the next.
  */
@@ -67,6 +90,12 @@ export async function runScreens(
   const frame: Frame = { height: 0, repaint: () => {} };
   let stopResize: (() => void) | undefined;
 
+  const listeners = input as unknown as { listeners(event: string): unknown[] };
+  const before = {
+    data: [...listeners.listeners("data")],
+    newListener: [...listeners.listeners("newListener")],
+  };
+
   // Setup lives inside the try because raw mode is on from its second line: a
   // throw between there and the loop used to skip the finally entirely.
   try {
@@ -84,6 +113,7 @@ export async function runScreens(
   } finally {
     frame.repaint = () => {};
     stopResize?.();
+    detachKeypressParser(input, before);
     process.off("exit", onExit);
     process.off("SIGTERM", onSigterm);
     restore();

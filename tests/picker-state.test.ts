@@ -108,6 +108,42 @@ describe("filtering", () => {
     expect(items[0].id).toBe("zzz");
   });
 
+  // The provider is on screen as a group header. Typing it and getting the
+  // synthetic "not in the catalog" row read as a broken filter.
+  it("matches the provider shown in the group header", () => {
+    // The provider deliberately does not appear in the id. In this catalog it
+    // usually does, which is what made the gap easy to miss.
+    const bedrock = screen({
+      items: [
+        { id: "anthropic.claude-3-5-haiku", label: "anthropic.claude-3-5-haiku", group: "bedrock" },
+        { id: "openai/gpt-5", label: "openai/gpt-5", group: "openrouter" },
+      ],
+    });
+    const { state } = press(initialState(bedrock), typing("bedrock"));
+
+    expect(visibleItems(state).map((item) => item.id)).toEqual(["anthropic.claude-3-5-haiku"]);
+  });
+
+  // 1,462 catalog entries spell the version readably in `name` and only in the
+  // id the way it is typed, so "Sonnet 4.6" had no way to find anything.
+  it("matches the readable name the row does not show", () => {
+    const withNames = screen({
+      items: [
+        {
+          id: "opencode/claude-sonnet-4-6",
+          label: "opencode/claude-sonnet-4-6",
+          group: "opencode",
+          name: "Claude Sonnet 4.6",
+        },
+        { id: "opencode/big-pickle", label: "opencode/big-pickle", group: "opencode" },
+      ],
+    });
+    const { state } = press(initialState(withNames), typing("sonnet 4.6"));
+
+    expect(visibleItems(state).map((item) => item.id)).toEqual(["opencode/claude-sonnet-4-6"]);
+    expect(hitCount(state)).toBe(1);
+  });
+
   // A harness that reported no catalog has nothing to filter, so the synthetic
   // row is the whole screen, and Enter on it must not write an empty id.
   it("opens in filter mode with a synthetic row when the catalog is empty", () => {

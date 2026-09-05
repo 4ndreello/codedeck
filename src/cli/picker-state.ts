@@ -2,6 +2,8 @@ export interface PickerItem {
   id: string;
   label: string;
   group?: string;
+  /** The catalog's readable name, when it says something the id does not. */
+  name?: string;
   note?: string;
   synthetic?: true;
 }
@@ -53,8 +55,16 @@ export function initialState(screen: Screen): PickerState {
   return { screen, filter: "", cursor: 0, offset: 0, pasting: false };
 }
 
+/**
+ * Searches everything the catalog knows about a model, not just what fits on
+ * the row. The provider is on screen as a group header, so typing it and
+ * getting nothing read as a broken filter, and the readable name is the only
+ * place a version like "Opus 5" is spelled the way people say it.
+ */
 function matches(item: PickerItem, filter: string): boolean {
-  return item.label.toLowerCase().includes(filter) || item.id.toLowerCase().includes(filter);
+  return [item.label, item.id, item.group, item.name].some(
+    (field) => field !== undefined && field.toLowerCase().includes(filter),
+  );
 }
 
 /**

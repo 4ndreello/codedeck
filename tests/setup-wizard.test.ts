@@ -273,6 +273,30 @@ describe("agent screens", () => {
     expect(screen.items[0].group).toBeUndefined();
   });
 
+  // 1,462 catalog entries spell the version readably in `name` and only in
+  // the id the way it is typed, so the filter needs it even though the row
+  // shows the id.
+  it("carries a readable name for the filter, and only when it adds something", () => {
+    const catalog: HarnessModels = {
+      agent: "claude",
+      available: true,
+      providers: [
+        {
+          provider: "anthropic",
+          models: [
+            { id: "claude-opus-5", name: "Claude Opus 5", provider: "anthropic", isDefault: false },
+            { id: "claude-haiku", name: "claude-haiku", provider: "anthropic", isDefault: false },
+          ],
+        },
+      ],
+    };
+
+    const screen = buildAgentScreen(catalog, 0, 1);
+
+    expect(screen.items.find((item) => item.id === "claude-opus-5")?.name).toBe("Claude Opus 5");
+    expect(screen.items.find((item) => item.id === "claude-haiku")).not.toHaveProperty("name");
+  });
+
   it("pins a real isDefault and marks it padrao", () => {
     const screen = buildAgentScreen(harness("claude", [["anthropic", ["x", "y"]]], ["y"]), 0, 1);
 

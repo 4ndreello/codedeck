@@ -175,6 +175,40 @@ describe("terminal restoration under a failing write", () => {
   });
 });
 
+// `emitKeypressEvents` offers no teardown, so removing our own keypress
+// handler left its parser attached, turning every later byte into keypress
+// events for a picker that is gone.
+describe("stdin after the picker returns", () => {
+  it("leaves no parser on the stream", async () => {
+    const { io, input, output } = fakeIO();
+    drive(input, output, ["\r"]);
+
+    await runScreens([screen("a")], io, plain);
+
+    expect(input.listenerCount("keypress")).toBe(0);
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("newListener")).toBe(0);
+
+    let parsed = 0;
+    input.on("keypress", () => { parsed += 1; });
+    input.resume();
+    input.write("g");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(parsed).toBe(0);
+  });
+
+  it("leaves no parser behind when a screen throws", async () => {
+    const { io, input } = fakeIO();
+    const broken = { ...screen("a"), items: null as never };
+
+    await expect(runScreens([broken], io, plain)).rejects.toThrow();
+
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("newListener")).toBe(0);
+  });
+});
+
 // The resize repaint is the one path where no key ran to fix the offset.
 describe("resize", () => {
   it("keeps the cursor on screen after a resize shrinks the viewport", async () => {
