@@ -1,7 +1,55 @@
 import type { Command } from "commander";
+import { resolveInhibitBin } from "../../utils/process.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { IpcClient, isDaemonRunning } from "../../daemon/ipc.js";
 import { getPaths } from "../../config/paths.js";
-import fs from "node:fs";
+
+export interface PowerReadiness {
+  serviceInstalled: boolean;
+  inhibitAvailable: boolean;
+}
+
+export function powerServicePath(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, ".config", "systemd", "user", "codedeck.service");
+}
+
+export function detectPowerReadiness(homeDir?: string): PowerReadiness {
+  let serviceInstalled = false;
+  try {
+    serviceInstalled = fs.existsSync(powerServicePath(homeDir));
+  } catch {
+    serviceInstalled = false;
+  }
+  let inhibitAvailable = false;
+  try {
+    inhibitAvailable = resolveInhibitBin() !== null;
+  } catch {
+    inhibitAvailable = false;
+  }
+  return { serviceInstalled, inhibitAvailable };
+}
+
+export function resolvePowerInfo(result: { power?: PowerReadiness }): PowerReadiness {
+  const power = result.power;
+  if (
+    power &&
+    typeof power.serviceInstalled === "boolean" &&
+    typeof power.inhibitAvailable === "boolean"
+  ) {
+    return { serviceInstalled: power.serviceInstalled, inhibitAvailable: power.inhibitAvailable };
+  }
+  return detectPowerReadiness();
+}
+
+export function renderPowerSection(power: PowerReadiness): string {
+  return [
+    "Power",
+    `  ${check("service", power.serviceInstalled, power.serviceInstalled ? "unit installed" : "unit not installed")}`,
+    `  ${check("inhibit", power.inhibitAvailable, power.inhibitAvailable ? "systemd-inhibit available" : "systemd-inhibit not found")}`,
+  ].join("\n");
+}
 
 function check(label: string, ok: boolean, detail?: string): string {
   const icon = ok ? "✓" : "✗";
@@ -30,7 +78,7 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify({ ...result, power: resolvePowerInfo(result) }, null, 2));
         return;
       }
 
@@ -79,6 +127,9 @@ export function registerDoctorCommand(program: Command): void {
       console.log("Database");
       console.log(`  path               ${result.database.path}`);
       console.log(`  ${check("exists", !!result.database.exists, result.database.exists ? "yes" : "no")}`);
+      console.log("");
+
+      console.log(renderPowerSection(resolvePowerInfo(result)));
       console.log("");
 
       const paths = getPaths();

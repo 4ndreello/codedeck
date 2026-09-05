@@ -31,6 +31,8 @@ Examples:
   $ npx codedeck run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
   $ npx codedeck run "refactor module" --agent opencode --worktree --name refactor
   $ npx codedeck run "investigate bug" --agent omp --cwd ./my-project --json
+Power: a poweroff/reboot marks running sessions interrupted (exit 3).
+Resume with: codedeck send <id> "continue"
 `)
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
