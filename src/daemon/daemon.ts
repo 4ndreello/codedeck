@@ -326,17 +326,35 @@ class Daemon {
           send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
           return;
         }
-        const handle = driver.getHandle?.(s.id);
-        const runtimeState = handle && typeof handle === "object"
-          ? handle as { done?: boolean; drained?: boolean }
-          : undefined;
-        const runtimeDraining = handle !== undefined && (runtimeState?.done !== true || runtimeState?.drained !== true);
-        if (s.status === "starting" || runtimeDraining || (s.status === "working" && s.pid != null && processAlive(s.pid))) {
-          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running` } });
-          return;
-        }
-        if (!driver.capabilities().resume) {
-          send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Agent ${s.agent} does not support resume` } }); return;
+        if (s.status === "interrupted") {
+          // Resume-turn admission for power-interrupted sessions: capability
+          // BEFORE liveness, and liveness by process identity (same rule as
+          // stop). A recycled PID must not block a legitimate resume.
+          if (!s.nativeSessionId || !driver.capabilities().resume) {
+            send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Session ${s.id} cannot resume (no native session id or agent ${s.agent} does not support resume)` } }); return;
+          }
+          const liveIdentity =
+            s.pid != null &&
+            s.pidStartTime != null &&
+            processAlive(s.pid) &&
+            processStartTime(s.pid) === s.pidStartTime;
+          if (liveIdentity) {
+            send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
+            return;
+          }
+        } else {
+          const handle = driver.getHandle?.(s.id);
+          const runtimeState = handle && typeof handle === "object"
+            ? handle as { done?: boolean; drained?: boolean }
+            : undefined;
+          const runtimeDraining = handle !== undefined && (runtimeState?.done !== true || runtimeState?.drained !== true);
+          if (s.status === "starting" || runtimeDraining || (s.status === "working" && s.pid != null && processAlive(s.pid))) {
+            send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running` } });
+            return;
+          }
+          if (!driver.capabilities().resume) {
+            send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Agent ${s.agent} does not support resume` } }); return;
+          }
         }
 
         this.sessionLocks.add(s.id);
