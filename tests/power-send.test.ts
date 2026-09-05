@@ -5,6 +5,7 @@ import path from "node:path";
 import { processStartTime } from "../src/utils/process.js";
 import { defaultCapabilities } from "../src/core/capabilities.js";
 import { Daemon } from "../src/daemon/daemon.js";
+import type { Session, SessionStatus } from "../src/core/session.js";
 import { fakeSocket, makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
 
 let dir: string;
@@ -47,84 +48,87 @@ async function sendMessage(daemon: Daemon, id: string, message: string): Promise
   return JSON.parse(writes[0]) as { result?: unknown; error?: { code: string } };
 }
 
+interface SendCase {
+  title: string;
+  id: string;
+  status?: SessionStatus;
+  resume: boolean;
+  extra?: Partial<Session>;
+  message: string;
+  error?: string;
+  sent: number;
+  then?: (daemon: Daemon, sent: SentCall[]) => void;
+}
+
+// One shared body drives every admission case; rows differ only in data.
+// processStartTime(process.pid) is stable for the run, so evaluating it in
+// the table equals evaluating it per test.
+const livePid = { pid: process.pid, pidStartTime: processStartTime(process.pid) };
+
+const cases: SendCase[] = [
+  {
+    title: "rejects without nativeSessionId as CAPABILITY_NOT_SUPPORTED",
+    id: "s-nonative",
+    resume: true,
+    message: "continue",
+    error: "CAPABILITY_NOT_SUPPORTED",
+    sent: 0,
+  },
+  {
+    title: "rejects before liveness when the driver cannot resume",
+    id: "s-noresume",
+    resume: false,
+    extra: { nativeSessionId: "n-1", ...livePid },
+    message: "continue",
+    error: "CAPABILITY_NOT_SUPPORTED",
+    sent: 0,
+  },
+  {
+    title: "rejects a live identical process as SESSION_BUSY",
+    id: "s-busy",
+    resume: true,
+    extra: { nativeSessionId: "n-2", ...livePid },
+    message: "continue",
+    error: "SESSION_BUSY",
+    sent: 0,
+  },
+  {
+    title: "resumes past a recycled pid into a new working turn",
+    id: "s-resume",
+    resume: true,
+    extra: { nativeSessionId: "n-3", pid: process.pid, pidStartTime: "stale-tick" },
+    message: "continue",
+    sent: 1,
+    then: (daemon, sent) => {
+      expect(sent[0].message).toBe("continue");
+      expect(sent[0].session.nativeSessionId).toBe("n-3");
+      expect(seam(daemon).sessions.get("s-resume")?.status).toBe("working");
+    },
+  },
+  {
+    title: "keeps the working busy check for non-interrupted sessions",
+    id: "s-working",
+    status: "working",
+    resume: true,
+    extra: { nativeSessionId: "n-4", ...livePid },
+    message: "more work",
+    error: "SESSION_BUSY",
+    sent: 0,
+  },
+];
+
 describe("power send admission for interrupted", () => {
-  it("rejects without nativeSessionId as CAPABILITY_NOT_SUPPORTED", async () => {
+  it.each(cases)("$title", async (c) => {
     const daemon = new Daemon();
     const sent: SentCall[] = [];
-    installSendDriver(daemon, true, sent);
-    seed(daemon, "s-nonative", "interrupted");
+    installSendDriver(daemon, c.resume, sent);
+    seed(daemon, c.id, c.status ?? "interrupted", c.extra ?? {});
 
-    const res = await sendMessage(daemon, "s-nonative", "continue");
+    const res = await sendMessage(daemon, c.id, c.message);
 
-    expect(res.error?.code).toBe("CAPABILITY_NOT_SUPPORTED");
-    expect(sent).toHaveLength(0);
-  });
-
-  it("rejects before liveness when the driver cannot resume", async () => {
-    const daemon = new Daemon();
-    const sent: SentCall[] = [];
-    installSendDriver(daemon, false, sent);
-    // Live matching pid: capability must still win over SESSION_BUSY.
-    seed(daemon, "s-noresume", "interrupted", {
-      nativeSessionId: "n-1",
-      pid: process.pid,
-      pidStartTime: processStartTime(process.pid),
-    });
-
-    const res = await sendMessage(daemon, "s-noresume", "continue");
-
-    expect(res.error?.code).toBe("CAPABILITY_NOT_SUPPORTED");
-    expect(sent).toHaveLength(0);
-  });
-
-  it("rejects a live identical process as SESSION_BUSY", async () => {
-    const daemon = new Daemon();
-    const sent: SentCall[] = [];
-    installSendDriver(daemon, true, sent);
-    seed(daemon, "s-busy", "interrupted", {
-      nativeSessionId: "n-2",
-      pid: process.pid,
-      pidStartTime: processStartTime(process.pid),
-    });
-
-    const res = await sendMessage(daemon, "s-busy", "continue");
-
-    expect(res.error?.code).toBe("SESSION_BUSY");
-    expect(sent).toHaveLength(0);
-  });
-
-  it("resumes past a recycled pid into a new working turn", async () => {
-    const daemon = new Daemon();
-    const sent: SentCall[] = [];
-    installSendDriver(daemon, true, sent);
-    seed(daemon, "s-resume", "interrupted", {
-      nativeSessionId: "n-3",
-      pid: process.pid,
-      pidStartTime: "stale-tick",
-    });
-
-    const res = await sendMessage(daemon, "s-resume", "continue");
-
-    expect(res.error).toBeUndefined();
-    expect(sent).toHaveLength(1);
-    expect(sent[0].message).toBe("continue");
-    expect(sent[0].session.nativeSessionId).toBe("n-3");
-    expect(seam(daemon).sessions.get("s-resume")?.status).toBe("working");
-  });
-
-  it("keeps the working busy check for non-interrupted sessions", async () => {
-    const daemon = new Daemon();
-    const sent: SentCall[] = [];
-    installSendDriver(daemon, true, sent);
-    seed(daemon, "s-working", "working", {
-      nativeSessionId: "n-4",
-      pid: process.pid,
-      pidStartTime: processStartTime(process.pid),
-    });
-
-    const res = await sendMessage(daemon, "s-working", "more work");
-
-    expect(res.error?.code).toBe("SESSION_BUSY");
-    expect(sent).toHaveLength(0);
+    if (c.error === undefined) expect(res.error).toBeUndefined();
+    else expect(res.error?.code).toBe(c.error);
+    expect(sent).toHaveLength(c.sent);
+    c.then?.(daemon, sent);
   });
 });
