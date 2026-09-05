@@ -64,6 +64,22 @@ As revisões também argumentaram **contra** mexer em quatro coisas, cada uma co
 
 ---
 
+## O que o uso real derrubou
+
+O wizard passou no teste e reprovou no terminal. Rodando de verdade, com quatro harnesses instalados:
+
+| # | Achado | Onde |
+| - | ------ | ---- |
+| 1 | Uma pergunta por harness: quatro respostas antes de qualquer coisa abrir. Virou uma tela só, numerada de ponta a ponta, respondida por uma linha | `src/cli/commands/setup.ts` |
+| 2 | A lista era juntada com dois espaços e entregue ao terminal, que quebrava id no meio (`c` numa linha, `laude-sonnet-4-5` na outra). Passou a ser grade em coluna, calculada pela largura | `src/cli/ui.ts` |
+| 3 | O `opencode` devolve o catálogo inteiro do OpenRouter, uns 600 ids. Ele sozinho jogava todos os outros agentes pra fora da tela. Lista virou shortlist de 16, com o resto alcançável digitando o id | `src/cli/commands/setup.ts` |
+| 4 | Sob pty sem tamanho de janela, `process.stdout.columns` é `0`, e `??` deixa passar. Toda grade colapsava pra uma coluna. `\|\| 80` no lugar | `src/cli/ui.ts` |
+| 5 | A nota `Enter = <default>` era alinhada à borda do terminal e ficava boiando no meio da tela numa janela larga. Passou a alinhar pela largura do próprio bloco | `src/cli/ui.ts` |
+
+A tela única também apagou o limite documentado na seção anterior: com uma pergunta só, entrada em rajada não tem segunda pergunta pra perder.
+
+---
+
 ## Contrato compartilhado (fixado antes do fan-out, ninguém altera sozinho)
 
 Estes nomes são load-bearing. Duas grafias desta lista falham **em silêncio** se erradas, sem erro e sem log, então elas são o contrato e não sugestão.
