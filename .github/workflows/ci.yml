@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch makes the in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The store imports node:sqlite (src/store/database.ts), and the test
+        # shim hands the specifier straight to Node rather than faking it, so
+        # the suite needs a runtime where node:sqlite loads without a flag.
+        node: ["24", "26"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - run: npm run build
+
+      - run: npm test
+
+  plugin:
+    # The plugin ships inside the package, so a broken manifest is a broken
+    # release. `plugin validate` covers the manifest and agent frontmatter,
+    # but NOT themes: a theme file containing invalid JSON passes it without
+    # a word, which is why tests/plugin-manifest.test.ts pins the theme
+    # spellings separately and runs in the job above.
+    runs-on: ubuntu-latest
+    # `secrets` is not one of the contexts a step-level `if` can read, so the
+    # secret is lifted into env here. A fork PR gets an empty string, which is
+    # exactly the signal the skip branch below needs.
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install the claude CLI
+        # Pinned on purpose: this is the version every spelling in the plugin
+        # contract was probed against, so the job checks the plugin under the
+        # CLI the contract describes rather than whatever shipped today.
+        #
+        # The install runs no lifecycle scripts, then invokes the one script
+        # this package actually needs, by name. claude ships its real binary
+        # through a postinstall, so skipping scripts outright leaves a CLI that
+        # exits with "claude native binary not installed". Naming the installer
+        # keeps that working while nothing else in the tree gets to run code
+        # during install.
+        run: |
+          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.258
+          node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs"
+          claude --version
+
+      # Needs no credential: validation is a static read of the manifest.
+      - name: Validate the plugin manifest
+        run: claude plugin validate --strict plugin/
+
+      - name: Theme render gate
+        # The only end-to-end theme check is launching a real session under a
+        # pty and grepping the paint for our colours, which needs an
+        # authenticated claude. It builds first because it drives dist/.
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          ./scripts/theme-gate.sh
+
+      - name: Theme render gate skipped
+        # Skipped loudly rather than reported as a pass it never earned. The
+        # trap this gate exists for (slug spelled differently from the theme
+        # filename) is still caught by tests/plugin-manifest.test.ts in the
+        # job above, which needs no credential.
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning title=Theme gate skipped::No ANTHROPIC_API_KEY, the theme was not verified against a real launch."

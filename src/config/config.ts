@@ -7,6 +7,20 @@ export interface RunAgentConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
   defaultModel?: string;
+  models?: Partial<Record<AgentId, string>>;
+}
+
+/**
+ * Resolve the model passed to a driver without making driver defaults part of
+ * CodeDeck's config. An undefined result lets the selected driver choose its
+ * own default.
+ */
+export function resolveModel(
+  agent: AgentId,
+  explicit?: string,
+  config: RunAgentConfig = {},
+): string | undefined {
+  return explicit ?? config.models?.[agent] ?? config.defaultModel;
 }
 
 const DEFAULT_CONFIG: RunAgentConfig = {

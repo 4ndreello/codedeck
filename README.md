@@ -81,6 +81,8 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 | Command | Description |
 |---------|-------------|
+| `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
+| `npx codedeck setup` | Choose the model each installed agent should use |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
@@ -90,6 +92,56 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
 | `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
 | `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
+
+## Open
+
+`codedeck open` launches Claude Code already configured: the CodeDeck plugin, an appended system prompt, Opus 4.8 at `xhigh` effort, and permissions bypassed. Nothing is written to `~/.claude/`; the plugin is loaded for that session only, from the installed package.
+
+```bash
+npx codedeck open              # asks which role, defaults to general
+npx codedeck open reviewer     # straight into a role
+npx codedeck open -- --add-dir ../other-repo   # anything after -- goes to claude verbatim
+```
+
+Three roles, and the restriction is a tool allowlist rather than an instruction:
+
+| Role | Can write? | For |
+|------|-----------|-----|
+| `general` | yes | ordinary work |
+| `orchestrator` | no `Edit`/`Write`, keeps `Bash` | conducting work, delegating writes to `codedeck run` |
+| `reviewer` | no `Edit`/`Write`/`Bash` | reading and judging, structurally unable to edit |
+
+The `reviewer` restriction holds even with permissions bypassed, because a tool allowlist is orthogonal to permission bypass. The `orchestrator` keeps `Bash`, so its boundary is only partly enforced: with `Bash` it can still write by redirection, and the rest rests on the prompt.
+
+`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+
+A launch carrying `-p`/`--print` answers once and exits, so it never asks anything: no role prompt, no first-run wizard. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
+
+### Choosing a model per agent
+
+The first interactive `open` puts every installed agent on one screen and takes one line for all of them. Re-run it any time:
+
+```bash
+npx codedeck setup
+```
+
+```
+  Claude Code                              Enter = claude-opus-5
+   1 claude-sonnet-4-6     3 claude-opus-4-5
+   2 claude-opus-5         4 claude-haiku-4-5
+
+  Codex                                     Enter = gpt-5.6-sol
+   5 gpt-5.6-sol           6 gpt-5.6-terra
+
+  omp · no models found, type omp=<id>
+
+  one number per agent, or Enter for the defaults
+  > 2 6
+```
+
+Numbers run straight through the screen, so one per agent is enough and order does not matter. Enter alone takes every default, an agent left out of the line keeps its default, and `agent=<id>` types an id the list does not show. The lists come from `codedeck models`, shortlisted to sixteen per agent because opencode alone proxies some 600 ids and would scroll everything else away.
+
+Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
 
 ## Session
 

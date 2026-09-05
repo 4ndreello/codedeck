@@ -11,7 +11,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:plugin",
+    "build:plugin": "node scripts/copy-plugin.mjs",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
@@ -38,7 +39,7 @@
     "url": "https://github.com/4ndreello/run-agent/issues"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   },
   "dependencies": {
     "commander": "^12.1.0"

@@ -58,6 +58,20 @@ describe("fuzzy model matching", () => {
     expect(findClosestModel("claude-sonnet", candidates)).toBe("claude-sonnet-5");
   });
 
+  // A query can contain an alias and still be a typo of a full id. Returning on
+  // the substring hit suggested "opus" for "claude-opus-4-9" and never looked at
+  // the id one character away.
+  it("prefers a near miss over a loose substring hit", () => {
+    const candidates = ["opus", "claude-opus-4-8", "claude-sonnet-5"];
+    expect(findClosestModel("claude-opus-4-9", candidates)).toBe("claude-opus-4-8");
+  });
+
+  // The distance threshold rejects this one as too long a jump, so the
+  // substring pass is the only thing that finds it.
+  it("still reaches a match the distance threshold rejects", () => {
+    expect(findClosestModel("sonnet", ["gpt-5.6-luna", "claude-sonnet-5"])).toBe("claude-sonnet-5");
+  });
+
   it("matches case-insensitively", () => {
     const candidates = ["gpt-5.6-luna", "claude-sonnet-5"];
     expect(findClosestModel("GPT-5.6-LUNA", candidates)).toBe("gpt-5.6-luna");

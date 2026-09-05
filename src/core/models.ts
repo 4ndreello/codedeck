@@ -203,6 +203,20 @@ export function levenshtein(a: string, b: string): number {
   return matrix[al][bl];
 }
 
+/**
+ * A harness groups its models by provider, and every caller that wants to look
+ * one up has to walk both levels first. `open`, `run` and `setup` each did that
+ * walk themselves.
+ */
+export function flattenModels(harness: HarnessModels): ModelInfo[] {
+  return harness.providers.flatMap((provider) => provider.models);
+}
+
+/** Every string a user could reasonably type to mean one of these models. */
+export function modelNames(harness: HarnessModels): string[] {
+  return flattenModels(harness).flatMap((model) => [model.id, ...(model.aliases ?? [])]);
+}
+
 export function findClosestModel(query: string, candidates: string[]): string | undefined {
   if (!query || candidates.length === 0) return undefined;
   const q = query.toLowerCase();
@@ -227,10 +241,6 @@ export function findClosestModel(query: string, candidates: string[]): string | 
     }
   }
 
-  if (bestSubMatch !== undefined) {
-    return bestSubMatch;
-  }
-
   // 3. Fuzzy Levenshtein match
   let bestFuzzyMatch: string | undefined;
   let minDistance = Infinity;
@@ -245,5 +255,13 @@ export function findClosestModel(query: string, candidates: string[]): string | 
     }
   }
 
-  return bestFuzzyMatch;
+  // A substring hit is not automatically the better answer. "claude-opus-4-9"
+  // contains "opus", so returning on the substring pass suggested the alias and
+  // never even looked at "claude-opus-4-8", one character away. Both passes are
+  // kept because each catches what the other misses: the substring pass reaches
+  // matches the distance threshold rejects as too long, such as "Sonnet" for
+  // "claude-sonnet-5".
+  if (bestSubMatch === undefined) return bestFuzzyMatch;
+  if (bestFuzzyMatch === undefined) return bestSubMatch;
+  return minDistance < levenshtein(q, bestSubMatch.toLowerCase()) ? bestFuzzyMatch : bestSubMatch;
 }
