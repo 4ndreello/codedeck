@@ -112,9 +112,9 @@ Four roles. Each is an agent file in the plugin, and the restriction is a tool a
 | `auditor` | no `Edit`/`Write` | yes | reviewing a scope too large for one pass, sliced by dimension |
 | `reviewer` | no `Edit`/`Write` | no | one pass, no fan-out, says what it did not cover |
 
-The allowlist holds even with permissions bypassed, because it is orthogonal to permission bypass. It is not a sandbox either: every role but `general` keeps `Bash`, so each can still write by redirection, and the rest of the boundary rests on the prompt.
+The allowlist holds even with permissions bypassed, because it is orthogonal to permission bypass. It is not a sandbox either: every role keeps `Bash`, `general` included, so the three that lose `Edit` and `Write` can still write by redirection, and the rest of the boundary rests on the prompt.
 
-Two things worth knowing before you edit an agent file. `--agent` layers on top of Claude Code's own system prompt rather than replacing it, and an agent file with no `tools:` key inherits the whole toolset, which is how `general` keeps `Edit` and `Write`. And granting `Bash` drops `Grep` and `Glob` from the resolved toolset, whatever the file lists, because `Bash` already covers them.
+Two things worth knowing before you edit an agent file. `--agent` layers on top of Claude Code's own system prompt rather than replacing it, and an agent file with no `tools:` key is unrestricted, which is how `general` keeps `Edit` and `Write`. And granting `Bash` drops `Grep` and `Glob` from the resolved toolset, whatever the file lists. Both are measured in [docs/harness-behaviour.md](docs/harness-behaviour.md), along with why `Bash` covering them is a guess about the reason and not part of the measurement.
 
 `codedeck run --role <role>` gives a worker the same contract. `--agent` is Claude's flag and no other harness has it, so there the role body is prefixed to the prompt instead, frontmatter stripped. The text travels; the allowlist does not, so a codex or opencode worker is held to the role by prose alone.
 
