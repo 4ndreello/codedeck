@@ -23,7 +23,7 @@ O que falta é durabilidade: um plano que sobrevive ao processo que o escreveu, 
 | ------- | ------ |
 | Auto-re-dispatch sem confirmação | Invariante já escrito em `daemon-power`: resume é sempre explícito. Reboot acidental às 3h acordaria workers escrevendo arquivo sem consentimento e gastando token |
 | Motor de loop (DAG, fan-out declarativo, orçamento) | O orquestrador aqui é plano + convenção; estados de motor (`exhausted`, `stalled`, `canceled`) seriam vocabulário que nada produz |
-| Reatachar processo de worker morto | Worker morto vira tarefa re-despachada do zero. Reatachar exige um protocolo que o driver não tem |
+| Reatachar processo de worker **morto** | Vira tarefa re-despachada do zero: reatar conversa de processo morto exige protocolo que o driver não tem. Isso **não** revoga o reatamento de sessão viva que o daemon já faz depois de reiniciar (`src/daemon/daemon.ts:207`), que continua valendo |
 | Tabela de tarefas no SQLite do daemon | O daemon descreve processo, não tarefa. A questão de **onde** o plano mora continua aberta (ver BD-3), mas misturar os eixos dentro do schema de sessão está descartado |
 
 ---
@@ -36,10 +36,10 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 | -- | -------- | --------- | ------------- |
 | BD-1 | O orquestrador não pode escrever o plano | O agente declara `tools` sem `Edit` e sem `Write` (`codedeck-open`, OPEN-09), e a regra de fronteira diz que ele nunca escreve arquivo | Sobra shell cru via `Bash`, que é exatamente o que a regra proíbe. Ou existe superfície tipada (`codedeck plan set <task> <status>`), ou o papel ganha escrita restrita a um caminho, ou o plano não é arquivo |
 | BD-2 | Tarefa sem artefato nunca termina | A regra de retomada é "sem artefato provado = re-despacha". Uma tarefa de investigação, ou uma marcada `no-op`, tem diff permanentemente vazio | Ela seria re-despachada a cada boot, pra sempre. Estado terminal precisa de marca própria, não derivada de artefato |
-| BD-3 | Não existe caminho de boot | `client.ensureDaemonStarted()` (`src/daemon/ipc.ts:190`) só é chamado por comando de CLI: `run`, `wait`, `ps`, `diff`, `logs`, `send`, `stop`, `show`, `doctor`. Zero systemd, zero autostart no repo | "Daemon sobe o orquestrador no boot" não tem gatilho. E mesmo com gatilho, `daemon-power` colocou auto-retomada no boot em Out of Scope. Ver open question 1 |
-| BD-4 | Re-despacho pode criar um segundo escritor | O código já tem `processAlive` (`src/utils/process.ts:27`) e `pidStartTime` (`src/core/session.ts:46`, usado em `session-driver.ts:148` pra recusar `stop` sem identidade de PID) | A spec anterior descrevia re-despacho sem consultar nenhum dos dois. Worker vivo numa worktree suja + worker novo na mesma tarefa = corrupção |
+| BD-3 | Não existe caminho de boot | `client.ensureDaemonStarted()` (`src/daemon/ipc.ts:190`) só é chamado por comando de CLI: `run`, `wait`, `ps`, `diff`, `logs`, `send`, `stop`, `show`, `doctor`. O repo **usa** systemd (`systemd-inhibit` em `src/daemon/daemon.ts:888`) e já **espera** uma unit de usuário `~/.config/systemd/user/codedeck.service`, checada por `powerServiceInstalled()` (`src/daemon/daemon.ts:29`) e pelo `doctor` (`src/cli/commands/doctor.ts:15`). O que não existe é quem **crie** essa unit | O gatilho de boot está a uma unit de distância, não a uma arquitetura. Mas mesmo com ela, `daemon-power` colocou auto-retomada no boot em Out of Scope. Ver open question 1 |
+| BD-4 | Re-despacho pode criar um segundo escritor | O código já tem `processAlive` (`src/utils/process.ts:41`) e `pidStartTime` (`src/core/session.ts:46`, usado em `session-driver.ts:148` pra recusar `stop` sem identidade de PID) | A spec anterior descrevia re-despacho sem consultar nenhum dos dois. Worker vivo numa worktree suja + worker novo na mesma tarefa = corrupção |
 | BD-5 | Onde o plano mora | Estado do CodeDeck vive em `~/.run-agent` (`src/config/paths.ts`), e worktrees em `~/.run-agent/worktrees`. `git worktree add` só materializa arquivo **rastreado** | Plano em `.codedeck/` gitignorado dentro do repo nunca aparece na worktree do worker: ele não consegue ler o próprio arquivo de tarefa. Plano commitado polui o repo do usuário |
-| BD-6 | Worker sobe sem o setup do CodeDeck | `buildClaudeArgs` (`src/drivers/claude/driver.ts:11`) monta `-p`, `--dangerously-skip-permissions` incondicional, `--model`, `--effort`, `--resume`, prompt. Nada de `--plugin-dir`, `--agent` ou `--append-system-prompt-file` | "Delegar pra sessão CodeDeck" hoje entrega um claude cru. Mexer nisso afeta o driver de todos os agentes, não só o claude |
+| BD-6 | Worker sobe sem o setup do CodeDeck | `buildClaudeArgs` (`src/drivers/claude/driver.ts:12`) monta `-p`, `--dangerously-skip-permissions` incondicional, `--model`, `--effort`, `--resume`, prompt. Nada de `--plugin-dir`, `--agent` ou `--append-system-prompt-file` | "Delegar pra sessão CodeDeck" hoje entrega um claude cru. Cada driver tem seu próprio builder (`buildCodexArgs` em `codex/driver.ts:15`, `buildOmpArgs` em `omp/driver.ts:255`), então mudar o do claude não afeta os outros. O que é compartilhado é `StartOptions`, que hoje não tem campo pra plugin, papel, system prompt nem bypass de claude |
 
 ---
 
@@ -52,6 +52,7 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 | Local do plano | **Sem decisão** | Ver BD-5. Candidatos: `~/.run-agent/runs/<run-id>/` (fora do repo, invisível ao worker por padrão), `.codedeck/` commitado, ou passado ao worker via prompt em vez de arquivo | n |
 | Escrita do plano | **Sem decisão** | Ver BD-1. Candidatos: `codedeck plan` tipado, `Write` restrito por caminho no frontmatter do agente, ou plano gravado pelo daemon a partir de comando do orquestrador | n |
 | Vocabulário de tarefa | `todo, doing, done, no-op, blocked, failed` | `no-op` é onde cai o worker que terminou com diff vazio; sem ele "nunca arredonde pra sucesso" não tem destino. `blocked` ≠ `failed` na retomada: `failed` re-despacha, `blocked` espera humano | n |
+| Quais estados são terminais | **Sem decisão** | Sem isso a spec se contradiz: ORCH-08 re-despacha o não terminal e ORCH-11 manda deixar `blocked` parado, então `blocked` precisa ser terminal pra retomada e não terminal pro fluxo (alguém ainda vai desbloquear). Falta tabela de transição e um predicado `isTerminalTask`, sem os quais um teste que só confere a existência das seis strings passa com transição errada | n |
 | Quem produz `todo` e `blocked` | **Sem decisão** | Na versão anterior nada produzia esses dois estados: eram vocabulário morto. Ou o fluxo que os cria fica explícito, ou eles saem | n |
 | Identidade de tarefa ↔ sessão | Tarefa guarda o id da sessão CodeDeck que a executou | Sem isso não dá pra consultar `processAlive`/`pidStartTime` na retomada nem atribuir diff. Estava faltando na versão anterior | n |
 | Isolamento no despacho | `codedeck run --worktree` sempre | `worktree` é `false` por default (`src/config/config.ts:14`) e `getDiff` cai em `options.worktree \|\| options.cwd` (`src/git/diff.ts:19`): sem worktree os diffs de dois workers se misturam | y |
@@ -65,6 +66,8 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 2. **O plano é arquivo ou linha de banco?** BD-1 e BD-5 se resolvem juntos ou não se resolvem. Se o daemon grava, o orquestrador não precisa de `Write` e o worker não precisa enxergar o arquivo.
 3. **Provisionar o worker entra nesta feature ou em uma própria?** BD-6 mexe em `buildClaudeArgs`, que serve claude, codex, opencode e omp. Pode ser feature separada de "worker herda o setup do open".
 4. **`no-op` é terminal por marca ou por artefato?** BD-2 depende disso.
+5. **Qual é a tabela de transição de tarefa, e o que desbloqueia uma `blocked`?** Precisa sair como predicado testável (`isTerminalTask`) e não como prosa, senão ORCH-08 e ORCH-11 continuam se contradizendo.
+6. **Quem é o dono do portão de confirmação?** Hoje `session.create` persiste e já dispara o driver (`src/daemon/daemon.ts:283-325`), sem estado de admissão tipo `awaiting_confirmation` e sem método IPC de confirmar run. Um hook só de fatos não impede o orquestrador de chamar `codedeck run` antes do consentimento: ORCH-07 só é real se o daemon segurar o despacho.
 
 ---
 
@@ -103,9 +106,11 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 3. IF existem tarefas não terminais de uma run anterior THEN o CodeDeck SHALL apresentá-las e aguardar confirmação explícita antes de despachar qualquer worker <!-- unwanted-behavior --> `ORCH-07`
 4. WHEN a confirmação é dada THEN o orquestrador SHALL re-despachar apenas tarefas cujo artefato não prova conclusão E que não estejam marcadas como terminais <!-- event-driven --> ⛔ BD-2 `ORCH-08`
 5. BEFORE re-despachar uma tarefa THEN o CodeDeck SHALL consultar `processAlive` e `pidStartTime` da sessão registrada e SHALL recusar o despacho enquanto o worker anterior estiver vivo <!-- event-driven --> ⛔ BD-4 `ORCH-09`
-6. The CodeDeck SHALL nunca reatachar processo antigo: worker morto vira tarefa re-despachada do zero, e a worktree suja é reportada ao humano <!-- ubiquitous --> `ORCH-10`
-7. IF uma tarefa está bloqueada por decisão humana THEN o CodeDeck SHALL deixá-la parada e reportar <!-- unwanted-behavior --> ⛔ BD-2 `ORCH-11`
-8. The gatilho de retomada SHALL ser explícito, nunca automático no boot <!-- ubiquitous --> ⛔ BD-3 `ORCH-12`
+6. IF o processo do worker ainda está vivo THEN o CodeDeck SHALL preservar o reatamento que o daemon já faz (`src/daemon/daemon.ts:207`, `SessionRuntime.reattach` em `src/drivers/session-runtime.ts:180`), sem re-despachar <!-- unwanted-behavior --> `ORCH-10`
+7. IF o processo do worker está morto THEN o orquestrador SHALL re-despachar a tarefa do zero em vez de tentar reatar, porque o driver não tem protocolo pra retomar conversa de worker morto <!-- unwanted-behavior --> `ORCH-10`
+8. WHEN uma tarefa é re-despachada THEN o CodeDeck SHALL reportar ao humano se a worktree anterior ficou suja <!-- event-driven --> `ORCH-17`
+9. IF uma tarefa está bloqueada por decisão humana THEN o CodeDeck SHALL deixá-la parada e reportar, e a retomada SHALL não contá-la como candidata <!-- unwanted-behavior --> ⛔ BD-2 `ORCH-11`
+10. The gatilho de retomada SHALL ser explícito, nunca automático no boot <!-- ubiquitous --> ⛔ BD-3 `ORCH-12`
 
 **Independent Test**: Criar uma run com uma tarefa em execução, `poweroff` na máquina, ligar de novo e abrir: a tarefa pendente aparece, nenhum worker sobe até a confirmação, e com o worker anterior forçado a "vivo" o re-despacho é recusado.
 
@@ -151,7 +156,8 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 | ORCH-07 | Confirmação antes de despachar | P1 Retomada | - | Pending |
 | ORCH-08 | Re-despacho só do não provado | P1 Retomada | BD-2 | Blocked |
 | ORCH-09 | Guarda de escritor duplicado | P1 Retomada | BD-4 | Blocked |
-| ORCH-10 | Nunca reatachar processo | P1 Retomada | - | Pending |
+| ORCH-10 | Reatar worker vivo, re-despachar worker morto | P1 Retomada | - | Pending |
+| ORCH-17 | Relato de worktree suja no re-despacho | P1 Retomada | - | Pending |
 | ORCH-11 | Tarefa bloqueada espera humano | P1 Retomada | BD-2 | Blocked |
 | ORCH-12 | Gatilho explícito de retomada | P1 Retomada | BD-3 | Blocked |
 | ORCH-13 | Plugin no worker | P2 Setup | BD-6 | Blocked |
@@ -161,7 +167,9 @@ Cada linha é um bloqueio real encontrado em revisão da spec anterior, verifica
 
 **Status values:** Blocked → Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 16 requisitos, 11 bloqueados por uma das 6 dependências acima. `tasks.md` não deve ser escrito enquanto BD-1 a BD-6 não tiverem decisão.
+**Coverage:** 17 requisitos, 11 bloqueados por uma das 6 dependências acima. `tasks.md` não deve ser escrito enquanto BD-1 a BD-6 e as 6 open questions não tiverem decisão.
+
+**Aviso:** os Success Criteria abaixo descrevem o estado desejado, não coisa verificável hoje. Nenhum plano, run, tarefa ou comando de retomada existe no código: o único vocabulário de status que roda é o de sessão do daemon (`starting, working, needs_input, idle, completed, failed, stopped, orphaned, interrupted`).
 
 ---
 

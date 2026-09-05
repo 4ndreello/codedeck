@@ -11,7 +11,7 @@ Abrir o Claude Code pronto pra trabalho hoje é ritual manual: escolher modelo, 
 ## Goals
 
 - [ ] `codedeck open` sobe uma sessão Claude Code com skills, agentes e tema do CodeDeck sem instalar nada na config global do usuário
-- [ ] O papel da sessão é escolhido no launch (`general`, `orchestrator`, `reviewer`) e as restrições de cada papel são impostas por ferramenta, não só por texto
+- [ ] O papel da sessão é escolhido no launch (`general`, `orchestrator`, `reviewer`). No `reviewer` a restrição é imposta por ferramenta e verificada; no `orchestrator` ela é parcial, porque ele mantém `Bash` e com `Bash` ainda dá pra escrever por redirecionamento
 - [ ] O orquestrador delega trabalho de escrita pra sessões CodeDeck e aceita artefato como prova, dentro de uma sessão só
 - [ ] Zero dependência de Python, zero instalação global, zero passo com root
 
@@ -21,8 +21,8 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Feature | Reason |
 | ------- | ------ |
-| Plano durável, retomada pós-reboot, contabilidade de tarefa | Movido pra `codedeck-orchestrate`. Exige superfície nova de daemon (gravação tipada de plano, identidade de sessão por tarefa, gatilho de boot) que hoje não existe; deixar aqui bloqueava o launcher, que está pronto |
-| Provisionar o worker com o setup do CodeDeck | `buildClaudeArgs` (`src/drivers/claude/driver.ts:11`) hoje monta `-p`, bypass fixo, model, effort, resume, e mais nada: worker não recebe `--plugin-dir`, `--agent` nem system prompt. Mudar isso é mexer no driver de todos os agentes, não no launcher. Vai pra `codedeck-orchestrate` |
+| Plano durável, retomada pós-reboot, contabilidade de tarefa | Movido pra `codedeck-orchestrate`. Exige superfície nova de daemon (gravação tipada de plano, identidade de sessão por tarefa, gatilho de boot) que hoje não existe; deixar aqui bloqueava o launcher, cujo desenho já está fechado |
+| Provisionar o worker com o setup do CodeDeck | `buildClaudeArgs` (`src/drivers/claude/driver.ts:12`) hoje monta `-p`, bypass fixo, model, effort, resume, e mais nada: worker não recebe `--plugin-dir`, `--agent` nem system prompt. Exige campo novo em `StartOptions`, que é contrato compartilhado pelos quatro drivers. Vai pra `codedeck-orchestrate` |
 | Skill de spec-driven própria | Corpo de método que exige semanas de iteração com uso real; amarrar o `open` a ela impede os dois de sair. Entra em versão seguinte, e o `open` é o ambiente pra escrevê-la |
 | Empacotar `tlc-spec-driven` de terceiro | CC-BY-4.0 exige atribuição e os 5 validadores são Python; um CLI Node que só funciona com Python instalado é passivo de suporte permanente |
 | Papéis `implementer` e `fixer` no seletor | São alvos de spawn do orquestrador, não escolhas de humano; podem existir depois como agentes despacháveis sem aparecer no picker |
@@ -35,6 +35,8 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Every ambiguity is resolved or recorded here - nothing is left silently unclear. Toda linha marcada com evidência foi verificada por comando contra `claude 2.1.258` nesta máquina, não lida em documentação, e reverificada por um segundo agente em plugin construído do zero.
 
+**`Confirmed?` significa decisão fechada e mecanismo comprovado por sonda, não código entregue.** Nada nesta spec está implementado: `codedeck open` não existe no CLI e `plugin/` não existe no repo. O que foi provado é que os mecanismos que a spec usa funcionam na versão do `claude` fixada acima.
+
 | Assumption / decision | Chosen default | Rationale | Confirmed? |
 | --------------------- | -------------- | --------- | ---------- |
 | Mecanismo de carga das skills | `--plugin-dir <dir>` por sessão | Evidência: skill de plugin efêmero foi invocada de verdade pela ferramenta Skill (o stream-json mostra `"name":"Skill"`) e devolveu o token do corpo, disparada pela descrição e não à força. Não instala nada global e versiona junto do pacote | y |
@@ -46,7 +48,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | `plugin validate` **não** cobre tema | Gate de tema é captura real de launch | Evidência: arquivo de tema substituído por `NOT JSON AT ALL {{{` passou pelo validate sem uma palavra. O validate cobre frontmatter de agente, não tema | y |
 | Restrição de ferramenta por papel | `tools:` no frontmatter do agente | Evidência: agente com `tools: Read, Grep` **não escreveu arquivo mesmo com `--dangerously-skip-permissions`**, e relatou ter só essas duas ferramentas. Restrição de ferramenta é ortogonal a bypass de permissão | y |
 | Modelo e esforço default | `claude-opus-4-8` + `--effort xhigh` | Ambos verificados executando; a caixa de boas-vindas exibe `Opus 4.8 with xhigh effort` sem configuração extra | y |
-| Acesso ao `claude-opus-4-8` | Preflight com `getCachedOrDiscoverModels(registry, { agent: "claude" })` antes do spawn | Acesso a modelo é gated por plano, e id desconhecido dá erro duro `[claude-code:unrecognized_model]` sem fallback: numa instalação com outro plano o `open` **não sobe**. A descoberta de modelo entrou na `main` e resolve isso barato: cache em disco com TTL de 4h (`src/core/models.ts:46`), então só o primeiro `open` do dia paga descoberta. Erro fica acionável com `findClosestModel`, que já é levenshtein pronto | y |
+| Acesso ao `claude-opus-4-8` | Preflight de **catálogo** com `getCachedOrDiscoverModels(registry, { agent: "claude" })`, mais tradução do erro do `claude` | O preflight pega erro de digitação, não direito de conta: a descoberta lê `models.dev`, settings locais e a API de modelos, e **não** diz se a conta autenticada pode usar o modelo. Um id pode constar no catálogo e ainda voltar `[claude-code:unrecognized_model]`. Então são três estados distintos, não um: catálogo indisponível, catálogo sem o modelo, e conta sem direito. Cache em disco com TTL de 4h (`src/core/models.ts:46`), e `findClosestModel` dá a sugestão | y |
 | Papéis expostos no seletor | `general` (default), `orchestrator`, `reviewer` | São os únicos que uma pessoa escolhe *ser* ao abrir o terminal | y |
 | `general` não tem arquivo de agente | Omitir `--agent`; o `ultra.md` já se aplica sozinho | Um agente que não restringe nada nem muda instrução é arquivo morto pra manter | n |
 | Ferramentas por papel | `reviewer` sem `Edit`/`Write`/`Bash`; `orchestrator` sem `Edit`/`Write`, com `Bash`; `general` completo | O `orchestrator` precisa de `Bash` pra rodar `codedeck run/ps/diff`, e com `Bash` ainda consegue escrever via redirecionamento: pra ele a regra continua parcialmente dependente do prompt. Pro `reviewer` a restrição é total e verificada | y |
@@ -68,9 +70,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | CI | `.github/workflows/ci.yml`, matriz Node 24 e 26, rodando `npm ci`, `npm run build` e `npm test` | Primeiro workflow do repo. A matriz não inclui 20 nem 22 porque `src/store/database.ts` importa `node:sqlite` e o shim de teste repassa o specifier pro Node real em vez de fingir: precisa de runtime onde `node:sqlite` carrega sem flag. Verificado local: 28 arquivos, 168 testes, verdes | y |
 | Gate de tema no CI | Roda só quando houver credencial; fora disso é gate local | A captura de launch precisa de sessão `claude` autenticada, o que CI público não tem. `plugin validate --strict` roda sem credencial e cobre manifesto e agente, mas **não** cobre tema | n |
 
-**Open questions:**
-
-1. O `engines` do `package.json` declara `node >=20.0.0`, mas `node:sqlite` só carrega sem flag a partir do Node 23.4. Corrigir pra `>=24` (instalação falha cedo e com mensagem clara) ou deixar como está (falha em runtime na primeira query)? Não é bloqueio desta feature, mas o CI acabou de expor.
+**Open questions:** nenhuma. A pendência do `engines` (declarava `>=20.0.0` com `node:sqlite` exigindo 23.4+) foi corrigida pra `>=24.0.0` junto do CI.
 
 ---
 
@@ -99,8 +99,10 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 12. The gate de tema SHALL ser uma captura real de launch procurando o código de cor, porque `plugin validate` **não olha tema nenhum** <!-- ubiquitous --> `OPEN-06`
 13. IF o job não tiver credencial de `claude` THEN o gate de tema SHALL ser pulado com aviso, nunca passar silenciosamente como verde <!-- unwanted-behavior --> `OPEN-06`
 14. The CI SHALL rodar `npm ci`, `npm run build` e `npm test` em matriz de Node onde `node:sqlite` carregue sem flag <!-- ubiquitous --> `OPEN-18`
-15. BEFORE o spawn THEN o CodeDeck SHALL confirmar que o modelo resolvido consta em `getCachedOrDiscoverModels(registry, { agent: "claude" })` <!-- event-driven --> `OPEN-17`
-16. IF o modelo resolvido não estiver disponível THEN o CodeDeck SHALL falhar antes do spawn citando o modelo pedido e a sugestão de `findClosestModel`, nunca deixar o `claude` morrer com `unrecognized_model` <!-- unwanted-behavior --> `OPEN-17`
+15. BEFORE o spawn THEN o CodeDeck SHALL consultar `getCachedOrDiscoverModels(registry, { agent: "claude" })` <!-- event-driven --> `OPEN-17`
+16. IF o catálogo carregou E não contém o modelo resolvido THEN o CodeDeck SHALL falhar antes do spawn citando o modelo pedido e a sugestão de `findClosestModel` <!-- unwanted-behavior --> `OPEN-17`
+17. IF o catálogo não carregou (offline, cache frio, binário ausente) THEN o CodeDeck SHALL seguir com o modelo pedido e avisar, nunca bloquear o launch por indisponibilidade de descoberta <!-- unwanted-behavior --> `OPEN-17`
+18. IF o `claude` sair com `[claude-code:unrecognized_model]` apesar do preflight THEN o CodeDeck SHALL traduzir isso em mensagem sobre direito de conta, porque o catálogo não prova entitlement <!-- unwanted-behavior --> `OPEN-19`
 
 **Independent Test**: Rodar `npm pack`, instalar o tarball em diretório limpo, executar `npx codedeck open -- --version` e confirmar que o plugin foi resolvido a partir do pacote instalado, sem nada escrito em `~/.claude/`.
 
@@ -177,12 +179,13 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 - IF o ref de tema estiver errado THEN a sessão SHALL subir normalmente sem tema (falha silenciosa é comportamento do harness, não corrigível daqui): por isso o gate é captura de launch, e não `plugin validate`
 - IF o `claude` não estiver no `PATH` THEN o `open` SHALL falhar com instrução de instalação, sem stack trace
 - IF a versão do `claude` não suportar `--append-system-prompt-file` THEN o `open` SHALL detectar antes do spawn e falhar explicando; a detecção é o texto de erro do commander, que separa `argument missing` de `unknown option`
-- IF a conta não tiver acesso ao `claude-opus-4-8` THEN o preflight SHALL pegar isso antes do spawn, porque o `claude` sozinho falha com `[claude-code:unrecognized_model]` e sem fallback
+- IF o modelo pedido não constar no catálogo THEN o `open` SHALL falhar antes do spawn com sugestão, porque isso é quase sempre erro de digitação
 - IF o cache de modelos estiver frio E a descoberta falhar (offline, binário fora do `PATH`) THEN o `open` SHALL seguir com o modelo pedido em vez de bloquear: o preflight é rede de segurança, não portão
+- IF o modelo constar no catálogo mas a conta não tiver direito THEN só o `claude` descobre, e o `open` SHALL traduzir o `unrecognized_model` em mensagem sobre plano em vez de deixar o erro cru
 - WHEN o `open` roda dentro de outra sessão Claude Code THEN a limpeza de `CLAUDE_CODE_CHILD_SESSION` SHALL garantir transcript salvo na sessão nova
 - IF o usuário roda `codedeck open` fora de um repositório git THEN o `open` SHALL subir normalmente e a statusLine SHALL exibir ausência de branch sem erro
 - IF `--worktree` for passado junto de `--resume` THEN o `open` SHALL deixar o `claude` decidir a combinação, sem validação própria
-- IF o diretório alvo não existir THEN o `open` SHALL falhar antes do spawn
+- IF o `cwd` do processo não existir mais (diretório apagado embaixo do shell) THEN o `open` SHALL falhar antes do spawn. O `open` não tem flag de diretório alvo: quem quiser outro diretório passa `--add-dir` depois do `--`
 
 ---
 
@@ -202,18 +205,22 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OPEN-10 | Banner e nome de sessão | P2 Visual | Pending |
 | OPEN-11 | Tema | P2 Visual | Pending |
 | OPEN-12 | statusLine | P2 Visual | Pending |
-| OPEN-13 | Fronteira de escrita do orquestrador | P2 Despacho | Pending |
+| OPEN-13 | Fronteira de escrita do orquestrador, e aviso de que o worker sobe sem setup | P2 Despacho | Pending |
 | OPEN-14 | Isolamento por worktree no despacho | P2 Despacho | Pending |
 | OPEN-15 | Prova por artefato | P2 Despacho | Pending |
 | OPEN-16 | Ciclo de vida do worker | P2 Despacho | Pending |
 | OPEN-17 | Preflight de modelo | P1 Launcher | Pending |
 | OPEN-18 | Pipeline de build e teste | P1 Launcher | Done |
+| OPEN-19 | Tradução do erro de entitlement | P1 Launcher | Pending |
+| OPEN-20 | Edge cases de ambiente (plugin ausente, `claude` fora do `PATH`, `cwd` morto, sem git, terminal sem truecolor) | Edge Cases | Pending |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 
 **Status values:** Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 18 requisitos, cada um citado por pelo menos um AC acima. `OPEN-18` já está entregue (`.github/workflows/ci.yml`); os outros 17 esperam `tasks.md`.
+**Coverage:** 20 requisitos. `OPEN-18` já está entregue (`.github/workflows/ci.yml`); os outros 19 esperam `tasks.md`. `OPEN-20` agrupa os edge cases de ambiente, que antes não tinham ID nenhum e podiam sumir da implementação sem violar a tabela.
+
+**Aviso sobre o CI atual:** o workflow cobre build e a suíte existente (28 arquivos, 168 testes, sobre runtime, power, models e drivers). Ele **não** cobre nenhum AC desta spec, porque `open` e `plugin/` ainda não existem. CI verde aqui não é evidência de `OPEN-01` a `OPEN-17`.
 
 ---
 
