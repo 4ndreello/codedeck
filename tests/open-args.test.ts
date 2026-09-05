@@ -42,6 +42,18 @@ describe("open command argument builder", () => {
     ]);
   });
 
+  // `--agent` layers on Claude's own system prompt instead of replacing it, and
+  // an agent file with no `tools:` key keeps the whole toolset, so general has
+  // no reason to be the one role launched without its contract.
+  it("hands general the same --agent as every other role", () => {
+    const args = buildOpenArgs("general", {}, "/opt/codedeck/plugin", []);
+
+    expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
+      "--agent",
+      "codedeck:general",
+    ]);
+  });
+
   it("overrides launcher settings and appends Claude arguments verbatim", () => {
     const args = buildOpenArgs(
       "reviewer",
@@ -92,7 +104,6 @@ describe("open command argument builder", () => {
         command: "bash '/opt/codedeck/plugin/statusline.sh'",
       },
     });
-    expect(args).not.toContain("--agent");
   });
 
   // statusLine.command is handed to a shell, so the install directory is not
@@ -113,7 +124,7 @@ describe("open command argument builder", () => {
 
 describe("open command pure helpers", () => {
   it("parses the supported roles and rejects unknown roles", () => {
-    expect(ROLES).toEqual(["general", "orchestrator", "reviewer"]);
+    expect(ROLES).toEqual(["general", "orchestrator", "reviewer", "auditor"]);
     expect(parseRole(undefined)).toBeUndefined();
     expect(parseRole("orchestrator")).toBe("orchestrator");
     expect(parseRole(" REVIEWER ")).toBe("reviewer");

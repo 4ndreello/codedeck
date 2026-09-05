@@ -7,6 +7,7 @@ import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
+import { composeRolePrompt, parseRole, resolvePluginDir, ROLES } from "../../core/roles.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -16,6 +17,7 @@ export function registerRunCommand(program: Command): void {
     .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
+    .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")}`)
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
     .option("--sandbox <mode>", `codex sandbox: ${CODEX_SANDBOXES.join(" | ")} (default: workspace-write)`)
     .option("--dangerously-bypass-approvals-and-sandbox", "codex: bypass sandbox and approvals (sets sandbox to danger-full-access)")
@@ -40,6 +42,19 @@ Resume with: codedeck send <id> "continue"
       const cfg = loadConfig();
       const agent = (opts.agent || cfg.defaultAgent || "claude") as AgentId;
       const model = resolveModel(agent, opts.model, cfg);
+
+      // `open` hands the role to Claude as `--agent`, which no other harness
+      // has. Here it becomes a prompt prefix instead, so a codex or opencode
+      // worker gets the same contract through the only channel it shares.
+      let rolePrompt = prompt;
+      if (opts.role) {
+        const role = parseRole(opts.role);
+        if (!role) {
+          console.error(`Invalid role "${opts.role}". Available roles: ${ROLES.join(", ")}`);
+          process.exit(3); // usage error — infra class
+        }
+        rolePrompt = composeRolePrompt(resolvePluginDir(), role, prompt);
+      }
 
       // Validate here so a typo fails before a session row is created; codex
       // would otherwise reject it at spawn time, leaving a dead session behind.
@@ -119,7 +134,7 @@ Resume with: codedeck send <id> "continue"
 
       const background = !!opts.detach;
       const params: any = {
-        prompt,
+        prompt: rolePrompt,
         agent,
         model,
         effort,
