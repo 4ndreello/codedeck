@@ -21,7 +21,7 @@ Menores: `rawArgs` não é tipado pelo commander (cast estreito em vez de `any`)
 - `open`, `open reviewer` e `open orchestrator` rodados via `dist/`: banner, papel e as duas regras do `ultra.md` respondidos pela própria sessão. O reviewer confirma que não edita arquivos.
 - Tema quebrado de propósito por **uma letra** (`codedeck-ultraa`): sessão sobe sem erro nenhum e pinta a paleta padrão. `plugin validate --strict` **passa**; o gate falha e `tests/plugin-manifest.test.ts` falha em 2 testes. Ou seja, a armadilha é pega mesmo sem credencial no CI.
 - `plugin validate --strict` roda sem credencial (verificado com `CLAUDE_CONFIG_DIR` isolado), então o job não depende de segredo.
-- Suíte inteira em 5 batches: 32 arquivos, 216 testes, verde.
+- Suíte inteira em 5 batches: 32 arquivos, 224 testes, verde.
 
 
 ## O que a revisão encontrou depois
@@ -39,6 +39,28 @@ Duas revisões adversariais passaram no código já integrado. Um achado foi rej
 | 7 | `build:plugin` chamava `rm -rf` e `cp -r`, que o npm roda pelo cmd no Windows | `package.json`, `scripts/copy-plugin.mjs` |
 
 Conferir o trabalho dos revisores rendeu dois que eles não relataram: a mensagem de direito de acesso nomeava o modelo que o CodeDeck resolveu em vez do que o `claude` rejeitou, e `findClosestModel` curto-circuitava num acerto por substring, então `claude-opus-4-9` era mandado tentar `opus`.
+
+
+## E o que a revisão das correções encontrou
+
+As correções acima entraram sem revisão, então levaram uma rodada própria. Ela achou mais coisa do que o código que estava revisando.
+
+| # | Achado | Onde |
+| - | ------ | ---- |
+| 1 | O guard, que existe pra impedir flag descartada em silêncio, descartava em silêncio: `--no-bypass=false` e `--worktree=true` passavam porque o nome era lido como tudo antes do `=`. Commander honra `=` só em opção declarada com valor e joga o token fora no resto, então o primeiro subia com o bypass ligado e o segundo não criava worktree | `src/cli/commands/open.ts` |
+| 2 | O mesmo guard lia o **valor** de uma opção como opção, recusando `--model -weird` depois de o commander já ter ligado | `src/cli/commands/open.ts` |
+| 3 | O preflight varria o vetor construído, que sempre abre com um par `--model`, então `open --resume --model` lia o `-w` seguinte como modelo e recusava subir | `src/cli/commands/open.ts` |
+| 4 | O preflight casava só `--model x`, nunca `--model=x`, então override junto no passthrough era ignorado e o modelo resolvido julgado no lugar | `src/cli/commands/open.ts` |
+| 5 | Ctrl+D no seletor de papel subia uma sessão general com permissão bypassada que o usuário não escolheu | `src/cli/commands/open.ts` |
+| 6 | A status line era protegida só contra espaço; `$`, crase e aspas ainda quebravam ou executavam | `src/cli/commands/open.ts` |
+| 7 | Classificar os operandos resolveu um bug de papel mais velho que esta branch: `open --resume reviewer -- reviewer` inferia o papel do valor do `--resume` | `src/cli/commands/open.ts` |
+
+Duas alegações não sobreviveram à conferência:
+
+- Eu relatei `--theme` e `--bypass` como rejeitados por engano. Não são. Meu probe leu o **default** de uma opção negável sob `allowUnknownOption()` e confundiu com aceitação; o commander rejeita os dois, então o guard estava certo.
+- Uma corrida entre resposta e `close` no prompt do wizard, com correção sugerida. A correção não mudou nada ao rodar, e o mecanismo real é outro: entrada em rajada drena todas as linhas enquanto só a primeira pergunta está pendente, então o resto se perde e a interface já está fechada quando a segunda pergunta é feita. Inalcançável de um terminal, e não grava nada quando acontece. Virou limite documentado em vez de remendo.
+
+As revisões também argumentaram **contra** mexer em quatro coisas, cada uma com razão que se sustentou: a flag `settled` do seletor de papel é load-bearing (sem ela todo prompt respondido devolve "general" em silêncio), o handler de rejeição do wizard pega um `ERR_USE_AFTER_CLOSE` real, a união `ModelAnswer` paga as três linhas dela, e as duas corridas de abort têm que continuar separadas porque `readline/promises` adia a resposta por um microtask e a forma de callback não.
 
 ---
 
