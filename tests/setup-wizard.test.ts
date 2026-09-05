@@ -87,61 +87,108 @@ describe("needsModelSetup", () => {
 });
 
 describe("runModelSetupWizard", () => {
-  it("does not discover, prompt, or write when stdout is not a TTY", async () => {
-    let discovered = false;
-    let saved = false;
-    const config = { defaultAgent: "claude" as const };
+  function io() {
+    const input = new PassThrough() as PassThrough & {
+      isTTY?: boolean;
+      setRawMode?: (value: boolean) => unknown;
+    };
+    input.isTTY = true;
+    input.setRawMode = () => input;
 
-    const result = await runModelSetupWizard({
-      config,
-      isTTY: false,
-      discoverModels: async () => {
-        discovered = true;
-        return [];
-      },
-      save: () => {
-        saved = true;
-      },
+    const output = new PassThrough() as PassThrough & { rows?: number; columns?: number };
+    output.rows = 40;
+    output.columns = 80;
+    const seen: string[] = [];
+    output.on("data", (chunk) => seen.push(String(chunk)));
+
+    return { input, output, seen };
+  }
+
+  /**
+   * Sends the next key only once a frame has been painted. A key written before
+   * the picker attaches its listener would be dropped by the resumed stream.
+   */
+  function drive(input: PassThrough, output: PassThrough, keys: string[]): void {
+    let next = 0;
+    output.on("data", (chunk) => {
+      if (!String(chunk).includes("agente")) return;
+      if (next >= keys.length) return;
+      const key = keys[next++];
+      setImmediate(() => input.write(key));
     });
+  }
 
-    expect(result).toBe(config);
-    expect(discovered).toBe(false);
-    expect(saved).toBe(false);
+  const base = () => ({
+    config: { defaultAgent: "claude" as const, worktree: false },
+    registry: {} as DriverRegistry,
+    isTTY: true,
+    discoverModels: async () => discoveredHarnesses(),
   });
 
-  it("answers every agent from one line and persists the choices", async () => {
-    const input = scriptedInput("2 omp=openrouter/custom-model");
-    const output = new PassThrough();
+  it("does not discover, prompt, or write when the streams are not a terminal", async () => {
+    const discoverModels = vi.fn(async () => discoveredHarnesses());
+    const save = vi.fn();
+    const config = { defaultAgent: "claude" as const };
 
-    const result = await runModelSetupWizard({
-      config: { defaultAgent: "claude", worktree: false },
-      registry: {} as DriverRegistry,
-      input,
-      output,
-      isTTY: true,
-      width: 80,
-      discoverModels: async () => discoveredHarnesses(),
-    });
+    const result = await runModelSetupWizard({ config, isTTY: false, discoverModels, save });
 
-    expect(result.models).toEqual({
-      claude: "claude-opus",
-      omp: "openrouter/custom-model",
-    });
+    expect(result).toBe(config);
+    expect(discoverModels).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  // Discovery blocks for seconds, so silence there reads as a freeze.
+  it("says it is discovering before it blocks on discovery", async () => {
+    const { input, output, seen } = io();
+    drive(input, output, ["\x03"]);
+
+    await runModelSetupWizard({ ...base(), input, output });
+
+    expect(seen[0]).toContain("discovering models");
+  });
+
+  it("passes refresh through to discovery", async () => {
+    const { input, output } = io();
+    const discoverModels = vi.fn(async () => discoveredHarnesses());
+    drive(input, output, ["\x03"]);
+
+    await runModelSetupWizard({ ...base(), input, output, refresh: true, discoverModels });
+
+    expect(discoverModels).toHaveBeenCalledWith(expect.anything(), true);
+  });
+
+  // Two screens: claude has a catalog, omp reports none and only takes a typed
+  // id, which needs a second Enter because no catalog can vouch for it.
+  it("persists one pick per agent and writes the config", async () => {
+    const { input, output } = io();
+    drive(input, output, ["\r", "c", "u", "s", "t", "o", "m", "\r", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output });
+
+    expect(result.models).toEqual({ claude: "claude-opus", omp: "custom" });
     expect(result.models).not.toHaveProperty("codex");
     expect(loadConfig()).toEqual(result);
   });
 
+  it("leaves an agent unset when it is skipped", async () => {
+    const { input, output } = io();
+    drive(input, output, ["\r", "\x07"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output });
+
+    expect(result.models).toEqual({ claude: "claude-opus" });
+  });
+
   it("warns and continues when config persistence fails", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { input, output } = io();
+    drive(input, output, ["\r", "\x07"]);
+
     try {
       const result = await runModelSetupWizard({
-        config: { defaultAgent: "claude" },
-        registry: {} as DriverRegistry,
-        input: scriptedInput(""),
-        output: new PassThrough(),
-        isTTY: true,
-        width: 80,
-        discoverModels: async () => discoveredHarnesses(),
+        ...base(),
+        input,
+        output,
         save: () => {
           throw new Error("read-only config directory");
         },
@@ -154,30 +201,19 @@ describe("runModelSetupWizard", () => {
     }
   });
 
-  // `readline/promises` question() never settles once the interface closes, so
-  // Ctrl+D at a prompt used to leave the wizard hanging with no way out.
-  it("gives up instead of hanging when stdin closes mid-question", async () => {
+  // Walking out is not an answer, so nothing is written and the next run gets
+  // to ask again.
+  it("writes nothing when the run is aborted", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const save = vi.fn();
+    const { input, output } = io();
+    drive(input, output, ["\x03"]);
+
     try {
-      const config = { defaultAgent: "claude" as const };
-      const closed = new PassThrough();
-      closed.end();
+      const result = await runModelSetupWizard({ ...base(), input, output, save });
 
-      const result = await runModelSetupWizard({
-        config,
-        registry: {} as DriverRegistry,
-        input: closed,
-        output: new PassThrough(),
-        isTTY: true,
-        discoverModels: async () => discoveredHarnesses(),
-        save,
-      });
-
-      // Half an answer is not an answer, so nothing is written and the next run
-      // gets to ask again.
       expect(save).not.toHaveBeenCalled();
-      expect(result).toEqual(config);
+      expect(result.models).toBeUndefined();
       expect(needsModelSetup(result, true)).toBe(true);
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("interrupted"));
     } finally {
@@ -190,22 +226,37 @@ describe("runModelSetupWizard", () => {
   it("leaves the config untouched when no agent had anything to offer", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const save = vi.fn();
+    const { input, output } = io();
+
     try {
-      const config = { defaultAgent: "claude" as const };
       const result = await runModelSetupWizard({
-        config,
-        registry: {} as DriverRegistry,
-        input: scriptedInput(""),
-        output: new PassThrough(),
-        isTTY: true,
-        discoverModels: async () => [],
+        ...base(),
+        input,
+        output,
         save,
+        discoverModels: async () => [],
       });
 
       expect(save).not.toHaveBeenCalled();
-      expect(result).toEqual(config);
       expect(result.models).toBeUndefined();
       expect(needsModelSetup(result, true)).toBe(true);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("leaves the config alone on a terminal too short to draw", async () => {
+    const warning = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.fn();
+    const { input, output } = io();
+    output.rows = 5;
+
+    try {
+      const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+      expect(save).not.toHaveBeenCalled();
+      expect(result.models).toBeUndefined();
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("5 rows"));
     } finally {
       warning.mockRestore();
     }
@@ -447,5 +498,14 @@ describe("setup command", () => {
     const setup = program.commands.find((command) => command.name() === "setup");
     expect(setup).toBeDefined();
     expect(setup?.registeredArguments).toHaveLength(0);
+  });
+
+  // The cache holds for four hours, so rediscovery needs a way in.
+  it("offers a refresh flag that ignores the cached catalog", () => {
+    const program = new Command();
+    registerSetupCommand(program);
+
+    const setup = program.commands.find((command) => command.name() === "setup");
+    expect(setup?.options.map((option) => option.long)).toContain("--refresh");
   });
 });

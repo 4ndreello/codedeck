@@ -8,7 +8,17 @@ import {
 } from "../../core/models.js";
 import type { AgentId } from "../../core/session.js";
 import type { PickerItem, Screen, ScreenResult } from "../picker-state.js";
-import { INDENT, blockWidth, columnize, headingWith, renderLogo } from "../ui.js";
+import { runScreens } from "../picker.js";
+import {
+  INDENT,
+  blockWidth,
+  colors,
+  columnize,
+  headingWith,
+  readDimensions,
+  renderLogo,
+  type Dimensions,
+} from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import {
   loadConfig,
@@ -19,12 +29,13 @@ import {
 export interface ModelWizardOptions {
   config?: RunAgentConfig;
   registry?: DriverRegistry;
-  input?: NodeJS.ReadableStream;
-  output?: NodeJS.WritableStream;
+  input?: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode?(value: boolean): void };
+  output?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
   isTTY?: boolean;
-  discoverModels?: (registry: DriverRegistry) => Promise<HarnessModels[]>;
+  refresh?: boolean;
+  dimensions?: Dimensions;
+  discoverModels?: (registry: DriverRegistry, refresh: boolean) => Promise<HarnessModels[]>;
   save?: (config: RunAgentConfig) => void;
-  width?: number;
 }
 
 /**
@@ -291,93 +302,92 @@ export function parseModelSelection(answer: string, menu: ModelMenu): ModelSelec
  * Run the interactive model setup. A non-TTY invocation returns immediately;
  * callers such as `open` can therefore invoke this safely without blocking.
  */
+/** Below this no list survives once the chrome is placed. */
+const MIN_ROWS = 8;
+
+function watchResize(listener: () => void): () => void {
+  process.stdout.on("resize", listener);
+  return () => {
+    process.stdout.off("resize", listener);
+  };
+}
+
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
   const config = options.config ?? loadConfig();
-  const isTTY = options.isTTY ?? isInteractiveTerminal();
-  if (!isTTY) return config;
+  if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
+  const output = options.output ?? process.stdout;
+  const input = options.input ?? process.stdin;
   const registry = options.registry ?? getRegistry();
+
+  // Order matters: announce, discover with raw mode still off, and only then
+  // measure and draw. Discovery blocks for seconds, and doing it with the
+  // terminal already taken over looks like a freeze.
+  output.write("\n  discovering models...\n");
   let harnesses: HarnessModels[];
   try {
-    const discover = options.discoverModels ?? ((selectedRegistry: DriverRegistry) =>
-      getCachedOrDiscoverModels(selectedRegistry));
-    harnesses = await discover(registry);
+    const discover =
+      options.discoverModels ??
+      ((selected: DriverRegistry, refresh: boolean) => getCachedOrDiscoverModels(selected, { refresh }));
+    harnesses = await discover(registry, options.refresh ?? false);
   } catch (error) {
+    // A catalog that cannot be reached is not an answer from the user. It falls
+    // into the guard below, which saves nothing and lets the next run ask.
     console.error(`Warning: Could not discover models: ${error instanceof Error ? error.message : String(error)}`);
     harnesses = [];
   }
 
-  const output = options.output ?? process.stdout;
-  const input = options.input ?? process.stdin;
-  // `??` is not enough: a pty with no window size reports 0 columns, which
-  // collapses every grid to one column.
-  const width = options.width ?? process.stdout.columns ?? 0;
-  const menu = buildModelMenu(harnesses, config.models ?? {}, width);
+  const screens = buildScreens(harnesses, config.models ?? {});
 
   // Writing `models` is what marks first-run setup as done. Doing that after
-  // showing nothing (discovery failed, or no harness is installed) would burn
-  // the one prompt the user gets and never offer it again, so leave the config
-  // untouched and let the next run try again.
-  if (menu.agents.length === 0) {
+  // showing nothing would spend the single prompt the user ever gets.
+  if (screens.length === 0) {
     console.error("Warning: No installed agent reported any model; skipping model setup.");
     return config;
   }
 
-  output.write(renderLogo("first run · pick a model for each agent"));
-  output.write(`\n${menu.screen}\n`);
-
-  const readline = createInterface({ input, output, terminal: false });
-  let chosen: Partial<Record<AgentId, string>> | undefined;
-  try {
-    // One line answers every agent, so a wrong token is worth re-reading rather
-    // than throwing the whole line away.
-    for (;;) {
-      const answer = await ask(readline, "\n  one number per agent, or Enter for the defaults\n  > ");
-      if (answer === undefined) break;
-      const selection = parseModelSelection(answer, menu);
-      if (selection.ok) {
-        chosen = selection.models;
-        break;
-      }
-      output.write(`  ${selection.error}\n`);
-    }
-  } finally {
-    readline.close();
+  const dim = options.dimensions ?? readDimensions(output);
+  if (dim.rows < MIN_ROWS) {
+    console.error(`Warning: Terminal is ${dim.rows} rows, model setup needs ${MIN_ROWS}. Nothing was saved.`);
+    return config;
   }
 
-  // Walking out is reported by the answer itself rather than by watching for a
-  // close event: the normal path closes the interface too, so the event cannot
-  // tell the two apart. Ctrl+D is not an answer, so nothing is written.
-  if (chosen === undefined) {
+  const paint = colors(Boolean(output.isTTY) && !process.env.NO_COLOR);
+  const results = await runScreens(screens, { input, output, onResize: watchResize }, paint);
+
+  const { models, write } = collectSelections(results, config.models, screens.length);
+  if (!write) {
     console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
   }
 
-  const models: Partial<Record<AgentId, string>> = { ...(config.models ?? {}) };
-  for (const agent of menu.agents) {
-    const picked = chosen[agent] ?? menu.defaults[agent];
-    if (picked) models[agent] = picked;
-  }
-
   const updatedConfig: RunAgentConfig = { ...config, models };
-  const persist = options.save ?? saveConfig;
   try {
-    persist(updatedConfig);
+    (options.save ?? saveConfig)(updatedConfig);
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  output.write(
-    `\n  saved: ${menu.agents.map((agent) => `${agentLabel(agent)} ${models[agent] ?? "unset"}`).join(" · ")}\n\n`,
-  );
+  const summary = screens
+    .map((screen) => `${screen.title} ${models[screen.agent as AgentId] ?? "unset"}`)
+    .join(" · ");
+  output.write(`\n  saved: ${summary}\n\n`);
   return updatedConfig;
 }
 
 export function registerSetupCommand(program: Command): void {
   program
     .command("setup")
-    .description("Choose the default model for each installed agent")
-    .action(async () => {
-      await runModelSetupWizard();
+    .description("Choose the model each installed agent should use")
+    .option("--refresh", "ignore the cached catalog and rediscover")
+    .action(async (opts: { refresh?: boolean }) => {
+      // The message lives here rather than in the wizard, because `open` calls
+      // the same function and has to stay quiet when it cannot prompt.
+      if (!isInteractiveTerminal()) {
+        console.error("codedeck setup needs a terminal on both stdin and stdout.");
+        process.exitCode = 1;
+        return;
+      }
+      await runModelSetupWizard({ refresh: opts.refresh });
     });
 }
