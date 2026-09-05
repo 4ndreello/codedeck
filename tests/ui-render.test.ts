@@ -41,6 +41,37 @@ describe("text primitives", () => {
     expect(truncate("short", 20)).toBe("short");
   });
 
+  // The filter line is typed, and the picker accepts bracketed paste, so this
+  // is the one place non-ASCII reaches the renderer. The catalog itself is
+  // pure ASCII across all 4,386 ids, names and providers.
+  it("never cuts a surrogate pair in half", () => {
+    const cut = truncate("abcd\u{1F680}ef", 5);
+
+    expect(cut).toBe("abcd");
+    expect([...cut].some((c) => {
+      const code = c.codePointAt(0) as number;
+      return code >= 0xd800 && code <= 0xdfff;
+    })).toBe(false);
+  });
+
+  // A two-column character counted as one let the line outgrow the terminal.
+  // It wraps, the redraw walks up fewer lines than it printed, and the
+  // difference stays on screen.
+  it.each([
+    ["a wide ideograph as two columns", "中", 2],
+    ["an emoji as two columns", "\u{1F680}", 2],
+    ["a combining mark as none", "́", 0],
+    ["a box-drawing rule as one, so the logo keeps its width", "═", 1],
+  ])("counts %s", (_label, char, expected) => {
+    expect(visibleWidth(char)).toBe(expected);
+  });
+
+  it("drops a wide character that would not fit whole", () => {
+    // "ab" is 2 columns, the next ideograph would make 4, then 6 past the cap.
+    expect(truncate("ab中文cd", 5)).toBe("ab中");
+    expect(visibleWidth(truncate("ab中文cd", 5))).toBeLessThanOrEqual(5);
+  });
+
   it("truncates painted text without cutting an escape in half", () => {
     const cut = truncate(colors(true).bold("abcdefghij"), 4);
 

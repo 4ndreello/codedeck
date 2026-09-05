@@ -88,7 +88,16 @@ export function buildAgentScreen(
       const id = typeof model.id === "string" ? model.id.trim() : "";
       if (!id || seen.has(id)) continue;
       seen.add(id);
-      grouped.push({ id, label: id, group: provider.provider });
+      // The name is carried for the filter, not for the row: most of the
+      // catalog spells a version readably there ("Claude Opus 5") and only in
+      // the id the way it is typed.
+      const name = typeof model.name === "string" ? model.name.trim() : "";
+      grouped.push({
+        id,
+        label: id,
+        group: provider.provider,
+        ...(name && name !== id ? { name } : {}),
+      });
     }
   }
 

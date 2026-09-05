@@ -46,13 +46,63 @@ export function colors(enabled: boolean): Colors {
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
+/**
+ * Code points that take two terminal columns, and the marks that take none.
+ *
+ * Not a complete wcwidth: model ids are ASCII, and the only text here a user
+ * can steer is the filter line, so these cover what a paste realistically
+ * carries. Anything outside them counts as one column, which is what the whole
+ * function did before.
+ */
+const ZERO_WIDTH: ReadonlyArray<readonly [number, number]> = [
+  [0x0300, 0x036f], // combining diacritics
+  [0x200b, 0x200f], // zero-width space through the direction marks
+  [0xfe00, 0xfe0f], // variation selectors
+  [0xfeff, 0xfeff],
+  [0xe0100, 0xe01ef],
+];
+
+const WIDE: ReadonlyArray<readonly [number, number]> = [
+  [0x1100, 0x115f], // Hangul Jamo
+  [0x2e80, 0x303e], // CJK radicals through the symbol block
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff], // unified ideographs
+  [0xa000, 0xa4cf], // Yi
+  [0xac00, 0xd7a3], // Hangul syllables
+  [0xf900, 0xfaff],
+  [0xfe30, 0xfe6f],
+  [0xff00, 0xff60], // fullwidth forms
+  [0xffe0, 0xffe6],
+  [0x1f300, 0x1faff], // emoji
+  [0x20000, 0x3fffd],
+];
+
+function inRanges(cp: number, ranges: ReadonlyArray<readonly [number, number]>): boolean {
+  return ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
+}
+
+function charWidth(cp: number): number {
+  if (inRanges(cp, ZERO_WIDTH)) return 0;
+  return inRanges(cp, WIDE) ? 2 : 1;
+}
+
+/** Terminal columns the text occupies, ignoring the escapes that paint it. */
 export function visibleWidth(text: string): number {
-  return text.replace(ANSI, "").length;
+  let width = 0;
+  for (const char of text.replace(ANSI, "")) width += charWidth(char.codePointAt(0) as number);
+  return width;
 }
 
 /**
- * Cuts by visible characters and closes any escape it left open, otherwise the
+ * Cuts by terminal columns and closes any escape it left open, otherwise the
  * color bleeds into the rest of the line.
+ *
+ * Walking code points rather than UTF-16 units matters twice over. Cutting
+ * mid-pair emitted a lone surrogate, which is not valid UTF-8 on the wire. And
+ * a two-column character counted as one let the line outgrow the terminal,
+ * which wraps it, and then the redraw walks up fewer lines than it printed and
+ * leaves the difference on screen.
  */
 export function truncate(text: string, width: number): string {
   if (width <= 0) return "";
@@ -70,10 +120,14 @@ export function truncate(text: string, width: number): string {
       i += match[0].length;
       continue;
     }
-    if (seen === width) break;
-    out += text[i];
-    seen += 1;
-    i += 1;
+    const char = String.fromCodePoint(text.codePointAt(i) as number);
+    const cost = charWidth(char.codePointAt(0) as number);
+    // A wide character with one column left is dropped whole. Emitting it is
+    // what pushes the line past the edge.
+    if (seen + cost > width) break;
+    out += char;
+    seen += cost;
+    i += char.length;
   }
   return painted ? `${out}${RESET}` : out;
 }
