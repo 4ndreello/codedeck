@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
+import { spawn, type ChildProcess } from "node:child_process";
 import { Database, getDatabase } from "../store/database.js";
 import { SessionStore } from "../store/sessions.js";
 import { EventStore } from "../store/events.js";
@@ -46,6 +47,9 @@ class Daemon {
   private shuttingDown = false;
   // Exactly-once drain: concurrent handleShutdown callers share one promise.
   private shutdownPromise: Promise<void> | null = null;
+  // Best-effort delay-lock child (systemd-inhibit), alive for the daemon's
+  // whole life when the binary exists; killed after TRUNCATE in the drain.
+  private inhibitChild: ChildProcess | null = null;
 
   constructor() {
     ensureDirs();
@@ -83,6 +87,10 @@ class Daemon {
     process.once("SIGTERM", () => this.onSignal("SIGTERM"));
     process.once("SIGINT", () => this.onSignal("SIGINT"));
     process.once("SIGHUP", () => this.onSignal("SIGHUP"));
+
+    // Best-effort delay lock so the system waits for the drain. Silent
+    // no-op when systemd-inhibit is absent (containers, macOS, CI).
+    this.maybeSpawnInhibit();
 
     console.log(`[daemon] listening on ${paths.daemonSock} pid=${process.pid}`);
 
@@ -797,6 +805,36 @@ class Daemon {
     void this.handleShutdown(reason).finally(() => process.exit(0));
   }
 
+  // Best-effort delay lock: while this child lives, systemd/logind delays
+  // shutdown up to InhibitDelayMaxSec so the drain can finish. Silent no-op
+  // when the binary is absent. Public so tests can drive it without start()
+  // (no socket binding), under the same PATH rules.
+  public maybeSpawnInhibit(): void {
+    if (this.inhibitChild) return;
+    if (!which("systemd-inhibit")) return;
+    try {
+      const child = spawn(
+        "systemd-inhibit",
+        ["--what=shutdown:sleep", "--who=CodeDeck", "--why=flush sessions", "--mode=delay", "sleep", "infinity"],
+        { stdio: "ignore", detached: true },
+      );
+      child.on("error", () => {});
+      child.unref();
+      this.inhibitChild = child;
+    } catch {
+      this.inhibitChild = null;
+    }
+  }
+
+  private killInhibitChild(): void {
+    const child = this.inhibitChild;
+    this.inhibitChild = null;
+    if (!child) return;
+    try {
+      child.kill();
+    } catch {}
+  }
+
   // Graceful power shutdown. Exposed as a method so tests can drive the
   // drain without signals/systemd: exactly-once (concurrent callers share
   // one drain), never throws, never exits — callers decide on exit.
@@ -831,6 +869,8 @@ class Daemon {
     );
 
     try { handle.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
+    // The delay lock has served its purpose; release it before closing.
+    this.killInhibitChild();
 
     try {
       const paths = getPaths();
