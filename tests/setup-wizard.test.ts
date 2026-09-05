@@ -315,6 +315,26 @@ describe("agent screens", () => {
 
     expect(buildAgentScreen(harness("opencode", [["p", many]]), 0, 1).items).toHaveLength(600);
   });
+
+  // A blank id used to become a selectable blank row that Enter saved as the model.
+  it("drops a model whose id is blank", () => {
+    const screen = buildAgentScreen(harness("opencode", [["p", ["", "   ", "real"]]]), 0, 1);
+
+    expect(screen.items.map((item) => item.id)).toEqual(["real"]);
+    expect(screen.known.has("")).toBe(false);
+  });
+
+  // open tells the user their saved model left the catalog and to run setup.
+  // Setup then has to show which model that was.
+  it("still pins a configured model the catalog no longer lists", () => {
+    const screen = buildAgentScreen(harness("codex", [["openai", ["gpt-6"]]]), 0, 1, "gpt-retired");
+
+    expect(screen.pinned).toBe(true);
+    expect(screen.items[0]).toMatchObject({ id: "gpt-retired", note: "atual, fora do catalogo" });
+    // Synthetic, so keeping it costs the same second Enter as typing it by hand.
+    expect(screen.items[0].synthetic).toBe(true);
+    expect(screen.known.has("gpt-retired")).toBe(false);
+  });
 });
 
 describe("collecting selections", () => {

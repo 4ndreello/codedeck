@@ -55,8 +55,14 @@ function agentLabel(agent: AgentId): string {
 }
 
 function pinnedFor(harness: HarnessModels, ids: string[], configured?: string): PickerItem | undefined {
-  if (configured && ids.includes(configured)) {
-    return { id: configured, label: configured, note: "atual" };
+  if (configured) {
+    // A saved id the catalog no longer lists still gets shown. Hiding it is how
+    // the wizard used to answer `open`'s own "that model is gone, run setup":
+    // the user arrived here and could not see which model it meant. Marking it
+    // synthetic makes keeping it cost the same second Enter as typing it.
+    return ids.includes(configured)
+      ? { id: configured, label: configured, note: "atual" }
+      : { id: configured, label: configured, note: "atual, fora do catalogo", synthetic: true };
   }
   for (const provider of harness.providers) {
     const real = provider.models.find((model) => model.isDefault && ids.includes(model.id));
@@ -76,9 +82,13 @@ export function buildAgentScreen(
   const grouped: PickerItem[] = [];
   for (const provider of harness.providers) {
     for (const model of provider.models) {
-      if (seen.has(model.id)) continue;
-      seen.add(model.id);
-      grouped.push({ id: model.id, label: model.id, group: provider.provider });
+      // A driver reporting a blank id used to become a selectable blank row
+      // that Enter would save as the model. The line wizard guarded this and
+      // the port dropped the guard.
+      const id = typeof model.id === "string" ? model.id.trim() : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      grouped.push({ id, label: id, group: provider.provider });
     }
   }
 
