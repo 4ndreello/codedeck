@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getPaths } from "./paths.js";
-import type { AgentId } from "../core/session.js";
+import { isAgentId, type AgentId } from "../core/session.js";
 import type { Role } from "../core/roles.js";
 
 /**
@@ -19,8 +19,8 @@ export interface RunAgentConfig {
   worktree?: boolean;
   defaultModel?: string;
   /**
-   * Per harness, for a run that names no role. `agents` supersedes this for
-   * anything that does, and setup no longer writes it.
+   * Per harness, and the fallback for whatever `agents` does not answer: a run
+   * with no role, or one whose role nobody bound. Setup no longer writes it.
    */
   models?: Partial<Record<AgentId, string>>;
   agents?: Partial<Record<Role, RoleBinding>>;
@@ -30,6 +30,11 @@ export interface RunAgentConfig {
  * A saved binding is only usable whole. A half-written entry (a harness with
  * no model, or the reverse) resolves to nothing rather than to a guess, so the
  * caller falls back the same way it would for a role nobody configured.
+ *
+ * The file is JSON someone can edit, and the cast in `loadConfig` believes
+ * whatever it finds, so the harness is checked against the four CodeDeck
+ * drives. Without that, `{"harness":"wat"}` reached the daemon as an agent id
+ * and died there instead of falling back here.
  */
 export function resolveRoleBinding(
   role: Role | undefined,
@@ -37,8 +42,9 @@ export function resolveRoleBinding(
 ): RoleBinding | undefined {
   if (role === undefined) return undefined;
   const binding = config.agents?.[role];
-  if (!binding || !binding.harness || !binding.model) return undefined;
-  return binding;
+  if (!binding || !isAgentId(binding.harness)) return undefined;
+  if (typeof binding.model !== "string" || binding.model.trim() === "") return undefined;
+  return { harness: binding.harness, model: binding.model };
 }
 
 /**

@@ -302,6 +302,31 @@ describe("confirming an id the catalog does not know", () => {
 
     expect(first.action).toEqual({ kind: "none" });
     expect(first.state.confirming).toBe(itemKey("codex", "shared"));
+
+    // Retyping for the other harness must not cash in the pending answer: that
+    // one is vouched for by the catalog and needs no confirmation at all, and
+    // the codex answer has to die with the filter that raised it.
+    const retyped = press(
+      { ...first.state, filter: "" },
+      [...typing("opencode:shared"), key("return")],
+      10,
+    );
+
+    expect(retyped.action).toEqual({ kind: "picked", id: "shared", harness: "opencode" });
+    expect(retyped.state.confirming).toBeUndefined();
+  });
+
+  // Pasted text edits the filter, so it has to drop the pending answer the same
+  // way typed text does. It used to survive, leaving the footer asking about an
+  // id the row on screen no longer was.
+  it("drops a pending confirmation when a paste changes the filter", () => {
+    const pending = applyKey(typed("codex:nope").state, key("return"), 10);
+    expect(pending.state.confirming).toBe(itemKey("codex", "nope"));
+
+    const pasted = press(pending.state, [key("paste-start"), key("x"), key("paste-end")]);
+
+    expect(pasted.state.filter).toBe("codex:nopex");
+    expect(pasted.state.confirming).toBeUndefined();
   });
 });
 

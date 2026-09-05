@@ -72,9 +72,9 @@ describe("picker session", () => {
     const { io, input, output, rawCalls } = fakeIO();
     drive(input, output, ["\x1b[B", "\r"]);
 
-    const results = await runScreens([screen("claude")], io, plain);
+    const results = await runScreens([screen("reviewer")], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", role: "claude", harness: "codex", id: "beta" }]);
+    expect(results).toEqual([{ kind: "picked", role: "reviewer", harness: "codex", id: "beta" }]);
     expect(rawCalls).toEqual([true, false]);
   });
 
@@ -84,7 +84,7 @@ describe("picker session", () => {
     const { io, input, output, rawCalls } = fakeIO();
     drive(input, output, ["\r", "\x07", "\r"]);
 
-    const results = await runScreens([screen("a"), screen("b"), screen("c")], io, plain);
+    const results = await runScreens([screen("general"), screen("reviewer"), screen("auditor")], io, plain);
 
     expect(results.map((r) => r.kind)).toEqual(["picked", "skipped", "picked"]);
     expect(rawCalls).toEqual([true, false]);
@@ -94,7 +94,7 @@ describe("picker session", () => {
     const { io, input, output } = fakeIO();
     drive(input, output, ["\x03"]);
 
-    const results = await runScreens([screen("a"), screen("b")], io, plain);
+    const results = await runScreens([screen("general"), screen("reviewer")], io, plain);
 
     expect(results).toEqual([{ kind: "aborted" }]);
   });
@@ -102,7 +102,7 @@ describe("picker session", () => {
   it("restores raw mode when a screen throws", async () => {
     const { io, input, output, rawCalls } = fakeIO();
     const broken = {
-      ...screen("a"),
+      ...screen("general"),
       get items(): never {
         throw new Error("boom");
       },
@@ -118,7 +118,7 @@ describe("picker session", () => {
     const { io, input, output, resizeListeners } = fakeIO();
     drive(input, output, ["\r", "\r", "\r"]);
 
-    await runScreens([screen("a"), screen("b"), screen("c")], io, plain);
+    await runScreens([screen("general"), screen("reviewer"), screen("auditor")], io, plain);
 
     expect(resizeListeners).toHaveLength(0);
   });
@@ -127,7 +127,7 @@ describe("picker session", () => {
     const { io, input, output, written } = fakeIO();
     drive(input, output, ["\r"]);
 
-    await runScreens([screen("a")], io, plain);
+    await runScreens([screen("general")], io, plain);
     const all = written.join("");
 
     expect(all).toContain("\x1b[?2004h");
@@ -139,7 +139,7 @@ describe("picker session", () => {
     const { io, input, output, written } = fakeIO();
     drive(input, output, ["a", "l", "\r"]);
 
-    await runScreens([screen("a")], io, plain);
+    await runScreens([screen("general")], io, plain);
 
     expect(written.join("")).toMatch(/\x1b\[\d+A/);
   });
@@ -154,7 +154,7 @@ describe("terminal restoration under a failing write", () => {
       throw new Error("EPIPE");
     }) as typeof output.write;
 
-    await expect(runScreens([screen("a")], io, plain)).rejects.toThrow("EPIPE");
+    await expect(runScreens([screen("general")], io, plain)).rejects.toThrow("EPIPE");
     expect(rawCalls).toEqual([true, false]);
   });
 
@@ -169,9 +169,9 @@ describe("terminal restoration under a failing write", () => {
       return real(chunk, ...rest);
     }) as typeof output.write;
 
-    const results = await runScreens([screen("a")], io, plain);
+    const results = await runScreens([screen("general")], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", role: "a", harness: "codex", id: "alpha" }]);
+    expect(results).toEqual([{ kind: "picked", role: "general", harness: "codex", id: "alpha" }]);
     expect(rawCalls).toEqual([true, false]);
   });
 });
@@ -184,7 +184,7 @@ describe("stdin after the picker returns", () => {
     const { io, input, output } = fakeIO();
     drive(input, output, ["\r"]);
 
-    await runScreens([screen("a")], io, plain);
+    await runScreens([screen("general")], io, plain);
 
     expect(input.listenerCount("keypress")).toBe(0);
     expect(input.listenerCount("data")).toBe(0);
@@ -201,7 +201,7 @@ describe("stdin after the picker returns", () => {
 
   it("leaves no parser behind when a screen throws", async () => {
     const { io, input } = fakeIO();
-    const broken = { ...screen("a"), items: null as never };
+    const broken = { ...screen("general"), items: null as never };
 
     await expect(runScreens([broken], io, plain)).rejects.toThrow();
 
@@ -215,7 +215,7 @@ describe("resize", () => {
   it("keeps the cursor on screen after a resize shrinks the viewport", async () => {
     const { io, input, output, written, resizeListeners } = fakeIO();
     const many: Screen = {
-      ...screen("a"),
+      ...screen("general"),
       known: new Set(),
       items: Array.from({ length: 30 }, (_, i) => ({
         id: `m${i}`,
@@ -242,7 +242,7 @@ describe("resize", () => {
 
     const results = await runScreens([many], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", role: "a", harness: "codex", id: "m12" }]);
+    expect(results).toEqual([{ kind: "picked", role: "general", harness: "codex", id: "m12" }]);
     const frames = written.filter((chunk) => chunk.includes("filtrar"));
     expect(frames[frames.length - 1]).toContain("\u203a m12");
   });

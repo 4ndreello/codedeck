@@ -74,6 +74,23 @@ describe("resolveRoleBinding", () => {
     expect(resolveRoleBinding("reviewer", broken)).toBeUndefined();
     expect(resolveRoleBinding("auditor", broken)).toBeUndefined();
   });
+
+  // The config file is JSON a person can edit and `loadConfig` casts whatever
+  // it parses. An unchecked harness travelled all the way to the daemon as an
+  // agent id and failed there, instead of falling back here.
+  it("refuses a harness CodeDeck does not drive, and a model that is not a name", () => {
+    const bogus = {
+      agents: {
+        reviewer: { harness: "wat", model: "model-x" },
+        auditor: { harness: "codex", model: "   " },
+        general: { harness: "codex", model: { id: "x" } },
+      },
+    } as unknown as RunAgentConfig;
+
+    expect(resolveRoleBinding("reviewer", bogus)).toBeUndefined();
+    expect(resolveRoleBinding("auditor", bogus)).toBeUndefined();
+    expect(resolveRoleBinding("general", bogus)).toBeUndefined();
+  });
 });
 
 describe("config model persistence", () => {

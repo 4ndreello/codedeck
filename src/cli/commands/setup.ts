@@ -60,6 +60,11 @@ export function needsModelSetup(
  * also what free text has to type as a prefix ("codex:gpt-5.7"). A header
  * reading "Codex" over rows you reach by typing "codex" would hide that.
  */
+/** One normalization for every id, so the catalog and the pin agree on a key. */
+function modelId(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 function catalogItems(installed: HarnessModels[]): { items: PickerItem[]; known: Set<string> } {
   const known = new Set<string>();
   const items: PickerItem[] = [];
@@ -69,7 +74,7 @@ function catalogItems(installed: HarnessModels[]): { items: PickerItem[]; known:
         // A driver reporting a blank id used to become a selectable blank row
         // that Enter would save as the model. The line wizard guarded this and
         // the port dropped the guard.
-        const id = typeof model.id === "string" ? model.id.trim() : "";
+        const id = modelId(model.id);
         if (!id) continue;
         // Keyed by both halves: two harnesses listing the same id are two real
         // choices, and only a repeat within one harness is a duplicate.
@@ -120,9 +125,11 @@ function pinnedFor(
   const harness = installed.find((candidate) => candidate.agent === fallbackHarness);
   if (!harness) return undefined;
   for (const provider of harness.providers) {
-    const real = provider.models.find(
-      (model) => model.isDefault && known.has(itemKey(harness.agent, model.id)),
-    );
+    // Trimmed the same way the catalog trims, or the lookup misses its own row
+    // and a harness that pads its ids ends up pinning nothing.
+    const real = provider.models
+      .map((model) => ({ id: modelId(model.id), isDefault: model.isDefault }))
+      .find((model) => model.isDefault && known.has(itemKey(harness.agent, model.id)));
     if (real) {
       return {
         id: real.id,

@@ -150,7 +150,7 @@ npx codedeck setup
 
 One screen per agent, and the list on it is every model of every installed harness at once, grouped by harness. A single Enter answers both halves: `reviewer` becomes `codex:gpt-5.6-luna`, `general` stays on claude. The axis used to run the other way, one screen per harness, which answered a question nobody asks (what codex should run, in the abstract, when nothing says who is running it).
 
-Typing filters as you go, which is the answer to opencode alone proxying some 600 ids: nothing is capped and nothing is hidden. With the filter empty the list is grouped by harness with a count per group, and once a filter is on the harness moves to the end of each row. The agent's current binding is pinned to the top and marked `atual`; with nothing saved yet, the pin is the default declared by `defaultAgent`'s harness. Only the claude and codex drivers declare one, so a config pointing at opencode or omp pins nothing rather than dress an alphabetical accident up as a recommendation.
+Typing filters as you go, which is the answer to opencode alone proxying some 600 ids: nothing is capped and nothing is hidden. With the filter empty the list is grouped by harness with a count per group, and the agent's current binding is pinned to the top and marked `atual`. Turn a filter on and both markings give way to the harness, which moves to the end of every row. With nothing saved yet the pin is the default declared by `defaultAgent`'s harness, and only the claude and codex drivers declare one, so a config pointing at opencode or omp pins nothing rather than dress an alphabetical accident up as a recommendation.
 
 `^G` skips an agent and leaves its saved binding alone. `^C` walks out and writes nothing. Esc does neither, on purpose: it takes half a second to resolve and a fragmented arrow key arrives looking exactly like it.
 
@@ -165,7 +165,9 @@ The prefix is required, because a bare id names half a binding and there is no h
 
 The catalog is cached for four hours. `codedeck setup --refresh` ignores the cache and rediscovers.
 
-`codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model. With no `--role`, the harness comes from `defaultAgent` and the model from `models[harness]`, then `defaultModel`, then the driver's own default.
+`codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model, rather than hand one harness another's id.
+
+Anything the bindings do not answer falls back the way it always did. The harness comes from `defaultAgent`, then claude; the model from `models[harness]`, then `defaultModel`, then whatever the driver picks for itself. A role nobody bound, because it was skipped in setup, lands in that same fallback instead of failing.
 
 ## Session
 

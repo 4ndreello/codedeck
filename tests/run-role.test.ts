@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const request = vi.fn();
@@ -76,5 +79,75 @@ describe("codedeck run --role", () => {
 
     expect(request).not.toHaveBeenCalled();
     expect(errors.join("\n")).toMatch(/Invalid role/);
+  });
+});
+
+// A binding is two halves, and this is where they are spent. The wizard writing
+// them and the resolver reading them are both covered elsewhere; only here does
+// a wrong pairing actually reach a harness.
+describe("the harness and model a role is bound to", () => {
+  const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+
+  function writeConfig(config: unknown): void {
+    const dir = mkdtempSync(path.join(tmpdir(), "codedeck-run-role-"));
+    process.env.RUN_AGENT_CONFIG_DIR = dir;
+    writeFileSync(path.join(dir, "config.json"), JSON.stringify(config), "utf-8");
+  }
+
+  afterEach(() => {
+    if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
+    else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  });
+
+  const bound = {
+    defaultAgent: "claude",
+    models: { claude: "claude-configured" },
+    agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna" } },
+  };
+
+  async function created(argv: string[]): Promise<{ agent: string; model?: string }> {
+    await expect(runProgram([...argv, "--bg"])).rejects.toThrow(Exited);
+    const [, params] = request.mock.calls[0];
+    return { agent: params.agent, model: params.model };
+  }
+
+  it("takes both halves from the binding when no flag says otherwise", async () => {
+    writeConfig(bound);
+
+    expect(await created(["do the thing", "--role", "reviewer"])).toEqual({
+      agent: "codex",
+      model: "gpt-5.6-luna",
+    });
+  });
+
+  // The bound model belongs to the bound harness. Keeping it here would hand
+  // claude an id only codex lists.
+  it("drops the bound model when a flag moves the role to another harness", async () => {
+    writeConfig(bound);
+
+    expect(await created(["do the thing", "--role", "reviewer", "--agent", "claude"])).toEqual({
+      agent: "claude",
+      model: "claude-configured",
+    });
+  });
+
+  it("lets an explicit model win over the bound one", async () => {
+    writeConfig(bound);
+
+    expect(await created(["do the thing", "--role", "reviewer", "--model", "gpt-6"])).toEqual({
+      agent: "codex",
+      model: "gpt-6",
+    });
+  });
+
+  // Skipping an agent in setup leaves it unbound, and an unbound role is not an
+  // error: it falls back exactly like a run that names no role at all.
+  it("falls back to the per-harness model for a role nobody bound", async () => {
+    writeConfig({ defaultAgent: "claude", models: { claude: "claude-configured" }, agents: {} });
+
+    expect(await created(["do the thing", "--role", "auditor"])).toEqual({
+      agent: "claude",
+      model: "claude-configured",
+    });
   });
 });
