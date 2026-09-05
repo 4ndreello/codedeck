@@ -301,12 +301,12 @@ describe("model preflight", () => {
   it("accepts a model listed under its id or an alias", () => {
     const models = catalog([{ id: "claude-opus-4-8", aliases: ["opus"] }]);
 
-    expect(judgeModel("claude-opus-4-8", models)).toEqual({ kind: "ok" });
-    expect(judgeModel("opus", models)).toEqual({ kind: "ok" });
+    expect(judgeModel("claude-opus-4-8", models, false)).toEqual({ kind: "ok" });
+    expect(judgeModel("opus", models, false)).toEqual({ kind: "ok" });
   });
 
   it("rejects an unlisted model and points at the closest one", () => {
-    const verdict = judgeModel("claude-opus-4-9", catalog([{ id: "claude-opus-4-8" }]));
+    const verdict = judgeModel("claude-opus-4-9", catalog([{ id: "claude-opus-4-8" }]), false);
 
     expect(verdict.kind).toBe("rejected");
     if (verdict.kind !== "rejected") return;
@@ -314,7 +314,7 @@ describe("model preflight", () => {
   });
 
   it("rejects without a suggestion when nothing is close", () => {
-    const verdict = judgeModel("zzzzzzzzzz", catalog([{ id: "claude-opus-4-8" }]));
+    const verdict = judgeModel("zzzzzzzzzz", catalog([{ id: "claude-opus-4-8" }]), false);
 
     expect(verdict.kind).toBe("rejected");
     if (verdict.kind !== "rejected") return;
@@ -332,7 +332,7 @@ describe("model preflight", () => {
   ] as [string, HarnessModels[] | undefined][])(
     "warns and continues when the catalog is unusable: %s",
     (_label, models) => {
-      const verdict = judgeModel("claude-opus-4-8", models);
+      const verdict = judgeModel("claude-opus-4-8", models, false);
 
       expect(verdict.kind).toBe("unknown-catalog");
       if (verdict.kind !== "unknown-catalog") return;
@@ -360,5 +360,37 @@ describe("model preflight", () => {
       .toContain('"claude-opus-4-8"');
     expect(entitlementError("claude-opus-4-8", "[claude-code:unrecognized_model] {}"))
       .toContain('"claude-opus-4-8"');
+  });
+});
+
+describe("a saved model that left the catalog", () => {
+  const catalogs = [
+    {
+      agent: "claude" as const,
+      available: true,
+      providers: [
+        {
+          provider: "anthropic",
+          models: [{ id: "claude-opus-5", name: "o", provider: "anthropic" }],
+        },
+      ],
+    },
+  ];
+
+  it("tells the user to run setup when the model came from config", () => {
+    const verdict = judgeModel("claude-opus-4", catalogs, true);
+
+    expect(verdict.kind).toBe("rejected");
+    if (verdict.kind !== "rejected") return;
+    expect(verdict.error).toContain("codedeck setup");
+  });
+
+  // A wrong --model is a typo made just now, not a stale config.
+  it("does not mention setup when the model came from a flag", () => {
+    const verdict = judgeModel("claude-opus-4", catalogs, false);
+
+    expect(verdict.kind).toBe("rejected");
+    if (verdict.kind !== "rejected") return;
+    expect(verdict.error).not.toContain("codedeck setup");
   });
 });
