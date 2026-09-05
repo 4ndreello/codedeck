@@ -4,8 +4,7 @@
 # plugin does not require jq or Python on the host.
 set -u
 
-input=$(cat)
-printf '%s' "$input" | node --input-type=module -e '
+node --input-type=module -e '
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 

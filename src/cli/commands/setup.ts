@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline/promises";
 import type { DriverRegistry } from "../../core/driver.js";
 import {
+  flattenModels,
   getCachedOrDiscoverModels,
   type HarnessModels,
 } from "../../core/models.js";
@@ -38,17 +39,13 @@ export function needsModelSetup(
 }
 
 
+// Canonical ids only, not aliases: the wizard is offering a list to pick from,
+// where two names for the same model are noise rather than choice.
 function getModelIds(harness: HarnessModels): string[] {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const provider of harness.providers) {
-    for (const model of provider.models) {
-      if (typeof model.id !== "string" || model.id.trim() === "" || seen.has(model.id)) continue;
-      seen.add(model.id);
-      ids.push(model.id);
-    }
-  }
-  return ids;
+  const ids = flattenModels(harness)
+    .map((model) => model.id)
+    .filter((id) => typeof id === "string" && id.trim() !== "");
+  return [...new Set(ids)];
 }
 
 function getDefaultModel(harness: HarnessModels, ids: string[], configured?: string): string | undefined {

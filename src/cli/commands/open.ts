@@ -14,6 +14,7 @@ import { detectBinary } from "../../drivers/helpers.js";
 import {
   findClosestModel,
   getCachedOrDiscoverModels,
+  modelNames,
   type HarnessModels,
 } from "../../core/models.js";
 
@@ -112,10 +113,6 @@ export function renderBanner(role: Role): string {
   return `\n┌${border}┐\n│${title}│\n└${border}┘\n\n`;
 }
 
-function invalidRole(input: string): Error {
-  return new Error(`Invalid role "${input}". Available roles: ${ROLES.join(", ")}`);
-}
-
 function selectRole(): Promise<Role> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -153,7 +150,11 @@ export function isNonInteractiveLaunch(passthrough: string[]): boolean {
 function resolveRole(input: string | undefined, interactive: boolean): Promise<Role> {
   if (input !== undefined) {
     const role = parseRole(input);
-    if (!role) return Promise.reject(invalidRole(input));
+    if (!role) {
+      return Promise.reject(
+        new Error(`Invalid role "${input}". Available roles: ${ROLES.join(", ")}`),
+      );
+    }
     return Promise.resolve(role);
   }
 
@@ -172,8 +173,7 @@ interface OpenInvocation {
 type CommandWithRawArgs = Command & { rawArgs?: string[] };
 
 function getInvocation(command: Command, roleArg: string | undefined): OpenInvocation {
-  const parent = command.parent as CommandWithRawArgs | null;
-  const rawArgs = parent?.rawArgs ?? (command as CommandWithRawArgs).rawArgs ?? [];
+  const rawArgs = (command.parent as CommandWithRawArgs | null)?.rawArgs ?? [];
   // Searching forward from the executable and script entries, never backwards:
   // `open -- --print open` would otherwise match the passthrough word instead
   // of the command and lose the separator behind it.
@@ -263,9 +263,7 @@ export function judgeModel(model: string, catalogs: HarnessModels[] | undefined)
     return keepGoing(catalog?.error ? ` (${catalog.error})` : "");
   }
 
-  const candidates = catalog.providers.flatMap((provider) =>
-    provider.models.flatMap((candidate) => [candidate.id, ...(candidate.aliases ?? [])]),
-  );
+  const candidates = modelNames(catalog);
   if (candidates.length === 0) {
     return {
       kind: "unknown-catalog",
@@ -309,16 +307,12 @@ async function preflightModel(model: string): Promise<void> {
  * hoping it answers the same way.
  */
 async function resolveClaudeBinary(): Promise<string> {
-  const missing = "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
-  let installation;
-  try {
-    installation = await detectBinary("claude");
-  } catch (error) {
-    const details = errorDetails(error);
-    throw new Error(`${missing} (${details.text})`);
+  // detectBinary reports failure in its result and never rejects, so there is
+  // nothing here to catch.
+  const installation = await detectBinary("claude");
+  if (!installation.installed || !installation.path) {
+    throw new Error("Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.");
   }
-
-  if (!installation.installed || !installation.path) throw new Error(missing);
   return installation.path;
 }
 
@@ -348,19 +342,21 @@ async function assertSystemPromptFlagSupported(claudeBin: string, cwd: string): 
   }
 }
 
-function relayOutput(child: ChildProcess, output: { value: string }): void {
-  const relay = (stream: NodeJS.ReadableStream | null, target: NodeJS.WriteStream) => {
-    if (!stream) return;
-    stream.setEncoding?.("utf8");
-    stream.on("data", (chunk: string | Buffer) => {
-      const text = typeof chunk === "string" ? chunk : chunk.toString();
-      output.value += text;
-      target.write(chunk);
-    });
-  };
+/**
+ * Only stderr is piped, and only because Claude Code reports an unusable model
+ * there as a tagged line rather than a distinct exit code. stdout stays
+ * inherited so the TUI paints straight to the terminal, which also means
+ * `child.stdout` is null and there is nothing to relay.
+ */
+function relayStderr(child: ChildProcess, output: { value: string }): void {
+  const stream = child.stderr;
+  if (!stream) return;
 
-  relay(child.stdout, process.stdout);
-  relay(child.stderr, process.stderr);
+  stream.setEncoding?.("utf8");
+  stream.on("data", (chunk: string | Buffer) => {
+    output.value += typeof chunk === "string" ? chunk : chunk.toString();
+    process.stderr.write(chunk);
+  });
 }
 
 /**
@@ -369,8 +365,20 @@ function relayOutput(child: ChildProcess, output: { value: string }): void {
  * reports it as a tagged error rather than a distinct exit code.
  */
 export function entitlementError(model: string, output: string): string | undefined {
-  if (!/\[claude-code:unrecognized_model\]/i.test(output)) return undefined;
-  return `Claude Code rejected model "${model}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
+  const tag = /\[claude-code:unrecognized_model\]\s*(\{.*\})?/i.exec(output);
+  if (!tag) return undefined;
+
+  // The passthrough can carry its own --model, which wins over the one CodeDeck
+  // resolved, so the name in the payload is the one that was actually rejected.
+  let rejected = model;
+  if (tag[1]) {
+    try {
+      const payload = JSON.parse(tag[1]) as { model?: unknown };
+      if (typeof payload.model === "string" && payload.model) rejected = payload.model;
+    } catch {}
+  }
+
+  return `Claude Code rejected model "${rejected}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
 }
 
 function launchClaude(claudeBin: string, model: string, args: string[], cwd: string): Promise<void> {
@@ -383,7 +391,7 @@ function launchClaude(claudeBin: string, model: string, args: string[], cwd: str
       stdio: ["inherit", "inherit", "pipe"],
     });
 
-    relayOutput(child, output);
+    relayStderr(child, output);
 
     child.once("error", (error) => {
       if (settled) return;
@@ -416,8 +424,8 @@ export function registerOpenCommand(program: Command): void {
   program
     .command("open [role]")
     .description("Open a configured Claude Code session")
-    .option("--model <model>", "model to use (default: claude-opus-4-8)")
-    .option("--effort <level>", "reasoning effort (default: xhigh)")
+    .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
+    .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
     .option("--resume <session>", "resume a Claude Code session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")

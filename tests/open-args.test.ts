@@ -209,4 +209,20 @@ describe("model preflight", () => {
       .toContain("not entitled");
     expect(entitlementError("claude-opus-4-8", "some unrelated failure")).toBeUndefined();
   });
+
+  // Passthrough can carry its own --model, which wins over the resolved one, so
+  // naming the model CodeDeck chose would point the user at the wrong string.
+  it("names the model claude actually rejected, not the one CodeDeck resolved", () => {
+    const line = '[claude-code:unrecognized_model] {"model":"made-up-xyz","query_source":"sdk"}';
+
+    expect(entitlementError("claude-opus-4-8", line)).toContain('"made-up-xyz"');
+    expect(entitlementError("claude-opus-4-8", line)).not.toContain("claude-opus-4-8");
+  });
+
+  it("falls back to the resolved model when the tag carries no usable payload", () => {
+    expect(entitlementError("claude-opus-4-8", "[claude-code:unrecognized_model] {oops"))
+      .toContain('"claude-opus-4-8"');
+    expect(entitlementError("claude-opus-4-8", "[claude-code:unrecognized_model] {}"))
+      .toContain('"claude-opus-4-8"');
+  });
 });

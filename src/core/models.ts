@@ -203,6 +203,20 @@ export function levenshtein(a: string, b: string): number {
   return matrix[al][bl];
 }
 
+/**
+ * A harness groups its models by provider, and every caller that wants to look
+ * one up has to walk both levels first. `open`, `run` and `setup` each did that
+ * walk themselves.
+ */
+export function flattenModels(harness: HarnessModels): ModelInfo[] {
+  return harness.providers.flatMap((provider) => provider.models);
+}
+
+/** Every string a user could reasonably type to mean one of these models. */
+export function modelNames(harness: HarnessModels): string[] {
+  return flattenModels(harness).flatMap((model) => [model.id, ...(model.aliases ?? [])]);
+}
+
 export function findClosestModel(query: string, candidates: string[]): string | undefined {
   if (!query || candidates.length === 0) return undefined;
   const q = query.toLowerCase();

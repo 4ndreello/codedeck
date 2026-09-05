@@ -38,7 +38,7 @@ if [ ! -f "$THEME" ]; then
   exit 1
 fi
 
-if [ ! -x "$HERE/dist/cli/index.js" ] && [ ! -f "$HERE/dist/cli/index.js" ]; then
+if [ ! -f "$HERE/dist/cli/index.js" ]; then
   echo "dist/cli/index.js missing, run npm run build first" >&2
   exit 1
 fi
