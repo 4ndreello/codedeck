@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build": "tsc && npm run build:plugin",
-    "build:plugin": "rm -rf dist/plugin && cp -r plugin dist/plugin",
+    "build:plugin": "node scripts/copy-plugin.mjs",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
