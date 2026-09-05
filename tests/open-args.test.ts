@@ -16,6 +16,7 @@ import {
   renderBanner,
   resolvePluginDir,
   sanitizeEnv,
+  scanOptions,
 } from "../src/cli/commands/open.js";
 
 describe("open command argument builder", () => {
@@ -88,19 +89,25 @@ describe("open command argument builder", () => {
     expect(settings).toEqual({
       statusLine: {
         type: "command",
-        command: 'bash "/opt/codedeck/plugin/statusline.sh"',
+        command: "bash '/opt/codedeck/plugin/statusline.sh'",
       },
     });
     expect(args).not.toContain("--agent");
   });
 
-  // statusLine.command is a shell command, so an install under a directory with
-  // a space silently loses the status line if the path is not quoted.
-  it("quotes the statusline path so a space cannot split it", () => {
-    const args = buildOpenArgs("general", { theme: false }, "/opt/Code Deck/plugin", []);
+  // statusLine.command is handed to a shell, so the install directory is not
+  // just a string here. Double quotes survive only the first of these; the rest
+  // execute or break the command.
+  it.each([
+    ["a space", "/opt/Code Deck/plugin", "bash '/opt/Code Deck/plugin/statusline.sh'"],
+    ["a substitution", "/opt/a$(id)b/plugin", "bash '/opt/a$(id)b/plugin/statusline.sh'"],
+    ["a backtick", "/opt/a`id`b/plugin", "bash '/opt/a`id`b/plugin/statusline.sh'"],
+    ["a quote", "/opt/it's/plugin", "bash '/opt/it'\\''s/plugin/statusline.sh'"],
+  ])("keeps the status line runnable when the path holds %s", (_label, pluginDir, expected) => {
+    const args = buildOpenArgs("general", { theme: false }, pluginDir, []);
     const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
 
-    expect(settings.statusLine.command).toBe('bash "/opt/Code Deck/plugin/statusline.sh"');
+    expect(settings.statusLine.command).toBe(expected);
   });
 });
 
@@ -160,20 +167,31 @@ describe("non-interactive launch detection", () => {
 
 describe("effective model", () => {
   it("takes the last --model, which is the one claude honours", () => {
-    const args = buildOpenArgs("general", { model: "resolved" }, "/p", ["--model", "override"]);
-
-    expect(effectiveModel(args)).toBe("override");
+    expect(effectiveModel(["--model", "first", "--model", "override"])).toBe("override");
   });
 
-  it("falls back to the resolved one when the passthrough carries none", () => {
-    const args = buildOpenArgs("general", { model: "resolved" }, "/p", ["--print"]);
-
-    expect(effectiveModel(args)).toBe("resolved");
+  it("reads the joined spelling too, which claude also accepts", () => {
+    expect(effectiveModel(["--model=override"])).toBe("override");
+    expect(effectiveModel(["--model", "first", "--model=override"])).toBe("override");
+    expect(effectiveModel(["--model=first", "--model", "override"])).toBe("override");
   });
 
-  it("reports nothing when no --model has a value after it", () => {
+  it("reports nothing when the passthrough carries no model", () => {
     expect(effectiveModel([])).toBeUndefined();
+    expect(effectiveModel(["--print", "hi"])).toBeUndefined();
     expect(effectiveModel(["--model"])).toBeUndefined();
+  });
+
+  // Scanning the built vector cannot answer "did the passthrough override
+  // anything", because that vector always opens with a --model pair. Worse,
+  // `open --resume --model` leaves a bare "--model" bound to resume, and the
+  // token after it then reads as the model.
+  it("does not read the launcher's own arguments", () => {
+    const flags = { model: "resolved", resume: "--model", worktree: true };
+    const args = buildOpenArgs("general", flags, "/p", []);
+
+    expect(args.slice(args.indexOf("--resume"))).toEqual(["--resume", "--model", "-w"]);
+    expect(effectiveModel([])).toBeUndefined();
   });
 });
 
@@ -216,8 +234,50 @@ describe("unknown options before the separator", () => {
     await expect(run(["open", "--no-bypas"])).rejects.toThrow(/--no-bypas/);
   });
 
-  it("says where Claude's own options belong", async () => {
-    await expect(run(["open", "--no-bypas", "--", "-p"])).rejects.toThrow(/after "--"/);
+});
+
+// Driven through scanOptions rather than a parse, because the accepted cases
+// would otherwise run the whole action and launch a session.
+describe("option scanning", () => {
+  const openCommand = (): Command => {
+    const program = new Command();
+    program.name("codedeck").exitOverride();
+    registerOpenCommand(program);
+    const open = program.commands.find((command) => command.name() === "open");
+    if (!open) throw new Error("open command was not registered");
+    return open;
+  };
+
+  const scan = (tokens: string[]) => scanOptions(tokens, openCommand());
+
+  // Commander honours "=" only on options declared with a value and drops the
+  // token otherwise, so this spelling looked accepted and did nothing:
+  // `--no-bypass=false` launched with the permission bypass still on.
+  it("rejects a value glued to an option that takes none", () => {
+    expect(() => scan(["--no-bypass=false"])).toThrow(/takes no value/);
+    expect(() => scan(["--worktree=true"])).toThrow(/takes no value/);
+  });
+
+  it("accepts a value glued to an option that wants one", () => {
+    expect(scan(["--model=sonnet"])).toEqual([]);
+  });
+
+  // Commander binds the token after a value-taking option as its value, however
+  // much it looks like a flag, so the guard must not read it as one.
+  it("does not mistake an option's value for an option", () => {
+    expect(scan(["--model", "-weird"])).toEqual([]);
+    expect(scan(["--resume", "-abc"])).toEqual([]);
+  });
+
+  it("still rejects an unknown option among valid ones", () => {
+    expect(() => scan(["--model", "sonnet", "--no-bypas"])).toThrow(/--no-bypas/);
+  });
+
+  // The operands are what tells a role from a value that happens to spell one.
+  it("reports only the tokens commander did not swallow", () => {
+    expect(scan(["reviewer"])).toEqual(["reviewer"]);
+    expect(scan(["--resume", "reviewer"])).toEqual([]);
+    expect(scan(["--model", "sonnet", "orchestrator"])).toEqual(["orchestrator"]);
   });
 });
 

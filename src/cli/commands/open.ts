@@ -9,7 +9,7 @@ import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig, resolveModel } from "../../config/config.js";
-import { needsModelSetup, runModelSetupWizard } from "./setup.js";
+import { isInteractiveTerminal, needsModelSetup, runModelSetupWizard } from "./setup.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import {
@@ -34,6 +34,8 @@ export interface OpenFlags {
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_EFFORT = "xhigh";
 const PLUGIN_NAME = "codedeck";
+const CLAUDE_NOT_FOUND =
+  "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
 
 /**
@@ -52,17 +54,29 @@ export function resolvePluginDir(): string {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
 }
 
+/**
+ * statusLine.command is handed to a shell, so an install directory carrying a
+ * space, a `$`, a backtick or a quote would break the command or inject into
+ * it. Single quotes take every one of those literally, and the only character
+ * that can end them is a quote, which is why that one is spliced.
+ *
+ * plugin/settings.json quotes the same script with double quotes on purpose and
+ * must keep doing so: it names the path through ${CLAUDE_PLUGIN_ROOT}, and
+ * single quotes would stop the expansion instead of protecting it.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 function settingsArgument(pluginDir: string, flags: OpenFlags): string {
   if (flags.theme !== false) return path.join(pluginDir, "settings.json");
 
   // Claude accepts an inline settings JSON value. Keep the status line while
   // removing only the theme, without mutating the plugin's shared settings file.
-  // The path is quoted because it is a shell command, and an install under a
-  // directory with a space would otherwise lose the status line.
   return JSON.stringify({
     statusLine: {
       type: "command",
-      command: `bash "${path.join(pluginDir, "statusline.sh")}"`,
+      command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
     },
   });
 }
@@ -96,14 +110,27 @@ export function buildOpenArgs(
   return args;
 }
 
+const MODEL_PREFIX = "--model=";
+
 /**
  * Claude honours the last --model on the line and the passthrough is appended
  * last, so `open --model bad -- --model good` really launches "good". Checking
  * anything but the last one grounds a launch that would have worked.
+ *
+ * Only the passthrough is scanned, never the built vector. That vector always
+ * opens with a --model pair, so scanning it could never answer "the passthrough
+ * overrode nothing", and a bare "--model" swallowed as another flag's value (as
+ * in `open --resume --model`) would be read as a model of its own.
+ *
+ * Known limit: a literal "--model" passed as the value of one of Claude's own
+ * flags still reads as an override. Telling that apart needs Claude's option
+ * arity, which CodeDeck does not have.
  */
-export function effectiveModel(args: string[]): string | undefined {
-  for (let i = args.length - 1; i > 0; i--) {
-    if (args[i - 1] === "--model") return args[i];
+export function effectiveModel(passthrough: string[]): string | undefined {
+  for (let i = passthrough.length - 1; i >= 0; i--) {
+    const token = passthrough[i];
+    if (token.startsWith(MODEL_PREFIX)) return token.slice(MODEL_PREFIX.length);
+    if (i > 0 && passthrough[i - 1] === "--model") return token;
   }
 }
 
@@ -133,7 +160,7 @@ function selectRole(): Promise<Role> {
     output: process.stdout,
   });
 
-  return new Promise<Role>((resolve) => {
+  return new Promise<Role>((resolve, reject) => {
     let settled = false;
     const finish = (role: Role) => {
       if (settled) return;
@@ -142,9 +169,16 @@ function selectRole(): Promise<Role> {
       resolve(role);
     };
 
-    // Ctrl+D closes the interface without ever answering the question, so
-    // without this the promise stays pending and the command hangs.
-    rl.once("close", () => finish("general"));
+    // Ctrl+D closes the interface without ever answering, so without this the
+    // promise stays pending and the command hangs. It is a walk-out, not a
+    // choice: EOF here used to launch a permission-bypassed session the user
+    // never picked, and the model wizard already treats the same keystroke as
+    // leaving. Reaching this needs a TTY, so a piped launch cannot trip it.
+    rl.once("close", () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Role selection was interrupted; nothing was launched."));
+    });
 
     const ask = () => {
       rl.question("Role [general] (general/orchestrator/reviewer): ", (answer) => {
@@ -183,11 +217,7 @@ function resolveRole(input: string | undefined, interactive: boolean): Promise<R
     return Promise.resolve(role);
   }
 
-  // Both streams matter. `tail -f /dev/null | codedeck open` keeps stdout a TTY
-  // while stdin can never answer, and the prompt would wait forever.
-  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
-    return Promise.resolve("general");
-  }
+  if (!interactive || !isInteractiveTerminal()) return Promise.resolve("general");
   return selectRole();
 }
 
@@ -207,24 +237,61 @@ type CommandWithRawArgs = Command & { rawArgs?: string[] };
  * typo in a safety flag is silent: `open --no-bypas` looks like it turned the
  * permission bypass off and launches with it still on.
  *
- * The known set comes from commander's own registry, so it cannot drift from
- * the options actually declared.
+ * The rule enforced is commander's own: reject exactly what commander would
+ * treat as unknown under allowUnknownOption(). Looser lets a dropped flag
+ * through, which is the bug this exists to catch; stricter refuses a command
+ * line commander parses happily.
+ *
+ * Returns the operands, meaning the tokens commander did not swallow as an
+ * option or an option's value, so the caller can tell a role from a value that
+ * happens to spell one.
+ *
+ * The known set is read from commander's registry so it cannot drift from the
+ * declared options. Help is the exception: commander keeps its help option out
+ * of `command.options`, so those two spellings are mirrored from the
+ * `.helpOption()` call in src/cli/index.ts and change with it.
  */
-function assertOnlyKnownOptions(tokens: string[], command: Command): void {
-  const known = new Set(["-h", "--help"]);
+export function scanOptions(tokens: string[], command: Command): string[] {
+  const takesValue = new Map<string, boolean>([
+    ["-h", false],
+    ["--help", false],
+  ]);
   for (const option of command.options) {
-    if (option.short) known.add(option.short);
-    if (option.long) known.add(option.long);
+    const wantsValue = option.required || option.optional;
+    if (option.short) takesValue.set(option.short, wantsValue);
+    if (option.long) takesValue.set(option.long, wantsValue);
   }
 
-  for (const token of tokens) {
-    if (!token.startsWith("-") || token === "-") continue;
-    const name = token.split("=")[0];
-    if (known.has(name)) continue;
-    throw new Error(
-      `Unknown option "${name}" for codedeck open. Options for Claude go after "--".`,
-    );
+  const operands: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token.startsWith("-") || token === "-") {
+      operands.push(token);
+      continue;
+    }
+
+    const separator = token.indexOf("=");
+    const name = separator >= 0 ? token.slice(0, separator) : token;
+    const wantsValue = takesValue.get(name);
+    if (wantsValue === undefined) {
+      throw new Error(
+        `Unknown option "${name}" for codedeck open. Options for Claude go after "--".`,
+      );
+    }
+
+    // Commander honours "=" only on options declared with a value and drops the
+    // whole token otherwise, so `--no-bypass=false` would read as accepted and
+    // launch with the bypass still on.
+    if (separator >= 0 && !wantsValue) {
+      throw new Error(`Option "${name}" for codedeck open takes no value.`);
+    }
+
+    // The next token belongs to this option even when it looks like a flag,
+    // which is what keeps `--model -weird` from reading as an unknown option.
+    if (wantsValue && separator < 0) i += 1;
   }
+
+  return operands;
 }
 
 function getInvocation(command: Command, roleArg: string | undefined): OpenInvocation {
@@ -234,20 +301,23 @@ function getInvocation(command: Command, roleArg: string | undefined): OpenInvoc
   // of the command and lose the separator behind it.
   const commandIndex = rawArgs.indexOf(command.name(), 2);
   const separatorIndex = commandIndex >= 0 ? rawArgs.indexOf("--", commandIndex + 1) : -1;
+  const beforeSeparator = commandIndex >= 0
+    ? rawArgs.slice(commandIndex + 1, separatorIndex >= 0 ? separatorIndex : undefined)
+    : [];
+  const operands = scanOptions(beforeSeparator, command);
 
   if (separatorIndex >= 0) {
-    const beforeSeparator = rawArgs.slice(commandIndex + 1, separatorIndex);
-    assertOnlyKnownOptions(beforeSeparator, command);
-    const explicitRole = roleArg !== undefined && !roleArg.startsWith("-") && beforeSeparator.includes(roleArg)
-      ? roleArg
-      : undefined;
+    // Commander folds the separator away, so roleArg can just as easily have
+    // come from the passthrough. It counts as a role only when it really stood
+    // before the separator as an operand, never as some option's value:
+    // `open --resume reviewer -- reviewer` asks for no role at all.
+    const explicitRole = roleArg !== undefined && operands.includes(roleArg) ? roleArg : undefined;
     return {
       roleInput: explicitRole,
       passthrough: rawArgs.slice(separatorIndex + 1),
     };
   }
 
-  assertOnlyKnownOptions(commandIndex >= 0 ? rawArgs.slice(commandIndex + 1) : [], command);
   const parsedArgs = command.args.slice();
   if (roleArg !== undefined && parsedArgs[0] === roleArg) {
     parsedArgs.shift();
@@ -300,6 +370,9 @@ function errorDetails(error: unknown): { code?: string; text: string } {
  * the catalog lists what Claude Code knows about, never what this account may
  * use, so an entitlement problem only surfaces at launch (see launchClaude).
  */
+const catalogWarning = (model: string, state: string): string =>
+  `Warning: Claude model catalog is ${state}; continuing with "${model}".`;
+
 export type ModelVerdict =
   | { kind: "ok" }
   | { kind: "unknown-catalog"; warning: string }
@@ -312,7 +385,7 @@ export type ModelVerdict =
 export function judgeModel(model: string, catalogs: HarnessModels[] | undefined): ModelVerdict {
   const keepGoing = (reason: string): ModelVerdict => ({
     kind: "unknown-catalog",
-    warning: `Warning: Claude model catalog is unavailable${reason}; continuing with "${model}".`,
+    warning: catalogWarning(model, `unavailable${reason}`),
   });
 
   const catalog = catalogs?.find((item) => item.agent === "claude");
@@ -322,10 +395,7 @@ export function judgeModel(model: string, catalogs: HarnessModels[] | undefined)
 
   const candidates = modelNames(catalog);
   if (candidates.length === 0) {
-    return {
-      kind: "unknown-catalog",
-      warning: `Warning: Claude model catalog is empty; continuing with "${model}".`,
-    };
+    return { kind: "unknown-catalog", warning: catalogWarning(model, "empty") };
   }
 
   if (candidates.includes(model)) return { kind: "ok" };
@@ -343,9 +413,7 @@ async function preflightModel(model: string): Promise<void> {
     // A catalog that cannot be reached is not evidence against the model, so
     // this warns and lets the launch decide.
     const details = errorDetails(error);
-    console.warn(
-      `Warning: Claude model catalog is unavailable (${details.text}); continuing with "${model}".`,
-    );
+    console.warn(catalogWarning(model, `unavailable (${details.text})`));
     return;
   }
 
@@ -368,7 +436,7 @@ async function resolveClaudeBinary(): Promise<string> {
   // nothing here to catch.
   const installation = await detectBinary("claude");
   if (!installation.installed || !installation.path) {
-    throw new Error("Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.");
+    throw new Error(CLAUDE_NOT_FOUND);
   }
   return installation.path;
 }
@@ -384,7 +452,7 @@ async function assertSystemPromptFlagSupported(claudeBin: string, cwd: string): 
   } catch (error) {
     const details = errorDetails(error);
     if (details.code === "ENOENT") {
-      throw new Error("Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.");
+      throw new Error(CLAUDE_NOT_FOUND);
     }
 
     if (/unknown option|unknown argument|unrecognized option|invalid option/i.test(details.text)) {
@@ -467,7 +535,7 @@ function launchClaude(claudeBin: string, model: string, args: string[], cwd: str
       settled = true;
       const details = errorDetails(error);
       if (details.code === "ENOENT") {
-        reject(new Error("Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available."));
+        reject(new Error(CLAUDE_NOT_FOUND));
       } else {
         reject(error);
       }
@@ -521,7 +589,7 @@ export function registerOpenCommand(program: Command): void {
 
       const resolved = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
       const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
-      const model = effectiveModel(args) ?? resolved;
+      const model = effectiveModel(invocation.passthrough) ?? resolved;
 
       await preflightModel(model);
       const claudeBin = await resolveClaudeBinary();
