@@ -48,6 +48,7 @@ function displayStatus(session: PsSession): string {
   ) {
     return "dead";
   }
+  if (session.status === "interrupted") return "⏻ interrupted";
   return session.status;
 }
 
@@ -58,10 +59,9 @@ export function psEmptyMessage(all: boolean): string {
 export function formatPsJson(sessions: readonly PsSession[]): string {
   return JSON.stringify(sessions, null, 2);
 }
-
 export function renderPsTable(sessions: readonly PsSession[]): string {
   const lines = [
-    "ID    NAME              AGENT      STATUS        AGE    LAST   LAST EVENT       CWD",
+    "ID    NAME              AGENT      STATUS         AGE    LAST   LAST EVENT       CWD",
     "─".repeat(80),
   ];
 
@@ -69,7 +69,7 @@ export function renderPsTable(sessions: readonly PsSession[]): string {
     const id = (s.id || "").slice(0, 4).padEnd(4);
     const name = (s.name || s.branch?.replace("ra/", "") || "-").slice(0, 16).padEnd(16);
     const agent = (s.agent || "").slice(0, 9).padEnd(9);
-    const status = displayStatus(s).slice(0, 12).padEnd(12);
+    const status = displayStatus(s).slice(0, 13).padEnd(13);
     const age = formatAge(s.createdAt).padEnd(5);
     const last = formatAge(s.updatedAt).padEnd(5);
     const lastEvent = (s.lastEvent || "-").replace(/[\r\n\t]+/g, " ").slice(0, LAST_EVENT_WIDTH).padEnd(LAST_EVENT_WIDTH);

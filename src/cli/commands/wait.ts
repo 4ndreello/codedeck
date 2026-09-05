@@ -9,7 +9,7 @@ interface WaitCommandOptions {
 }
 
 export function formatWaitResult(session: Session): string {
-  if (session.status === "failed" || session.status === "orphaned") {
+  if (session.status === "failed" || session.status === "orphaned" || session.status === "interrupted") {
     const failure = session.failure;
     const tag = failure ? ` [${failure.blame}${failure.retryable ? ", retryable" : ""}]` : "";
     const detail = failure?.detail ? `: ${String(failure.detail).slice(0, 200)}` : "";

@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 
+export function formatShowJson(result: unknown): string {
+  return JSON.stringify(result, null, 2);
+}
+
 export function registerShowCommand(program: Command): void {
   program
     .command("show")
@@ -24,7 +28,7 @@ export function registerShowCommand(program: Command): void {
       }
 
       if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(formatShowJson(result));
         return;
       }
 
