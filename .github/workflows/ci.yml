@@ -42,6 +42,11 @@ jobs:
     # a word, which is why tests/plugin-manifest.test.ts pins the theme
     # spellings separately and runs in the job above.
     runs-on: ubuntu-latest
+    # `secrets` is not one of the contexts a step-level `if` can read, so the
+    # secret is lifted into env here. A fork PR gets an empty string, which is
+    # exactly the signal the skip branch below needs.
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,19 +57,24 @@ jobs:
       - name: Install the claude CLI
         run: npm i -g @anthropic-ai/claude-code
 
+      # Needs no credential: validation is a static read of the manifest.
       - name: Validate the plugin manifest
         run: claude plugin validate --strict plugin/
 
       - name: Theme render gate
-        # The only real theme check is launching a session and grepping the
-        # output for the colour code, which needs an authenticated claude.
-        # Public CI has no credential, so this is skipped loudly rather than
-        # reported as a pass it never earned.
-        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: ./scripts/theme-gate.sh
+        # The only end-to-end theme check is launching a real session under a
+        # pty and grepping the paint for our colours, which needs an
+        # authenticated claude. It builds first because it drives dist/.
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          npm ci
+          npm run build
+          ./scripts/theme-gate.sh
 
       - name: Theme render gate skipped
-        if: ${{ secrets.ANTHROPIC_API_KEY == '' }}
-        run: echo "::warning title=Theme gate skipped::No ANTHROPIC_API_KEY, the theme spelling was not verified against a real launch."
+        # Skipped loudly rather than reported as a pass it never earned. The
+        # trap this gate exists for (slug spelled differently from the theme
+        # filename) is still caught by tests/plugin-manifest.test.ts in the
+        # job above, which needs no credential.
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning title=Theme gate skipped::No ANTHROPIC_API_KEY, the theme was not verified against a real launch."
