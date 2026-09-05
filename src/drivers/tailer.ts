@@ -62,6 +62,25 @@ export class FileTailer {
   // flush loops over bounded chunks because the process is known to be dead.
   flush(): void {
     if (this.stopped) return;
+    this.drainToEof();
+    this.finishPartial();
+  }
+
+  // Shutdown-drain variant of flush(): pumps to EOF but SILENTLY DROPS a
+  // trailing partial line (unterminated bytes) instead of emitting it. The
+  // daemon's handleShutdown path uses this so a power cut mid-line cannot
+  // synthesize an error/failed event; normal flush() is unchanged.
+  drainForShutdown(): void {
+    if (this.stopped) return;
+    this.drainToEof();
+    this.leftover = "";
+    try {
+      this.decoder.end();
+    } catch {}
+    this.decoderEnded = true;
+  }
+
+  private drainToEof(): void {
     const deadline = Date.now() + 1000;
     while (Date.now() < deadline) {
       const before = this.readOffset;
@@ -75,7 +94,6 @@ export class FileTailer {
       }
       if (size <= this.readOffset) break;
     }
-    this.finishPartial();
   }
 
   private pump(): void {
