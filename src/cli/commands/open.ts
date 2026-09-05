@@ -238,11 +238,55 @@ function errorDetails(error: unknown): { code?: string; text: string } {
   };
 }
 
+/**
+ * What the catalog can say about a model. Reachable is not the same as allowed:
+ * the catalog lists what Claude Code knows about, never what this account may
+ * use, so an entitlement problem only surfaces at launch (see launchClaude).
+ */
+export type ModelVerdict =
+  | { kind: "ok" }
+  | { kind: "unknown-catalog"; warning: string }
+  | { kind: "rejected"; error: string };
+
+/**
+ * Pure so all three outcomes are testable without touching the disk cache or
+ * spawning a harness.
+ */
+export function judgeModel(model: string, catalogs: HarnessModels[] | undefined): ModelVerdict {
+  const keepGoing = (reason: string): ModelVerdict => ({
+    kind: "unknown-catalog",
+    warning: `Warning: Claude model catalog is unavailable${reason}; continuing with "${model}".`,
+  });
+
+  const catalog = catalogs?.find((item) => item.agent === "claude");
+  if (!catalog || !catalog.available || catalog.error) {
+    return keepGoing(catalog?.error ? ` (${catalog.error})` : "");
+  }
+
+  const candidates = catalog.providers.flatMap((provider) =>
+    provider.models.flatMap((candidate) => [candidate.id, ...(candidate.aliases ?? [])]),
+  );
+  if (candidates.length === 0) {
+    return {
+      kind: "unknown-catalog",
+      warning: `Warning: Claude model catalog is empty; continuing with "${model}".`,
+    };
+  }
+
+  if (candidates.includes(model)) return { kind: "ok" };
+
+  const suggestion = findClosestModel(model, candidates);
+  const hint = suggestion ? ` Did you mean "${suggestion}"?` : " No close model was found.";
+  return { kind: "rejected", error: `Model "${model}" is not in the Claude catalog.${hint}` };
+}
+
 async function preflightModel(model: string): Promise<void> {
-  let catalogs: HarnessModels[];
+  let catalogs: HarnessModels[] | undefined;
   try {
     catalogs = await getCachedOrDiscoverModels(getRegistry(), { agent: "claude" });
   } catch (error) {
+    // A catalog that cannot be reached is not evidence against the model, so
+    // this warns and lets the launch decide.
     const details = errorDetails(error);
     console.warn(
       `Warning: Claude model catalog is unavailable (${details.text}); continuing with "${model}".`,
@@ -250,28 +294,13 @@ async function preflightModel(model: string): Promise<void> {
     return;
   }
 
-  const catalog = catalogs.find((item) => item.agent === "claude");
-  if (!catalog || !catalog.available || catalog.error) {
-    const reason = catalog?.error ? ` (${catalog.error})` : "";
-    console.warn(`Warning: Claude model catalog is unavailable${reason}; continuing with "${model}".`);
+  const verdict = judgeModel(model, catalogs);
+  if (verdict.kind === "ok") return;
+  if (verdict.kind === "unknown-catalog") {
+    console.warn(verdict.warning);
     return;
   }
-
-  const candidates = catalog.providers.flatMap((provider) =>
-    provider.models.flatMap((candidate) => [candidate.id, ...(candidate.aliases ?? [])]),
-  );
-  if (candidates.length === 0) {
-    console.warn(`Warning: Claude model catalog is empty; continuing with "${model}".`);
-    return;
-  }
-
-  if (candidates.includes(model)) return;
-
-  const suggestion = findClosestModel(model, candidates);
-  const hint = suggestion
-    ? ` Did you mean "${suggestion}"?`
-    : " No close model was found.";
-  throw new Error(`Model "${model}" is not in the Claude catalog.${hint}`);
+  throw new Error(verdict.error);
 }
 
 /**
@@ -334,6 +363,16 @@ function relayOutput(child: ChildProcess, output: { value: string }): void {
   relay(child.stderr, process.stderr);
 }
 
+/**
+ * The catalog knows which models exist, not which ones this account may use, so
+ * an entitlement problem can only be read off the launch itself. Claude Code
+ * reports it as a tagged error rather than a distinct exit code.
+ */
+export function entitlementError(model: string, output: string): string | undefined {
+  if (!/\[claude-code:unrecognized_model\]/i.test(output)) return undefined;
+  return `Claude Code rejected model "${model}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
+}
+
 function launchClaude(claudeBin: string, model: string, args: string[], cwd: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -361,12 +400,9 @@ function launchClaude(claudeBin: string, model: string, args: string[], cwd: str
       if (settled) return;
       settled = true;
 
-      if (/\[claude-code:unrecognized_model\]/i.test(output.value)) {
-        reject(
-          new Error(
-            `Claude Code rejected model "${model}" because this account is not entitled to it. Check the Claude plan or model access for the account.`,
-          ),
-        );
+      const entitlement = entitlementError(model, output.value);
+      if (entitlement) {
+        reject(new Error(entitlement));
         return;
       }
 

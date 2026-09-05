@@ -1,10 +1,13 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import type { HarnessModels } from "../src/core/models.js";
 import {
   ROLES,
   buildOpenArgs,
+  entitlementError,
   isNonInteractiveLaunch,
+  judgeModel,
   parseRole,
   renderBanner,
   resolvePluginDir,
@@ -139,5 +142,71 @@ describe("non-interactive launch detection", () => {
   it("does not mistake a prompt that merely mentions the flag for the flag", () => {
     expect(isNonInteractiveLaunch(["explain --print to me"])).toBe(false);
     expect(isNonInteractiveLaunch(["--printer"])).toBe(false);
+  });
+});
+
+// The catalog answers "does this model exist", never "may this account use it".
+// Those are different failures with different fixes, so they get different
+// messages: one names a typo, the other names the plan.
+describe("model preflight", () => {
+  const catalog = (models: { id: string; aliases?: string[] }[]): HarnessModels[] => [
+    {
+      agent: "claude",
+      available: true,
+      providers: [
+        {
+          provider: "anthropic",
+          models: models.map((m) => ({ ...m, name: m.id, provider: "anthropic" })),
+        },
+      ],
+    },
+  ];
+
+  it("accepts a model listed under its id or an alias", () => {
+    const models = catalog([{ id: "claude-opus-4-8", aliases: ["opus"] }]);
+
+    expect(judgeModel("claude-opus-4-8", models)).toEqual({ kind: "ok" });
+    expect(judgeModel("opus", models)).toEqual({ kind: "ok" });
+  });
+
+  it("rejects an unlisted model and points at the closest one", () => {
+    const verdict = judgeModel("claude-opus-4-9", catalog([{ id: "claude-opus-4-8" }]));
+
+    expect(verdict.kind).toBe("rejected");
+    if (verdict.kind !== "rejected") return;
+    expect(verdict.error).toContain("claude-opus-4-8");
+  });
+
+  it("rejects without a suggestion when nothing is close", () => {
+    const verdict = judgeModel("zzzzzzzzzz", catalog([{ id: "claude-opus-4-8" }]));
+
+    expect(verdict.kind).toBe("rejected");
+    if (verdict.kind !== "rejected") return;
+    expect(verdict.error).toContain("No close model was found");
+  });
+
+  // An unreachable catalog is not evidence against the model. Failing here
+  // would ground the user over a stale cache or an offline harness.
+  it.each([
+    ["no claude entry", []],
+    ["harness not installed", [{ agent: "claude", available: false, providers: [] }]],
+    ["discovery errored", [{ agent: "claude", available: true, error: "timed out", providers: [] }]],
+    ["empty catalog", catalog([])],
+    ["nothing at all", undefined],
+  ] as [string, HarnessModels[] | undefined][])(
+    "warns and continues when the catalog is unusable: %s",
+    (_label, models) => {
+      const verdict = judgeModel("claude-opus-4-8", models);
+
+      expect(verdict.kind).toBe("unknown-catalog");
+      if (verdict.kind !== "unknown-catalog") return;
+      expect(verdict.warning).toContain("claude-opus-4-8");
+    },
+  );
+
+  it("translates the entitlement tag and stays quiet otherwise", () => {
+    expect(entitlementError("claude-opus-4-8", "boom [claude-code:unrecognized_model] boom"))
+      .toContain("not entitled");
+    expect(entitlementError("claude-opus-4-8", "some unrelated failure")).toBeUndefined();
   });
 });
