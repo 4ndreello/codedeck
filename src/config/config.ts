@@ -2,12 +2,43 @@ import fs from "node:fs";
 import path from "node:path";
 import { getPaths } from "./paths.js";
 import type { AgentId } from "../core/session.js";
+import type { Role } from "../core/roles.js";
+
+/**
+ * Which harness runs a role, and on which model. Both halves are one answer:
+ * a model id means nothing without the harness that lists it, and two
+ * harnesses can list the same id.
+ */
+export interface RoleBinding {
+  harness: AgentId;
+  model: string;
+}
 
 export interface RunAgentConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
   defaultModel?: string;
+  /**
+   * Per harness, for a run that names no role. `agents` supersedes this for
+   * anything that does, and setup no longer writes it.
+   */
   models?: Partial<Record<AgentId, string>>;
+  agents?: Partial<Record<Role, RoleBinding>>;
+}
+
+/**
+ * A saved binding is only usable whole. A half-written entry (a harness with
+ * no model, or the reverse) resolves to nothing rather than to a guess, so the
+ * caller falls back the same way it would for a role nobody configured.
+ */
+export function resolveRoleBinding(
+  role: Role | undefined,
+  config: RunAgentConfig = {},
+): RoleBinding | undefined {
+  if (role === undefined) return undefined;
+  const binding = config.agents?.[role];
+  if (!binding || !binding.harness || !binding.model) return undefined;
+  return binding;
 }
 
 /**

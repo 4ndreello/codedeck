@@ -5,13 +5,15 @@ import {
   type HarnessModels,
 } from "../../core/models.js";
 import type { AgentId } from "../../core/session.js";
-import type { PickerItem, Screen, ScreenResult } from "../picker-state.js";
+import { itemKey, type PickerItem, type Screen, type ScreenResult } from "../picker-state.js";
 import { runScreens } from "../picker.js";
 import { colors, readDimensions, type Dimensions } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
+import { ROLES, type Role } from "../../core/roles.js";
 import {
   loadConfig,
   saveConfig,
+  type RoleBinding,
   type RunAgentConfig,
 } from "../../config/config.js";
 
@@ -45,79 +47,136 @@ export function needsModelSetup(
   isTTY: boolean = isInteractiveTerminal(),
 ): boolean {
   if (!isTTY) return false;
-  return config == null || config.models == null;
+  // `agents` is what setup writes now. A config carrying only the older
+  // per-harness `models` has never answered the per-role question, so it still
+  // counts as unset.
+  return config == null || config.agents == null;
 }
 
-const AGENT_LABELS: Partial<Record<AgentId, string>> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
-
-function agentLabel(agent: AgentId): string {
-  return AGENT_LABELS[agent] ?? agent;
+/**
+ * The catalog of every installed harness, flattened into one list.
+ *
+ * The group is the bare agent id rather than a prettier label because it is
+ * also what free text has to type as a prefix ("codex:gpt-5.7"). A header
+ * reading "Codex" over rows you reach by typing "codex" would hide that.
+ */
+function catalogItems(installed: HarnessModels[]): { items: PickerItem[]; known: Set<string> } {
+  const known = new Set<string>();
+  const items: PickerItem[] = [];
+  for (const harness of installed) {
+    for (const provider of harness.providers) {
+      for (const model of provider.models) {
+        // A driver reporting a blank id used to become a selectable blank row
+        // that Enter would save as the model. The line wizard guarded this and
+        // the port dropped the guard.
+        const id = typeof model.id === "string" ? model.id.trim() : "";
+        if (!id) continue;
+        // Keyed by both halves: two harnesses listing the same id are two real
+        // choices, and only a repeat within one harness is a duplicate.
+        const key = itemKey(harness.agent, id);
+        if (known.has(key)) continue;
+        known.add(key);
+        // The name is carried for the filter, not for the row: most of the
+        // catalog spells a version readably there ("Claude Opus 5") and only in
+        // the id the way it is typed.
+        const name = typeof model.name === "string" ? model.name.trim() : "";
+        items.push({
+          id,
+          label: id,
+          group: harness.agent,
+          harness: harness.agent,
+          ...(name && name !== id ? { name } : {}),
+        });
+      }
+    }
+  }
+  return { items, known };
 }
 
-function pinnedFor(harness: HarnessModels, ids: string[], configured?: string): PickerItem | undefined {
+function pinnedFor(
+  installed: HarnessModels[],
+  known: ReadonlySet<string>,
+  configured: RoleBinding | undefined,
+  fallbackHarness: AgentId,
+): PickerItem | undefined {
   if (configured) {
+    const inCatalog = known.has(itemKey(configured.harness, configured.model));
     // A saved id the catalog no longer lists still gets shown. Hiding it is how
     // the wizard used to answer `open`'s own "that model is gone, run setup":
     // the user arrived here and could not see which model it meant. Marking it
     // synthetic makes keeping it cost the same second Enter as typing it.
-    return ids.includes(configured)
-      ? { id: configured, label: configured, note: "atual" }
-      : { id: configured, label: configured, note: "atual, fora do catalogo", synthetic: true };
+    return {
+      id: configured.model,
+      label: configured.model,
+      group: configured.harness,
+      harness: configured.harness,
+      note: inCatalog ? `atual · ${configured.harness}` : `atual · ${configured.harness}, fora do catalogo`,
+      ...(inCatalog ? {} : { synthetic: true as const }),
+    };
   }
-  for (const provider of harness.providers) {
-    const real = provider.models.find((model) => model.isDefault && ids.includes(model.id));
-    if (real) return { id: real.id, label: real.id, note: "padrao" };
-  }
-  // With no config and no isDefault, ids[0] is just alphabetical order. Hoisting
-  // that and calling it the default would stamp a coin flip as a recommendation.
-}
 
-export function buildAgentScreen(
-  harness: HarnessModels,
-  index: number,
-  total: number,
-  configured?: string,
-): Screen {
-  const seen = new Set<string>();
-  const grouped: PickerItem[] = [];
+  // Nothing saved for this role, so the suggestion comes from the harness that
+  // runs everything else by default, and only if that harness names a default.
+  const harness = installed.find((candidate) => candidate.agent === fallbackHarness);
+  if (!harness) return undefined;
   for (const provider of harness.providers) {
-    for (const model of provider.models) {
-      // A driver reporting a blank id used to become a selectable blank row
-      // that Enter would save as the model. The line wizard guarded this and
-      // the port dropped the guard.
-      const id = typeof model.id === "string" ? model.id.trim() : "";
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      // The name is carried for the filter, not for the row: most of the
-      // catalog spells a version readably there ("Claude Opus 5") and only in
-      // the id the way it is typed.
-      const name = typeof model.name === "string" ? model.name.trim() : "";
-      grouped.push({
-        id,
-        label: id,
-        group: provider.provider,
-        ...(name && name !== id ? { name } : {}),
-      });
+    const real = provider.models.find(
+      (model) => model.isDefault && known.has(itemKey(harness.agent, model.id)),
+    );
+    if (real) {
+      return {
+        id: real.id,
+        label: real.id,
+        group: harness.agent,
+        harness: harness.agent,
+        note: `padrao · ${harness.agent}`,
+      };
     }
   }
+  // With no config and no isDefault, the first row is just catalog order.
+  // Hoisting that and calling it the default would stamp a coin flip as a
+  // recommendation.
+}
 
-  const pinned = pinnedFor(harness, [...seen], configured);
-  const items = pinned ? [pinned, ...grouped.filter((item) => item.id !== pinned.id)] : grouped;
+export function buildRoleScreen(
+  role: Role,
+  installed: HarnessModels[],
+  index: number,
+  total: number,
+  configured: RoleBinding | undefined,
+  fallbackHarness: AgentId = "claude",
+): Screen {
+  const { items: catalog, known } = catalogItems(installed);
+  const pinned = pinnedFor(installed, known, configured, fallbackHarness);
+  const pinnedKey = pinned ? itemKey(pinned.harness, pinned.id) : undefined;
+  const items = pinned
+    ? [pinned, ...catalog.filter((item) => itemKey(item.harness, item.id) !== pinnedKey)]
+    : catalog;
+
+  // One screen now spans every harness, so a harness that answered with an
+  // error no longer owns the error line by itself. Naming each one keeps a
+  // missing catalog readable as "codex is why codex has no rows".
+  const errors = installed
+    .filter((harness) => harness.error)
+    .map((harness) => `${harness.agent}: ${harness.error}`);
 
   return {
-    agent: harness.agent,
-    title: agentLabel(harness.agent),
+    role,
+    title: role,
     counter: `agente ${index + 1} de ${total}`,
-    error: harness.error,
+    ...(errors.length > 0 ? { error: errors.join(" · ") } : {}),
     items,
     pinned: pinned !== undefined,
-    known: seen,
+    known,
+    harnesses: new Set(installed.map((harness) => harness.agent)),
   };
 }
 
 export function buildScreens(
+  roles: readonly Role[],
   harnesses: HarnessModels[],
-  configured: Partial<Record<AgentId, string>>,
+  configured: Partial<Record<Role, RoleBinding>>,
+  fallbackHarness: AgentId = "claude",
 ): Screen[] {
   const seen = new Set<AgentId>();
   // A merged disk cache can hand back the same agent twice.
@@ -126,24 +185,26 @@ export function buildScreens(
     seen.add(harness.agent);
     return true;
   });
-  return installed.map((harness, index) =>
-    buildAgentScreen(harness, index, installed.length, configured[harness.agent]),
+  if (installed.length === 0) return [];
+  return roles.map((role, index) =>
+    buildRoleScreen(role, installed, index, roles.length, configured[role], fallbackHarness),
   );
 }
 
 export function collectSelections(
   results: ScreenResult[],
-  existing: Partial<Record<AgentId, string>> | undefined,
+  existing: Partial<Record<Role, RoleBinding>> | undefined,
   shown: number,
-): { models: Partial<Record<AgentId, string>>; write: boolean } {
+): { agents: Partial<Record<Role, RoleBinding>>; write: boolean } {
   // Starts from what was already saved: skipping has to leave it intact, and a
   // brand new map would wipe a choice made on an earlier run.
-  const models: Partial<Record<AgentId, string>> = { ...(existing ?? {}) };
+  const agents: Partial<Record<Role, RoleBinding>> = { ...(existing ?? {}) };
   for (const result of results) {
-    if (result.kind === "picked") models[result.agent as AgentId] = result.id;
+    if (result.kind !== "picked") continue;
+    agents[result.role as Role] = { harness: result.harness as AgentId, model: result.id };
   }
   const aborted = results.some((result) => result.kind === "aborted");
-  return { models, write: shown > 0 && !aborted };
+  return { agents, write: shown > 0 && !aborted };
 }
 
 /** Below this no list survives once the chrome is placed. */
@@ -181,12 +242,12 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     harnesses = [];
   }
 
-  const screens = buildScreens(harnesses, config.models ?? {});
+  const screens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude");
 
-  // Writing `models` is what marks first-run setup as done. Doing that after
+  // Writing `agents` is what marks first-run setup as done. Doing that after
   // showing nothing would spend the single prompt the user ever gets.
   if (screens.length === 0) {
-    console.error("Warning: No installed agent reported any model; skipping model setup.");
+    console.error("Warning: No installed harness reported any model; skipping model setup.");
     return config;
   }
 
@@ -199,13 +260,13 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   const paint = colors(Boolean(output.isTTY) && !process.env.NO_COLOR);
   const results = await runScreens(screens, { input, output, onResize: watchResize }, paint);
 
-  const { models, write } = collectSelections(results, config.models, screens.length);
+  const { agents, write } = collectSelections(results, config.agents, screens.length);
   if (!write) {
     console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
   }
 
-  const updatedConfig: RunAgentConfig = { ...config, models };
+  const updatedConfig: RunAgentConfig = { ...config, agents };
   try {
     (options.save ?? saveConfig)(updatedConfig);
   } catch (error) {
@@ -213,7 +274,10 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   }
 
   const summary = screens
-    .map((screen) => `${screen.title} ${models[screen.agent as AgentId] ?? "unset"}`)
+    .map((screen) => {
+      const binding = agents[screen.role as Role];
+      return `${screen.role} ${binding ? `${binding.harness}:${binding.model}` : "unset"}`;
+    })
     .join(" · ");
   output.write(`\n  saved: ${summary}\n\n`);
   return updatedConfig;
@@ -222,7 +286,7 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
 export function registerSetupCommand(program: Command): void {
   program
     .command("setup")
-    .description("Choose the model each installed agent should use")
+    .description("Choose the harness and model each agent should run on")
     .option("--refresh", "ignore the cached catalog and rediscover")
     .action(async (opts: { refresh?: boolean }) => {
       // The message lives here rather than in the wizard, because `open` calls

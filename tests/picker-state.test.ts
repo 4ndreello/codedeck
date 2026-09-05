@@ -4,6 +4,8 @@ import {
   applyKey,
   hitCount,
   initialState,
+  itemKey,
+  parseFreeText,
   reanchor,
   visibleItems,
   type Key,
@@ -34,16 +36,30 @@ const key = (name: string, extra: Partial<Key> = {}): Key => ({
 
 const typing = (text: string): Key[] => [...text].map((char) => key(char));
 
+/**
+ * One screen answers one role and spans every harness, so the fixture carries
+ * two of them: an id belongs to a harness, never to the screen.
+ */
 const screen = (overrides: Partial<Screen> = {}): Screen => ({
-  agent: "opencode",
-  title: "opencode",
+  role: "reviewer",
+  title: "reviewer",
   counter: "agente 3 de 4",
   pinned: false,
-  known: new Set(["opencode/big-pickle", "opencode/claude-sonnet-4-6", "openrouter/z-ai/glm-5"]),
+  harnesses: new Set(["opencode", "codex"]),
+  known: new Set([
+    itemKey("opencode", "opencode/big-pickle"),
+    itemKey("opencode", "opencode/claude-sonnet-4-6"),
+    itemKey("codex", "gpt-5.6-luna"),
+  ]),
   items: [
-    { id: "opencode/big-pickle", label: "opencode/big-pickle", group: "opencode" },
-    { id: "opencode/claude-sonnet-4-6", label: "opencode/claude-sonnet-4-6", group: "opencode" },
-    { id: "openrouter/z-ai/glm-5", label: "openrouter/z-ai/glm-5", group: "openrouter" },
+    { id: "opencode/big-pickle", label: "opencode/big-pickle", group: "opencode", harness: "opencode" },
+    {
+      id: "opencode/claude-sonnet-4-6",
+      label: "opencode/claude-sonnet-4-6",
+      group: "opencode",
+      harness: "opencode",
+    },
+    { id: "gpt-5.6-luna", label: "gpt-5.6-luna", group: "codex", harness: "codex" },
   ],
   ...overrides,
 });
@@ -66,7 +82,19 @@ describe("navigation", () => {
   it("moves the cursor and picks the highlighted item", () => {
     const { action } = press(initialState(screen()), [key("down"), key("return")]);
 
-    expect(action).toEqual({ kind: "picked", id: "opencode/claude-sonnet-4-6" });
+    expect(action).toEqual({
+      kind: "picked",
+      id: "opencode/claude-sonnet-4-6",
+      harness: "opencode",
+    });
+  });
+
+  // The screen spans harnesses, so a pick that carried only the id would leave
+  // the caller unable to say who runs it.
+  it("reports the harness the picked row belongs to", () => {
+    const { action } = press(initialState(screen()), [key("down"), key("down"), key("return")]);
+
+    expect(action).toEqual({ kind: "picked", id: "gpt-5.6-luna", harness: "codex" });
   });
 
   it("stops at the ends instead of wrapping", () => {
@@ -80,48 +108,31 @@ describe("navigation", () => {
 
 describe("filtering", () => {
   it("narrows on every keystroke and resets the cursor to the top", () => {
-    const { state } = press(initialState(screen()), [key("down"), ...typing("glm")]);
+    const { state } = press(initialState(screen()), [key("down"), ...typing("luna")]);
 
-    expect(state.filter).toBe("glm");
-    expect(visibleItems(state).map((item) => item.id)).toEqual(["openrouter/z-ai/glm-5"]);
+    expect(state.filter).toBe("luna");
+    expect(visibleItems(state).map((item) => item.id)).toEqual(["gpt-5.6-luna"]);
     expect(state.cursor).toBe(0);
   });
 
   it("matches case-insensitively", () => {
-    const { state } = press(initialState(screen()), typing("GL"));
+    const { state } = press(initialState(screen()), typing("LUN"));
 
     expect(visibleItems(state)).toHaveLength(1);
   });
 
   it("drops the last character on backspace", () => {
-    const { state } = press(initialState(screen()), [...typing("gl"), key("backspace")]);
+    const { state } = press(initialState(screen()), [...typing("lu"), key("backspace")]);
 
-    expect(state.filter).toBe("g");
+    expect(state.filter).toBe("l");
   });
 
-  it("offers a synthetic row when nothing matches", () => {
-    const { state } = press(initialState(screen()), typing("zzz"));
-    const items = visibleItems(state);
-
-    expect(items).toHaveLength(1);
-    expect(items[0].synthetic).toBe(true);
-    expect(items[0].id).toBe("zzz");
-  });
-
-  // The provider is on screen as a group header. Typing it and getting the
+  // The harness is on screen as a group header. Typing it and getting the
   // synthetic "not in the catalog" row read as a broken filter.
-  it("matches the provider shown in the group header", () => {
-    // The provider deliberately does not appear in the id. In this catalog it
-    // usually does, which is what made the gap easy to miss.
-    const bedrock = screen({
-      items: [
-        { id: "anthropic.claude-3-5-haiku", label: "anthropic.claude-3-5-haiku", group: "bedrock" },
-        { id: "openai/gpt-5", label: "openai/gpt-5", group: "openrouter" },
-      ],
-    });
-    const { state } = press(initialState(bedrock), typing("bedrock"));
+  it("matches the harness shown in the group header", () => {
+    const { state } = press(initialState(screen()), typing("codex"));
 
-    expect(visibleItems(state).map((item) => item.id)).toEqual(["anthropic.claude-3-5-haiku"]);
+    expect(visibleItems(state).map((item) => item.id)).toEqual(["gpt-5.6-luna"]);
   });
 
   // 1,462 catalog entries spell the version readably in `name` and only in the
@@ -152,6 +163,51 @@ describe("filtering", () => {
     expect(visibleItems(empty)).toHaveLength(1);
     expect(visibleItems(empty)[0].synthetic).toBe(true);
     expect(applyKey(empty, key("return"), 10).action).toEqual({ kind: "none" });
+  });
+});
+
+// One screen spans every harness, so a hand-typed id has to name its own. The
+// separator is ":" because opencode spells real ids with "/".
+describe("free text", () => {
+  it("splits a harness prefix off the model, on the first colon only", () => {
+    const harnesses = new Set(["opencode", "codex"]);
+
+    expect(parseFreeText("codex:gpt-5.7", harnesses)).toEqual({ harness: "codex", id: "gpt-5.7" });
+    expect(parseFreeText("opencode:openrouter/z-ai/glm-5", harnesses)).toEqual({
+      harness: "opencode",
+      id: "openrouter/z-ai/glm-5",
+    });
+    expect(parseFreeText("CODEX:gpt-5.7", harnesses)).toEqual({ harness: "codex", id: "gpt-5.7" });
+  });
+
+  it("refuses a bare id, an unknown harness, and an empty half", () => {
+    const harnesses = new Set(["opencode", "codex"]);
+
+    expect(parseFreeText("gpt-5.7", harnesses)).toBeUndefined();
+    expect(parseFreeText("gemini:whatever", harnesses)).toBeUndefined();
+    expect(parseFreeText("codex:", harnesses)).toBeUndefined();
+    expect(parseFreeText(":gpt-5.7", harnesses)).toBeUndefined();
+  });
+
+  it("offers a pickable row once the text names a harness", () => {
+    const { state } = press(initialState(screen()), typing("codex:gpt-5.7"));
+    const [row] = visibleItems(state);
+
+    expect(row.synthetic).toBe(true);
+    expect(row.id).toBe("gpt-5.7");
+    expect(row.harness).toBe("codex");
+  });
+
+  // Without the prefix there is no harness to save, so the row says what is
+  // missing instead of offering an Enter that would have to guess one.
+  it("refuses to pick text that names no harness", () => {
+    const { state } = press(initialState(screen()), typing("zzz"));
+    const [row] = visibleItems(state);
+
+    expect(row.synthetic).toBe(true);
+    expect(row.id).toBe("");
+    expect(row.label).toContain("zzz");
+    expect(applyKey(state, key("return"), 10).action).toEqual({ kind: "none" });
   });
 });
 
@@ -212,16 +268,16 @@ describe("confirming an id the catalog does not know", () => {
   const typed = (text: string) => press(initialState(screen()), typing(text));
 
   it("asks before writing and writes on the second enter", () => {
-    const first = applyKey(typed("nope").state, key("return"), 10);
+    const first = applyKey(typed("codex:nope").state, key("return"), 10);
     expect(first.action).toEqual({ kind: "none" });
-    expect(first.state.confirming).toBe("nope");
+    expect(first.state.confirming).toBe(itemKey("codex", "nope"));
 
     const second = applyKey(first.state, key("return"), 10);
-    expect(second.action).toEqual({ kind: "picked", id: "nope" });
+    expect(second.action).toEqual({ kind: "picked", id: "nope", harness: "codex" });
   });
 
   it("cancels the confirmation on any other key", () => {
-    const first = applyKey(typed("nope").state, key("return"), 10);
+    const first = applyKey(typed("codex:nope").state, key("return"), 10);
     const cancelled = applyKey(first.state, key("x"), 10);
 
     expect(cancelled.state.confirming).toBeUndefined();
@@ -231,7 +287,21 @@ describe("confirming an id the catalog does not know", () => {
   it("writes an id the catalog knows on the first enter", () => {
     const { action } = press(initialState(screen()), [...typing("big-pickle"), key("return")]);
 
-    expect(action).toEqual({ kind: "picked", id: "opencode/big-pickle" });
+    expect(action).toEqual({ kind: "picked", id: "opencode/big-pickle", harness: "opencode" });
+  });
+
+  // The same id can exist under two harnesses. A confirmation answered for one
+  // must not be spent on the other.
+  it("does not carry a confirmation across harnesses", () => {
+    const both = screen({
+      harnesses: new Set(["opencode", "codex"]),
+      items: [],
+      known: new Set([itemKey("opencode", "shared")]),
+    });
+    const first = applyKey(press(initialState(both), typing("codex:shared")).state, key("return"), 10);
+
+    expect(first.action).toEqual({ kind: "none" });
+    expect(first.state.confirming).toBe(itemKey("codex", "shared"));
   });
 });
 

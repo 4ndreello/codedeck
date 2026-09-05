@@ -159,11 +159,16 @@ function runScreen(screen: Screen, io: PickerIO, c: Colors, frame: Frame): Promi
         }
         detach();
         if (outcome.action.kind === "picked") {
-          resolve({ kind: "picked", agent: screen.agent, id: outcome.action.id });
+          resolve({
+            kind: "picked",
+            role: screen.role,
+            harness: outcome.action.harness,
+            id: outcome.action.id,
+          });
           return;
         }
         if (outcome.action.kind === "skipped") {
-          resolve({ kind: "skipped", agent: screen.agent });
+          resolve({ kind: "skipped", role: screen.role });
           return;
         }
         resolve({ kind: "aborted" });

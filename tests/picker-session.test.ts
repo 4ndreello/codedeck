@@ -2,7 +2,7 @@ import { PassThrough } from "node:stream";
 
 import { describe, expect, it } from "vitest";
 
-import type { Screen } from "../src/cli/picker-state.js";
+import { itemKey, type Screen } from "../src/cli/picker-state.js";
 import { runScreens, type PickerIO } from "../src/cli/picker.js";
 import { colors } from "../src/cli/ui.js";
 
@@ -41,15 +41,16 @@ function fakeIO() {
   return { io, input, output, written, rawCalls, resizeListeners };
 }
 
-const screen = (agent: string): Screen => ({
-  agent,
-  title: agent,
+const screen = (role: string): Screen => ({
+  role,
+  title: role,
   counter: "agente 1 de 1",
   pinned: false,
-  known: new Set(["alpha", "beta"]),
+  harnesses: new Set(["codex"]),
+  known: new Set([itemKey("codex", "alpha"), itemKey("codex", "beta")]),
   items: [
-    { id: "alpha", label: "alpha", group: "g" },
-    { id: "beta", label: "beta", group: "g" },
+    { id: "alpha", label: "alpha", group: "codex", harness: "codex" },
+    { id: "beta", label: "beta", group: "codex", harness: "codex" },
   ],
 });
 
@@ -73,7 +74,7 @@ describe("picker session", () => {
 
     const results = await runScreens([screen("claude")], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", agent: "claude", id: "beta" }]);
+    expect(results).toEqual([{ kind: "picked", role: "claude", harness: "codex", id: "beta" }]);
     expect(rawCalls).toEqual([true, false]);
   });
 
@@ -170,7 +171,7 @@ describe("terminal restoration under a failing write", () => {
 
     const results = await runScreens([screen("a")], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", agent: "a", id: "alpha" }]);
+    expect(results).toEqual([{ kind: "picked", role: "a", harness: "codex", id: "alpha" }]);
     expect(rawCalls).toEqual([true, false]);
   });
 });
@@ -216,7 +217,12 @@ describe("resize", () => {
     const many: Screen = {
       ...screen("a"),
       known: new Set(),
-      items: Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, label: `m${i}`, group: "g" })),
+      items: Array.from({ length: 30 }, (_, i) => ({
+        id: `m${i}`,
+        label: `m${i}`,
+        group: "codex",
+        harness: "codex",
+      })),
     };
 
     let moves = 0;
@@ -236,7 +242,7 @@ describe("resize", () => {
 
     const results = await runScreens([many], io, plain);
 
-    expect(results).toEqual([{ kind: "picked", agent: "a", id: "m12" }]);
+    expect(results).toEqual([{ kind: "picked", role: "a", harness: "codex", id: "m12" }]);
     const frames = written.filter((chunk) => chunk.includes("filtrar"));
     expect(frames[frames.length - 1]).toContain("\u203a m12");
   });

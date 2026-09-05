@@ -7,7 +7,12 @@ import { constants } from "node:os";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig, resolveModel } from "../../config/config.js";
+import {
+  loadConfig,
+  resolveModel,
+  resolveRoleBinding,
+  type RoleBinding,
+} from "../../config/config.js";
 import { isInteractiveTerminal } from "./setup.js";
 import { renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
@@ -124,6 +129,26 @@ export function effectiveModel(passthrough: string[]): string | undefined {
   }
 }
 
+
+/**
+ * Why an agent bound to another harness cannot be opened, or nothing.
+ *
+ * `open` launches Claude Code and only Claude Code: the plugin, the theme and
+ * the status line are all its features, so there is no version of this that
+ * honours the configuration. Launching claude anyway would open a session under
+ * a name whose configuration it does not follow, which is the failure this
+ * repository's own system prompt calls rounding failure to success.
+ *
+ * The model is deliberately not part of the check. An explicit --model changes
+ * which claude runs, never whether claude is the right harness.
+ */
+export function harnessMismatch(role: Role, binding: RoleBinding | undefined): string | undefined {
+  if (!binding || binding.harness === "claude") return undefined;
+  return (
+    `Agent "${role}" runs on ${binding.harness}, and codedeck open only launches Claude Code. ` +
+    `Use \`codedeck run --role ${role} "<prompt>"\`, or move it to claude with \`codedeck setup\`.`
+  );
+}
 
 export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
@@ -573,7 +598,11 @@ export function registerOpenCommand(program: Command): void {
       // to answer it deliberately.
       const config = loadConfig();
 
-      const resolved = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
+      const binding = resolveRoleBinding(role, config);
+      const mismatch = harnessMismatch(role, binding);
+      if (mismatch) throw new Error(mismatch);
+
+      const resolved = opts.model ?? binding?.model ?? resolveModel("claude", undefined, config) ?? DEFAULT_MODEL;
       const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
       const model = effectiveModel(invocation.passthrough) ?? resolved;
 
@@ -582,7 +611,7 @@ export function registerOpenCommand(program: Command): void {
       const fromConfig =
         opts.model === undefined &&
         effectiveModel(invocation.passthrough) === undefined &&
-        resolveModel("claude", undefined, config) !== undefined;
+        (binding?.model !== undefined || resolveModel("claude", undefined, config) !== undefined);
 
       await preflightModel(model, fromConfig);
       const claudeBin = await resolveClaudeBinary();

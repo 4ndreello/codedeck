@@ -9,6 +9,7 @@ import {
   effectiveModel,
   entitlementError,
   exitCodeFor,
+  harnessMismatch,
   isNonInteractiveLaunch,
   judgeModel,
   parseRole,
@@ -158,6 +159,30 @@ describe("open command pure helpers", () => {
 // Under a pty (CI, `script`, most runners) stdout is a TTY, so a terminal check
 // alone lets the role picker and the model wizard block a `-p` launch forever.
 // This is the flag that says the launch answers once and exits.
+// `open` launches Claude Code and nothing else. Opening it for an agent bound
+// elsewhere would run a session under a name whose configuration it ignores.
+describe("an agent bound to another harness", () => {
+  it("refuses, naming the harness and the way out", () => {
+    const message = harnessMismatch("reviewer", { harness: "codex", model: "gpt-5.6-luna" });
+
+    expect(message).toContain("codex");
+    expect(message).toContain("codedeck run --role reviewer");
+  });
+
+  it("allows an agent bound to claude, and one nobody bound at all", () => {
+    expect(harnessMismatch("general", { harness: "claude", model: "claude-opus-5" })).toBeUndefined();
+    expect(harnessMismatch("general", undefined)).toBeUndefined();
+  });
+
+  // An explicit --model changes which claude runs, never whether claude is the
+  // right harness, so it is no escape from the refusal.
+  it("refuses every non-claude harness", () => {
+    for (const harness of ["codex", "opencode", "omp"] as const) {
+      expect(harnessMismatch("auditor", { harness, model: "whatever" })).toContain(harness);
+    }
+  });
+});
+
 describe("non-interactive launch detection", () => {
   it("recognises both spellings of the print flag anywhere in the passthrough", () => {
     expect(isNonInteractiveLaunch(["--print"])).toBe(true);
