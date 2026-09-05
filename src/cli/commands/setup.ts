@@ -7,6 +7,7 @@ import {
   type HarnessModels,
 } from "../../core/models.js";
 import type { AgentId } from "../../core/session.js";
+import type { PickerItem, Screen, ScreenResult } from "../picker-state.js";
 import { INDENT, blockWidth, columnize, headingWith, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import {
@@ -73,6 +74,79 @@ const AGENT_LABELS: Partial<Record<AgentId, string>> = { claude: "Claude Code", 
 
 function agentLabel(agent: AgentId): string {
   return AGENT_LABELS[agent] ?? agent;
+}
+
+function pinnedFor(harness: HarnessModels, ids: string[], configured?: string): PickerItem | undefined {
+  if (configured && ids.includes(configured)) {
+    return { id: configured, label: configured, note: "atual" };
+  }
+  for (const provider of harness.providers) {
+    const real = provider.models.find((model) => model.isDefault && ids.includes(model.id));
+    if (real) return { id: real.id, label: real.id, note: "padrao" };
+  }
+  // With no config and no isDefault, ids[0] is just alphabetical order. Hoisting
+  // that and calling it the default would stamp a coin flip as a recommendation.
+}
+
+export function buildAgentScreen(
+  harness: HarnessModels,
+  index: number,
+  total: number,
+  configured?: string,
+): Screen {
+  const seen = new Set<string>();
+  const grouped: PickerItem[] = [];
+  for (const provider of harness.providers) {
+    for (const model of provider.models) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      grouped.push({ id: model.id, label: model.id, group: provider.provider });
+    }
+  }
+
+  const pinned = pinnedFor(harness, [...seen], configured);
+  const items = pinned ? [pinned, ...grouped.filter((item) => item.id !== pinned.id)] : grouped;
+
+  return {
+    agent: harness.agent,
+    title: agentLabel(harness.agent),
+    counter: `agente ${index + 1} de ${total}`,
+    error: harness.error,
+    items,
+    pinned: pinned !== undefined,
+    known: seen,
+  };
+}
+
+export function buildScreens(
+  harnesses: HarnessModels[],
+  configured: Partial<Record<AgentId, string>>,
+): Screen[] {
+  const seen = new Set<AgentId>();
+  // A merged disk cache can hand back the same agent twice.
+  const installed = harnesses.filter((harness) => {
+    if (!harness.available || seen.has(harness.agent)) return false;
+    seen.add(harness.agent);
+    return true;
+  });
+  return installed.map((harness, index) =>
+    buildAgentScreen(harness, index, installed.length, configured[harness.agent]),
+  );
+}
+
+export function collectSelections(
+  results: ScreenResult[],
+  existing: Partial<Record<AgentId, string>> | undefined,
+  shown: number,
+): { models: Partial<Record<AgentId, string>>; write: boolean } {
+  // Starts from what was already saved: skipping has to leave it intact, and a
+  // brand new map would wipe a choice made on an earlier run.
+  const models: Partial<Record<AgentId, string>> = { ...(existing ?? {}) };
+  for (const result of results) {
+    if (result.kind === "picked") models[result.agent as AgentId] = result.id;
+  }
+  const aborted = results.some((result) => result.kind === "aborted");
+  return { models, write: shown > 0 && !aborted };
 }
 
 /**
