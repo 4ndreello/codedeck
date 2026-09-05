@@ -83,6 +83,7 @@ export type FailureCode =
   | "TASK_ERROR" // the agent's work failed; retrying unchanged is unlikely to help
   | "SPAWN_FAILED" // could not start the harness binary
   | "TIMEOUT"
+  | "SHUTDOWN" // daemon shut down gracefully; session left interrupted
   | "UNKNOWN";
 
 export interface FailureInfo {
@@ -153,6 +154,10 @@ export function exitCodeForOutcome(outcome: {
   failure?: FailureInfo | null;
 }): number {
   const status = outcome.status || "";
+  if (status === "interrupted") {
+    if (outcome.failure?.blame === "infra") return 3;
+    return 0;
+  }
   if (status === "failed" || status === "orphaned") {
     const blame = outcome.failure?.blame;
     if (blame === "harness") return 2;
