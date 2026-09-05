@@ -82,6 +82,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | Command | Description |
 |---------|-------------|
 | `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
+| `npx codedeck setup` | Choose the model each installed agent should use |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
@@ -113,6 +114,18 @@ Three roles, and the restriction is a tool allowlist rather than an instruction:
 The `reviewer` restriction holds even with permissions bypassed, because a tool allowlist is orthogonal to permission bypass. The `orchestrator` keeps `Bash`, so its boundary is only partly enforced: with `Bash` it can still write by redirection, and the rest rests on the prompt.
 
 `--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+
+A launch carrying `-p`/`--print` answers once and exits, so it never asks anything: no role prompt, no first-run wizard. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
+
+### Choosing a model per agent
+
+The first interactive `open` asks which model each installed agent should use and saves the answers. Re-run it any time:
+
+```bash
+npx codedeck setup
+```
+
+The list per agent comes from `codedeck models`, and a hand-typed id is accepted when discovery returns nothing. Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
 
 ## Session
 

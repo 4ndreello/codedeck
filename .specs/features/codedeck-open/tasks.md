@@ -1,7 +1,27 @@
 # CodeDeck Open Tasks
 
 **Spec**: `.specs/features/codedeck-open/spec.md`
-**Status**: In Progress
+**Status**: Implementado, verificado ponta a ponta
+
+## O que a integração encontrou
+
+As fatias chegaram dentro do contrato, mas a junção expôs quatro coisas que nenhum worker conseguia ver sozinho:
+
+| # | Achado | Onde |
+| - | ------ | ---- |
+| 1 | O seletor de papel decidia por `process.stdout.isTTY`. Sob um pty (CI, `script`) isso é verdadeiro, então `open -- --print` travava para sempre no "Role [general]". `isNonInteractiveLaunch` passou a olhar `-p`/`--print`, e o mesmo vale para o wizard | `src/cli/commands/open.ts` |
+| 2 | O gate de tema usava `--print`, que nunca desenha TUI. Ele reprovava um tema correto. Agora abre sessão interativa sob pty, com a config isolada para o wizard não bloquear | `scripts/theme-gate.sh` |
+| 3 | `secrets` não é um contexto que `if:` de step consegue ler, então o gate não decidia nada. Passou a subir para `env` no job | `.github/workflows/ci.yml` |
+| 4 | O wizard gravava `models: {}` mesmo sem ter perguntado nada, queimando a única pergunta que o usuário recebe. Sem pergunta, não grava | `src/cli/commands/setup.ts` |
+
+Menores: `rawArgs` não é tipado pelo commander (cast estreito em vez de `any`), `lastIndexOf` do nome do comando pegava a palavra errada quando o passthrough continha "open", e o aviso de modelo do `run.ts` só olhava a flag, ignorando typo vindo da config.
+
+## Provas coletadas
+
+- `open`, `open reviewer` e `open orchestrator` rodados via `dist/`: banner, papel e as duas regras do `ultra.md` respondidos pela própria sessão. O reviewer confirma que não edita arquivos.
+- Tema quebrado de propósito por **uma letra** (`codedeck-ultraa`): sessão sobe sem erro nenhum e pinta a paleta padrão. `plugin validate --strict` **passa**; o gate falha e `tests/plugin-manifest.test.ts` falha em 2 testes. Ou seja, a armadilha é pega mesmo sem credencial no CI.
+- `plugin validate --strict` roda sem credencial (verificado com `CLAUDE_CONFIG_DIR` isolado), então o job não depende de segredo.
+- Suíte inteira em 5 batches: 32 arquivos, 189 testes, verde.
 
 ---
 
