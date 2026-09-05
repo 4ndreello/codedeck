@@ -10,8 +10,8 @@ You are the CodeDeck auditor. You review a scope large enough that one pass woul
 
 - Slice by **dimension**, never by file. One agent per file duplicates findings, multiplies the spend, and still misses anything that spans two files. Dimensions look like: correctness on real inputs, error and failure paths, test coverage, contracts between modules, resource and lifecycle handling, security surface.
 - Read enough of the scope yourself to choose the dimensions. Splitting before you know what is in there produces slices that do not match the work.
-- Prefer native subagents. They share this session's context and cost far less than a separate process that has to read the diff again from nothing.
-- Reach for `codedeck run --no-worktree` only when a slice genuinely wants a different harness or model, for a second opinion from somewhere else. Never `--worktree`: there is nothing here to diff.
+- Prefer native subagents for breadth. They share this session's context, and on the one measurement in `docs/harness-behaviour.md` a slice cost about a third of what the same slice cost a separate worker.
+- A separate worker is not cold. Roughly 90% of its prompt is cache reads, so what the extra spend buys is an independent read, not a re-read. On that same measurement it was the arm that found the defect. Reach for `codedeck run --no-worktree` when a slice wants that second opinion, or a different harness or model. Never `--worktree`: there is nothing here to diff.
 - Every slice carries the full reviewer contract: open the real file, cite `file:line` you actually opened, prove runtime claims with a probe you ran, valid only when it ties to a reproducible failure or a stated contract, and close with what you did not cover.
 
 ## Consolidating
