@@ -9,7 +9,7 @@ import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig, resolveModel } from "../../config/config.js";
-import { isInteractiveTerminal, needsModelSetup, runModelSetupWizard } from "./setup.js";
+import { isInteractiveTerminal } from "./setup.js";
 import { renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
@@ -381,7 +381,11 @@ export type ModelVerdict =
  * Pure so all three outcomes are testable without touching the disk cache or
  * spawning a harness.
  */
-export function judgeModel(model: string, catalogs: HarnessModels[] | undefined): ModelVerdict {
+export function judgeModel(
+  model: string,
+  catalogs: HarnessModels[] | undefined,
+  fromConfig: boolean,
+): ModelVerdict {
   const keepGoing = (reason: string): ModelVerdict => ({
     kind: "unknown-catalog",
     warning: catalogWarning(model, `unavailable${reason}`),
@@ -401,10 +405,14 @@ export function judgeModel(model: string, catalogs: HarnessModels[] | undefined)
 
   const suggestion = findClosestModel(model, candidates);
   const hint = suggestion ? ` Did you mean "${suggestion}"?` : " No close model was found.";
-  return { kind: "rejected", error: `Model "${model}" is not in the Claude catalog.${hint}` };
+  // A model can leave the catalog on its own, with nobody having typed it
+  // wrong, and `needsModelSetup` never asks again, so the way out has to be
+  // spelled out.
+  const recovery = fromConfig ? " Run `codedeck setup` to pick another." : "";
+  return { kind: "rejected", error: `Model "${model}" is not in the Claude catalog.${hint}${recovery}` };
 }
 
-async function preflightModel(model: string): Promise<void> {
+async function preflightModel(model: string, fromConfig: boolean): Promise<void> {
   let catalogs: HarnessModels[] | undefined;
   try {
     catalogs = await getCachedOrDiscoverModels(getRegistry(), { agent: "claude" });
@@ -416,7 +424,7 @@ async function preflightModel(model: string): Promise<void> {
     return;
   }
 
-  const verdict = judgeModel(model, catalogs);
+  const verdict = judgeModel(model, catalogs, fromConfig);
   if (verdict.kind === "ok") return;
   if (verdict.kind === "unknown-catalog") {
     console.warn(verdict.warning);
@@ -578,19 +586,23 @@ export function registerOpenCommand(program: Command): void {
       const client = new IpcClient();
       await client.ensureDaemonStarted();
 
-      // First run picks a model per installed agent. It runs after the daemon
-      // check so a broken install fails before the user answers questions, and
-      // before the model is resolved so the answer takes effect immediately.
-      let config = loadConfig();
-      if (interactive && opts.model === undefined && needsModelSetup(config)) {
-        config = await runModelSetupWizard({ config });
-      }
+      // Launching never opens the wizard. Asking a model per harness was the
+      // wrong question to greet someone with, and `codedeck setup` is the place
+      // to answer it deliberately.
+      const config = loadConfig();
 
       const resolved = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
       const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
       const model = effectiveModel(invocation.passthrough) ?? resolved;
 
-      await preflightModel(model);
+      // It came from config only when nobody typed a model just now, neither by
+      // flag nor by passthrough, and the config actually had one.
+      const fromConfig =
+        opts.model === undefined &&
+        effectiveModel(invocation.passthrough) === undefined &&
+        resolveModel("claude", undefined, config) !== undefined;
+
+      await preflightModel(model, fromConfig);
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 

@@ -115,31 +115,37 @@ The `reviewer` restriction holds even with permissions bypassed, because a tool 
 
 `--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
 
-A launch carrying `-p`/`--print` answers once and exits, so it never asks anything: no role prompt, no first-run wizard. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
+A launch carrying `-p`/`--print` answers once and exits, so it never asks anything. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
 
 ### Choosing a model per agent
 
-The first interactive `open` puts every installed agent on one screen and takes one line for all of them. Re-run it any time:
+Launching never asks. Which model each harness should use is a question worth answering deliberately, not one to greet someone with, so it lives in its own command:
 
 ```bash
 npx codedeck setup
 ```
 
 ```
-  Claude Code                              Enter = claude-opus-5
-   1 claude-sonnet-4-6     3 claude-opus-4-5
-   2 claude-opus-5         4 claude-haiku-4-5
+  ╔═╗╔═╗╔╦╗╔═╗╔╦╗╔═╗╔═╗╦╔═
+  ║  ║ ║║║║╠═ ║║║╠═ ║  ╠╩╗
+  ╚═╝╚═╝═╩╝╚═╝═╩╝╚═╝╚═╝╩ ╩
 
-  Codex                                     Enter = gpt-5.6-sol
-   5 gpt-5.6-sol           6 gpt-5.6-terra
+  opencode  ~  agente 3 de 4
 
-  omp · no models found, type omp=<id>
-
-  one number per agent, or Enter for the defaults
-  > 2 6
+  filtrar: sonnet
+    opencode/claude-sonnet-4-6    opencode
+  › openrouter/anthropic/claude-sonnet-4-6    openrouter
+    zai-coding-plan/claude-sonnet-4-6    zai-coding-plan
+    3 de 614   move ^ v   Enter escolhe   ^G pula   ^C sai
 ```
 
-Numbers run straight through the screen, so one per agent is enough and order does not matter. Enter alone takes every default, an agent left out of the line keeps its default, and `agent=<id>` types an id the list does not show. The lists come from `codedeck models`, shortlisted to sixteen per agent because opencode alone proxies some 600 ids and would scroll everything else away.
+Typing filters as you go, which is the answer to opencode proxying some 600 ids: nothing is capped and nothing is hidden. With the filter empty the list is grouped by provider with a count per group. Your current choice, or a default the harness actually declares, is pinned to the top and marked. Only the claude and codex drivers declare one, so opencode and omp pin nothing rather than dress an alphabetical accident up as a recommendation.
+
+`^G` skips an agent and leaves its saved choice alone. `^C` walks out and writes nothing. Esc does neither, on purpose: it takes half a second to resolve and a fragmented arrow key arrives looking exactly like it.
+
+An id the catalog does not list can still be typed. Enter asks once to confirm, and a second Enter writes it.
+
+The catalog is cached for four hours. `codedeck setup --refresh` ignores the cache and rediscovers.
 
 Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
 
