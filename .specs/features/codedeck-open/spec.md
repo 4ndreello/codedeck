@@ -46,7 +46,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | `plugin validate` **não** cobre tema | Gate de tema é captura real de launch | Evidência: arquivo de tema substituído por `NOT JSON AT ALL {{{` passou pelo validate sem uma palavra. O validate cobre frontmatter de agente, não tema | y |
 | Restrição de ferramenta por papel | `tools:` no frontmatter do agente | Evidência: agente com `tools: Read, Grep` **não escreveu arquivo mesmo com `--dangerously-skip-permissions`**, e relatou ter só essas duas ferramentas. Restrição de ferramenta é ortogonal a bypass de permissão | y |
 | Modelo e esforço default | `claude-opus-4-8` + `--effort xhigh` | Ambos verificados executando; a caixa de boas-vindas exibe `Opus 4.8 with xhigh effort` sem configuração extra | y |
-| Acesso ao `claude-opus-4-8` | Sem decisão ainda | Acesso a modelo é gated por plano, e id desconhecido dá erro duro `[claude-code:unrecognized_model]` sem fallback. Numa instalação com outro plano o `open` **não sobe**. Ver open question 1 | n |
+| Acesso ao `claude-opus-4-8` | Preflight com `getCachedOrDiscoverModels(registry, { agent: "claude" })` antes do spawn | Acesso a modelo é gated por plano, e id desconhecido dá erro duro `[claude-code:unrecognized_model]` sem fallback: numa instalação com outro plano o `open` **não sobe**. A descoberta de modelo entrou na `main` e resolve isso barato: cache em disco com TTL de 4h (`src/core/models.ts:46`), então só o primeiro `open` do dia paga descoberta. Erro fica acionável com `findClosestModel`, que já é levenshtein pronto | y |
 | Papéis expostos no seletor | `general` (default), `orchestrator`, `reviewer` | São os únicos que uma pessoa escolhe *ser* ao abrir o terminal | y |
 | `general` não tem arquivo de agente | Omitir `--agent`; o `ultra.md` já se aplica sozinho | Um agente que não restringe nada nem muda instrução é arquivo morto pra manter | n |
 | Ferramentas por papel | `reviewer` sem `Edit`/`Write`/`Bash`; `orchestrator` sem `Edit`/`Write`, com `Bash`; `general` completo | O `orchestrator` precisa de `Bash` pra rodar `codedeck run/ps/diff`, e com `Bash` ainda consegue escrever via redirecionamento: pra ele a regra continua parcialmente dependente do prompt. Pro `reviewer` a restrição é total e verificada | y |
@@ -69,8 +69,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 **Open questions:**
 
-1. O `open` deve fazer preflight do modelo, passar `--fallback-model`, ou falhar duro com mensagem explicando o requisito de plano? Hoje a spec não tem história pra máquina sem acesso ao `claude-opus-4-8`.
-2. Criar workflow de CI nesta feature, ou entregar os gates como scripts locais e ligar CI depois? O repo não tem `.github/workflows`.
+1. Criar workflow de CI nesta feature, ou entregar os gates como scripts locais e ligar CI depois? O repo não tem `.github/workflows`.
 
 ---
 
@@ -97,6 +96,8 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 10. The manifesto do plugin SHALL declarar `author`, sem o qual `--strict` falha com `No author information provided` <!-- ubiquitous --> `OPEN-05`
 11. The gate de empacotamento SHALL rodar `claude plugin validate --strict plugin/` e falhar em qualquer warning <!-- ubiquitous --> `OPEN-06`
 12. The gate de tema SHALL ser uma captura real de launch procurando o código de cor, porque `plugin validate` **não olha tema nenhum** <!-- ubiquitous --> `OPEN-06`
+13. BEFORE o spawn THEN o CodeDeck SHALL confirmar que o modelo resolvido consta em `getCachedOrDiscoverModels(registry, { agent: "claude" })` <!-- event-driven --> `OPEN-17`
+14. IF o modelo resolvido não estiver disponível THEN o CodeDeck SHALL falhar antes do spawn citando o modelo pedido e a sugestão de `findClosestModel`, nunca deixar o `claude` morrer com `unrecognized_model` <!-- unwanted-behavior --> `OPEN-17`
 
 **Independent Test**: Rodar `npm pack`, instalar o tarball em diretório limpo, executar `npx codedeck open -- --version` e confirmar que o plugin foi resolvido a partir do pacote instalado, sem nada escrito em `~/.claude/`.
 
@@ -173,7 +174,8 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 - IF o ref de tema estiver errado THEN a sessão SHALL subir normalmente sem tema (falha silenciosa é comportamento do harness, não corrigível daqui): por isso o gate é captura de launch, e não `plugin validate`
 - IF o `claude` não estiver no `PATH` THEN o `open` SHALL falhar com instrução de instalação, sem stack trace
 - IF a versão do `claude` não suportar `--append-system-prompt-file` THEN o `open` SHALL detectar antes do spawn e falhar explicando; a detecção é o texto de erro do commander, que separa `argument missing` de `unknown option`
-- IF a conta não tiver acesso ao `claude-opus-4-8` THEN o `claude` SHALL falhar com `[claude-code:unrecognized_model]` sem fallback (ver open question 1)
+- IF a conta não tiver acesso ao `claude-opus-4-8` THEN o preflight SHALL pegar isso antes do spawn, porque o `claude` sozinho falha com `[claude-code:unrecognized_model]` e sem fallback
+- IF o cache de modelos estiver frio E a descoberta falhar (offline, binário fora do `PATH`) THEN o `open` SHALL seguir com o modelo pedido em vez de bloquear: o preflight é rede de segurança, não portão
 - WHEN o `open` roda dentro de outra sessão Claude Code THEN a limpeza de `CLAUDE_CODE_CHILD_SESSION` SHALL garantir transcript salvo na sessão nova
 - IF o usuário roda `codedeck open` fora de um repositório git THEN o `open` SHALL subir normalmente e a statusLine SHALL exibir ausência de branch sem erro
 - IF `--worktree` for passado junto de `--resume` THEN o `open` SHALL deixar o `claude` decidir a combinação, sem validação própria
@@ -201,12 +203,13 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OPEN-14 | Isolamento por worktree no despacho | P2 Despacho | Pending |
 | OPEN-15 | Prova por artefato | P2 Despacho | Pending |
 | OPEN-16 | Ciclo de vida do worker | P2 Despacho | Pending |
+| OPEN-17 | Preflight de modelo | P1 Launcher | Pending |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 
 **Status values:** Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 16 requisitos, cada um citado por pelo menos um AC acima. 0 mapeados pra tasks (`tasks.md` ainda não escrito).
+**Coverage:** 17 requisitos, cada um citado por pelo menos um AC acima. 0 mapeados pra tasks (`tasks.md` ainda não escrito).
 
 ---
 
@@ -218,4 +221,5 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 - [ ] Um teste pina a grafia que falha **em silêncio**: `custom:<plugin>:<slug>` aplica, as outras três não pintam nada, e o slug é o basename do arquivo (o campo `name` não resolve)
 - [ ] Um teste pina `experimental.themes` e `--append-system-prompt-file`, que falham alto e de formas diferentes
 - [ ] Banner aparece em uma escrita só, sem atraso artificial mensurável
+- [ ] `codedeck open --model inexistente-9` falha antes do spawn com sugestão, e o segundo `open` seguido não paga descoberta de novo
 - [ ] Zero deps novas além do seletor interativo, zero passo com root, testes escopados verdes
