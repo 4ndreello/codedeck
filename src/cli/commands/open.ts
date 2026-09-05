@@ -9,7 +9,7 @@ import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig, resolveModel } from "../../config/config.js";
-import { isInteractiveTerminal, needsModelSetup, runModelSetupWizard } from "./setup.js";
+import { isInteractiveTerminal } from "./setup.js";
 import { renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
@@ -586,13 +586,10 @@ export function registerOpenCommand(program: Command): void {
       const client = new IpcClient();
       await client.ensureDaemonStarted();
 
-      // First run picks a model per installed agent. It runs after the daemon
-      // check so a broken install fails before the user answers questions, and
-      // before the model is resolved so the answer takes effect immediately.
-      let config = loadConfig();
-      if (interactive && opts.model === undefined && needsModelSetup(config)) {
-        config = await runModelSetupWizard({ config });
-      }
+      // Launching never opens the wizard. Asking a model per harness was the
+      // wrong question to greet someone with, and `codedeck setup` is the place
+      // to answer it deliberately.
+      const config = loadConfig();
 
       const resolved = resolveModel("claude", opts.model, config) ?? DEFAULT_MODEL;
       const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);

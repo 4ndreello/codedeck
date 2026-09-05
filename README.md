@@ -115,11 +115,11 @@ The `reviewer` restriction holds even with permissions bypassed, because a tool 
 
 `--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
 
-A launch carrying `-p`/`--print` answers once and exits, so it never asks anything: no role prompt, no first-run wizard. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
+A launch carrying `-p`/`--print` answers once and exits, so it never asks anything. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
 
 ### Choosing a model per agent
 
-The first interactive `open` asks once, one screen per installed agent. Re-run it any time:
+Launching never asks. Which model each harness should use is a question worth answering deliberately, not one to greet someone with, so it lives in its own command:
 
 ```bash
 npx codedeck setup
