@@ -63,26 +63,67 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(themeFiles).toContain(slug);
   });
 
-  it("pins tool restrictions for both role agents", () => {
-    const reviewerTools = field(frontmatter(plugin("agents", "reviewer.md")), "tools");
-    const orchestratorTools = field(frontmatter(plugin("agents", "orchestrator.md")), "tools");
+  it("ships an agent file for every role", () => {
+    const agents = readdirSync(plugin("agents"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => f.replace(/\.md$/, ""))
+      .sort();
 
-    expect(reviewerTools).not.toMatch(/\b(Edit|Write|Bash)\b/);
-    expect(orchestratorTools).not.toMatch(/\b(Edit|Write)\b/);
-    expect(orchestratorTools).toMatch(/\bBash\b/);
+    expect(agents).toEqual(["auditor", "general", "orchestrator", "reviewer"]);
+    for (const agent of agents) {
+      expect(field(frontmatter(plugin("agents", `${agent}.md`)), "name")).toBe(agent);
+    }
   });
 
-  it("pins the system prompt and orchestration boundaries", () => {
+  // An agent file with no `tools:` key inherits the whole toolset, which is the
+  // only way general keeps Edit and Write. Adding the key would silently take
+  // them away, so its absence is the contract.
+  it("leaves general's toolset inherited", () => {
+    expect(frontmatter(plugin("agents", "general.md"))).not.toMatch(/^tools:/m);
+  });
+
+  it("pins tool restrictions for the three constrained roles", () => {
+    const tools = (name: string) => field(frontmatter(plugin("agents", `${name}.md`)), "tools");
+
+    for (const name of ["reviewer", "orchestrator", "auditor"]) {
+      expect(tools(name), name).not.toMatch(/\b(Edit|Write)\b/);
+      expect(tools(name), name).toMatch(/\bBash\b/);
+    }
+
+    // The reviewer is the single pass. Dispatching is what separates it from
+    // the auditor, so the allowlist has to carry that and not just the prose.
+    expect(tools("reviewer")).not.toMatch(/\b(Task|Agent)\b/);
+    expect(tools("orchestrator")).toMatch(/\bTask\b/);
+    expect(tools("auditor")).toMatch(/\bTask\b/);
+  });
+
+  // ultra.md is appended to every role, so anything role-specific in it
+  // contradicts one of them. It carries only what holds for all four.
+  it("keeps the shared system prompt universal", () => {
     const ultra = readText(plugin("ultra.md"));
+
+    expect(ultra).toMatch(/never round failure to success/i);
+    expect(ultra).toMatch(/evidence over assertion/i);
+    expect(ultra).toMatch(/the scope asked for is the deliverable/i);
+    expect(ultra).not.toMatch(/\bcodedeck run\b/);
+  });
+
+  it("pins the orchestration and review boundaries", () => {
     const orchestrator = readText(plugin("agents", "orchestrator.md"));
+    const reviewer = readText(plugin("agents", "reviewer.md"));
+    const auditor = readText(plugin("agents", "auditor.md"));
     const statusline = readText(plugin("statusline.sh"));
 
-    expect(ultra).toMatch(/delegation with proof/i);
-    expect(ultra).toMatch(/never round failure to success/i);
     expect(orchestrator).toContain("codedeck run --worktree");
-    expect(orchestrator).toContain("codedeck diff <session>");
-    expect(orchestrator).toContain("codedeck stop <session>");
-    expect(orchestrator).toMatch(/without the CodeDeck setup/i);
+    expect(orchestrator).toContain("codedeck diff <id>");
+    expect(orchestrator).toContain("codedeck stop <id>");
+
+    // Both review roles owe the same third list. A shallow pass reported as a
+    // complete one is the failure mode neither prompt may drop.
+    expect(reviewer).toMatch(/what you did not cover/i);
+    expect(auditor).toMatch(/what was not covered/i);
+    expect(reviewer).toMatch(/you do not dispatch/i);
+
     expect(statusline).toContain("JSON.parse");
     expect(statusline).toContain("git");
   });
