@@ -65,11 +65,12 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | Transcript em sessão filha | `open` remove `CLAUDE_CODE_CHILD_SESSION` do env do spawn | Evidência: sessão aninhada exibiu "Transcript saving is off, inherited CLAUDE_CODE_CHILD_SESSION marker"; sem limpar, sessão aberta de dentro de outra perde `--resume` | y |
 | Seletor interativo | Pergunta só quando o papel é omitido | Primeira dependência de UI do projeto (hoje só `commander`): ou lib nova ou ~40 linhas de `readline` cru. Perguntar sempre seria odioso na décima abertura | y |
 | Grilling | Skill própria, com trechos da skill MIT de Matt Pocock | MIT permite cópia mantendo o aviso de copyright: uma linha de crédito no cabeçalho ou NOTICE resolve | y |
-| CI | Não existe workflow no repo hoje | Os gates abaixo criam o primeiro. Se a decisão for adiar CI, viram script de `npm run` chamado à mão, mas não somem | n |
+| CI | `.github/workflows/ci.yml`, matriz Node 24 e 26, rodando `npm ci`, `npm run build` e `npm test` | Primeiro workflow do repo. A matriz não inclui 20 nem 22 porque `src/store/database.ts` importa `node:sqlite` e o shim de teste repassa o specifier pro Node real em vez de fingir: precisa de runtime onde `node:sqlite` carrega sem flag. Verificado local: 28 arquivos, 168 testes, verdes | y |
+| Gate de tema no CI | Roda só quando houver credencial; fora disso é gate local | A captura de launch precisa de sessão `claude` autenticada, o que CI público não tem. `plugin validate --strict` roda sem credencial e cobre manifesto e agente, mas **não** cobre tema | n |
 
 **Open questions:**
 
-1. Criar workflow de CI nesta feature, ou entregar os gates como scripts locais e ligar CI depois? O repo não tem `.github/workflows`.
+1. O `engines` do `package.json` declara `node >=20.0.0`, mas `node:sqlite` só carrega sem flag a partir do Node 23.4. Corrigir pra `>=24` (instalação falha cedo e com mensagem clara) ou deixar como está (falha em runtime na primeira query)? Não é bloqueio desta feature, mas o CI acabou de expor.
 
 ---
 
@@ -94,10 +95,12 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 9. The build SHALL copiar `plugin/` para `dist/plugin` <!-- ubiquitous --> `OPEN-05`
    *(o `files` do `package.json` já contém `dist`; só o passo de cópia é novo, porque `tsc` sozinho não leva `.md`)*
 10. The manifesto do plugin SHALL declarar `author`, sem o qual `--strict` falha com `No author information provided` <!-- ubiquitous --> `OPEN-05`
-11. The gate de empacotamento SHALL rodar `claude plugin validate --strict plugin/` e falhar em qualquer warning <!-- ubiquitous --> `OPEN-06`
+11. The CI SHALL rodar `claude plugin validate --strict plugin/` e falhar em qualquer warning <!-- ubiquitous --> `OPEN-06`
 12. The gate de tema SHALL ser uma captura real de launch procurando o código de cor, porque `plugin validate` **não olha tema nenhum** <!-- ubiquitous --> `OPEN-06`
-13. BEFORE o spawn THEN o CodeDeck SHALL confirmar que o modelo resolvido consta em `getCachedOrDiscoverModels(registry, { agent: "claude" })` <!-- event-driven --> `OPEN-17`
-14. IF o modelo resolvido não estiver disponível THEN o CodeDeck SHALL falhar antes do spawn citando o modelo pedido e a sugestão de `findClosestModel`, nunca deixar o `claude` morrer com `unrecognized_model` <!-- unwanted-behavior --> `OPEN-17`
+13. IF o job não tiver credencial de `claude` THEN o gate de tema SHALL ser pulado com aviso, nunca passar silenciosamente como verde <!-- unwanted-behavior --> `OPEN-06`
+14. The CI SHALL rodar `npm ci`, `npm run build` e `npm test` em matriz de Node onde `node:sqlite` carregue sem flag <!-- ubiquitous --> `OPEN-18`
+15. BEFORE o spawn THEN o CodeDeck SHALL confirmar que o modelo resolvido consta em `getCachedOrDiscoverModels(registry, { agent: "claude" })` <!-- event-driven --> `OPEN-17`
+16. IF o modelo resolvido não estiver disponível THEN o CodeDeck SHALL falhar antes do spawn citando o modelo pedido e a sugestão de `findClosestModel`, nunca deixar o `claude` morrer com `unrecognized_model` <!-- unwanted-behavior --> `OPEN-17`
 
 **Independent Test**: Rodar `npm pack`, instalar o tarball em diretório limpo, executar `npx codedeck open -- --version` e confirmar que o plugin foi resolvido a partir do pacote instalado, sem nada escrito em `~/.claude/`.
 
@@ -204,12 +207,13 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OPEN-15 | Prova por artefato | P2 Despacho | Pending |
 | OPEN-16 | Ciclo de vida do worker | P2 Despacho | Pending |
 | OPEN-17 | Preflight de modelo | P1 Launcher | Pending |
+| OPEN-18 | Pipeline de build e teste | P1 Launcher | Done |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 
 **Status values:** Pending → In Design → In Tasks → Implementing → Verified
 
-**Coverage:** 17 requisitos, cada um citado por pelo menos um AC acima. 0 mapeados pra tasks (`tasks.md` ainda não escrito).
+**Coverage:** 18 requisitos, cada um citado por pelo menos um AC acima. `OPEN-18` já está entregue (`.github/workflows/ci.yml`); os outros 17 esperam `tasks.md`.
 
 ---
 
