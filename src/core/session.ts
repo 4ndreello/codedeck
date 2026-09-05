@@ -10,7 +10,8 @@ export type SessionStatus =
   | "completed"
   | "failed"
   | "stopped"
-  | "orphaned";
+  | "orphaned"
+  | "interrupted";
 
 export interface SessionUsage {
   inputTokens?: number;
@@ -68,7 +69,7 @@ export interface CreateSessionOptions {
 }
 
 export function isTerminalStatus(status: SessionStatus): boolean {
-  return status === "completed" || status === "failed" || status === "stopped" || status === "orphaned";
+  return status === "completed" || status === "failed" || status === "stopped" || status === "orphaned" || status === "interrupted";
 }
 
 export function isActiveStatus(status: SessionStatus): boolean {
