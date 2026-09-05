@@ -1,6 +1,4 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 vi.mock("../src/utils/process.js", async (importOriginal) => {
@@ -13,6 +11,7 @@ import { SessionStore } from "../src/store/sessions.js";
 import { EventStore } from "../src/store/events.js";
 import { killTree } from "../src/utils/process.js";
 import { Daemon } from "../src/daemon/daemon.js";
+import { fakeSocket, makeTempDir, removeTempDir, seed } from "./helpers/daemon-seam.js";
 
 // Shutdown closes the DB by design; post-shutdown assertions reopen it like
 // a fresh process after reboot (spec independent test).
@@ -25,36 +24,16 @@ const mockedKillTree = vi.mocked(killTree);
 let dir: string;
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "power-shutdown-"));
+  dir = makeTempDir("power-shutdown-");
   process.env.RUN_AGENT_DIR = dir;
   mockedKillTree.mockClear();
 });
 
 afterEach(() => {
   delete process.env.RUN_AGENT_DIR;
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  removeTempDir(dir);
 });
 
-function seed(daemon: Daemon, id: string, status = "working", extra: Record<string, unknown> = {}): void {
-  const now = new Date();
-  (daemon as any).sessions.create({
-    id,
-    agent: "claude",
-    status,
-    cwd: "/tmp",
-    createdAt: now,
-    updatedAt: now,
-    ...extra,
-  });
-}
-
-function fakeSocket(): { writes: string[]; socket: any } {
-  const writes: string[] = [];
-  return {
-    writes,
-    socket: { write: (s: string) => { writes.push(s); return true; }, on: () => {} },
-  };
-}
 
 describe("power graceful shutdown", () => {
   it("marks each active session interrupted with one SHUTDOWN failed event", async () => {

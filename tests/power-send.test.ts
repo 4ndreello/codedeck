@@ -2,48 +2,23 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type net from "node:net";
 import { processStartTime } from "../src/utils/process.js";
 import { defaultCapabilities } from "../src/core/capabilities.js";
-import type { Session, SessionStatus } from "../src/core/session.js";
-import type { SessionStore } from "../src/store/sessions.js";
 import { Daemon } from "../src/daemon/daemon.js";
+import { fakeSocket, makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
 
 let dir: string;
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "power-send-"));
+  dir = makeTempDir("power-send-");
   process.env.RUN_AGENT_DIR = dir;
 });
 
 afterEach(() => {
   delete process.env.RUN_AGENT_DIR;
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  removeTempDir(dir);
 });
 
-interface DaemonTestSeam {
-  sessions: SessionStore;
-  registry: { register(driver: unknown): void };
-  handleRequest(req: { id: string; method: string; params: unknown }, socket: net.Socket): Promise<void>;
-}
-
-function seam(daemon: Daemon): DaemonTestSeam {
-  // Tests drive private IPC handling directly (no socket/server started).
-  return daemon as unknown as DaemonTestSeam;
-}
-
-function seed(daemon: Daemon, id: string, status: SessionStatus, extra: Partial<Session> = {}): void {
-  const now = new Date();
-  seam(daemon).sessions.create({
-    id,
-    agent: "claude",
-    status,
-    cwd: "/tmp",
-    createdAt: now,
-    updatedAt: now,
-    ...extra,
-  });
-}
 
 interface SentCall {
   session: { id: string; nativeSessionId?: string };
@@ -65,12 +40,6 @@ function installSendDriver(daemon: Daemon, resume: boolean, sent: SentCall[]): v
   });
 }
 
-function fakeSocket(): { writes: string[]; socket: net.Socket } {
-  const writes: string[] = [];
-  // Minimal writable surface handleRequest uses (write only).
-  const socket = { write: (s: string) => { writes.push(s); return true; } };
-  return { writes, socket: socket as unknown as net.Socket };
-}
 
 async function sendMessage(daemon: Daemon, id: string, message: string): Promise<{ result?: unknown; error?: { code: string } }> {
   const { writes, socket } = fakeSocket();

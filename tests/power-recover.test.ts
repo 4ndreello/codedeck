@@ -4,49 +4,21 @@ import os from "node:os";
 import path from "node:path";
 import { processStartTime } from "../src/utils/process.js";
 import { defaultCapabilities } from "../src/core/capabilities.js";
-import type { Session, SessionStatus } from "../src/core/session.js";
-import type { SessionStore } from "../src/store/sessions.js";
-import type { EventStore } from "../src/store/events.js";
 import { Daemon } from "../src/daemon/daemon.js";
+import { makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
 
 let dir: string;
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "power-recover-"));
+  dir = makeTempDir("power-recover-");
   process.env.RUN_AGENT_DIR = dir;
 });
 
 afterEach(() => {
   delete process.env.RUN_AGENT_DIR;
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  removeTempDir(dir);
 });
 
-// Typed seam over Daemon privates: one unchecked cast with a reason instead
-// of any-casts at every call site.
-interface DaemonTestSeam {
-  sessions: SessionStore;
-  events: EventStore;
-  registry: { register(driver: unknown): void };
-  recover(): Promise<void>;
-}
-
-function seam(daemon: Daemon): DaemonTestSeam {
-  // Tests drive private lifecycle methods directly (no socket/server started).
-  return daemon as unknown as DaemonTestSeam;
-}
-
-function seed(daemon: Daemon, id: string, status: SessionStatus, extra: Partial<Session> = {}): void {
-  const now = new Date();
-  seam(daemon).sessions.create({
-    id,
-    agent: "claude",
-    status,
-    cwd: "/tmp",
-    createdAt: now,
-    updatedAt: now,
-    ...extra,
-  });
-}
 
 function installAttachSpy(daemon: Daemon, attached: unknown[]): void {
   seam(daemon).registry.register({

@@ -1,28 +1,23 @@
 import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { FileTailer } from "../src/drivers/tailer.js";
 import { sleep } from "../src/utils/process.js";
+import { destroyTailer, setupTailer } from "./helpers/tailer-harness.js";
 
 let dir: string;
 let file: string;
 let tailer: FileTailer;
 
 function setup(): { lines: string[] } {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "tailer-"));
-  file = path.join(dir, "out.ndjson");
-  const lines: string[] = [];
-  tailer = new FileTailer(file, {
-    pollMs: 20,
-    onLine: (line) => lines.push(line),
-  });
-  return { lines };
+  const h = setupTailer("tailer-");
+  dir = h.dir;
+  file = h.file;
+  tailer = h.tailer;
+  return { lines: h.lines };
 }
 
 afterEach(() => {
-  tailer?.stop();
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  destroyTailer(dir, tailer);
 });
 
 describe("FileTailer", () => {
