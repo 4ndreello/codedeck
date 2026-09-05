@@ -21,7 +21,24 @@ Menores: `rawArgs` não é tipado pelo commander (cast estreito em vez de `any`)
 - `open`, `open reviewer` e `open orchestrator` rodados via `dist/`: banner, papel e as duas regras do `ultra.md` respondidos pela própria sessão. O reviewer confirma que não edita arquivos.
 - Tema quebrado de propósito por **uma letra** (`codedeck-ultraa`): sessão sobe sem erro nenhum e pinta a paleta padrão. `plugin validate --strict` **passa**; o gate falha e `tests/plugin-manifest.test.ts` falha em 2 testes. Ou seja, a armadilha é pega mesmo sem credencial no CI.
 - `plugin validate --strict` roda sem credencial (verificado com `CLAUDE_CONFIG_DIR` isolado), então o job não depende de segredo.
-- Suíte inteira em 5 batches: 32 arquivos, 189 testes, verde.
+- Suíte inteira em 5 batches: 32 arquivos, 216 testes, verde.
+
+
+## O que a revisão encontrou depois
+
+Duas revisões adversariais passaram no código já integrado. Um achado foi rejeitado depois de sondado: `[claude-code:unrecognized_model]` sai em **stderr**, então o caminho de stdout que o revisor queria coberto não existe. O resto era real, cada um reproduzido antes e depois da correção:
+
+| # | Achado | Onde |
+| - | ------ | ---- |
+| 1 | `--no-bypas` era aceito e descartado em silêncio, subindo com o bypass de permissão ligado. Opções antes do `--` passam a ser conferidas contra a lista do próprio commander | `src/cli/commands/open.ts` |
+| 2 | O seletor de papel ainda lia só o stdout, então `tail -f /dev/null \| codedeck open` esperava para sempre por uma resposta que nunca chegaria | `src/cli/commands/open.ts` |
+| 3 | Ctrl+D num prompt do wizard travava: `question()` do `readline/promises` nunca resolve depois que a interface fecha | `src/cli/commands/setup.ts` |
+| 4 | O preflight julgava o modelo resolvido, não o último `--model` da linha, então um override no passthrough era rejeitado pela string errada | `src/cli/commands/open.ts` |
+| 5 | Processo morto por sinal reportava exit 1, escondendo o kill. Agora reporta 128 mais o número do sinal | `src/cli/commands/open.ts` |
+| 6 | `statusLine.command` é comando de shell, então instalação em diretório com espaço perdia a status line | `src/cli/commands/open.ts` |
+| 7 | `build:plugin` chamava `rm -rf` e `cp -r`, que o npm roda pelo cmd no Windows | `package.json`, `scripts/copy-plugin.mjs` |
+
+Conferir o trabalho dos revisores rendeu dois que eles não relataram: a mensagem de direito de acesso nomeava o modelo que o CodeDeck resolveu em vez do que o `claude` rejeitou, e `findClosestModel` curto-circuitava num acerto por substring, então `claude-opus-4-9` era mandado tentar `opus`.
 
 ---
 
