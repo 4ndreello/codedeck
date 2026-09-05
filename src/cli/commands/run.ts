@@ -1,11 +1,11 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig } from "../../config/config.js";
+import { loadConfig, resolveModel } from "../../config/config.js";
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
-import { isTerminalStatus, type Session } from "../../core/session.js";
+import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache } from "../../core/models.js";
 
 export function registerRunCommand(program: Command): void {
@@ -38,7 +38,8 @@ Resume with: codedeck send <id> "continue"
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const cfg = loadConfig();
-      const agent = opts.agent || cfg.defaultAgent || "claude";
+      const agent = (opts.agent || cfg.defaultAgent || "claude") as AgentId;
+      const model = resolveModel(agent, opts.model, cfg);
 
       // Validate here so a typo fails before a session row is created; codex
       // would otherwise reject it at spawn time, leaving a dead session behind.
@@ -86,7 +87,7 @@ Resume with: codedeck send <id> "continue"
         console.error(`Warning: --dangerously-bypass-approvals-and-sandbox has no effect on ${agent} (only codex); continuing without it.`);
       }
 
-      if (opts.model) {
+      if (model) {
         const cached = loadDiskModelsCache();
         if (cached && Array.isArray(cached)) {
           const harnessData = cached.find((h) => h.agent === agent);
@@ -98,15 +99,15 @@ Resume with: codedeck send <id> "continue"
                 if (m.aliases) knownIds.push(...m.aliases);
               }
             }
-            if (!knownIds.includes(opts.model)) {
-              const suggestion = findClosestModel(opts.model, knownIds);
+            if (!knownIds.includes(model)) {
+              const suggestion = findClosestModel(model, knownIds);
               if (suggestion) {
                 console.error(
-                  `Warning: Model "${opts.model}" is not recognized for agent "${agent}". Did you mean "${suggestion}"? Continuing anyway...`,
+                  `Warning: Model "${model}" is not recognized for agent "${agent}". Did you mean "${suggestion}"? Continuing anyway...`,
                 );
               } else {
                 console.error(
-                  `Warning: Model "${opts.model}" is not in known catalog for agent "${agent}". Continuing anyway...`,
+                  `Warning: Model "${model}" is not in known catalog for agent "${agent}". Continuing anyway...`,
                 );
               }
             }
@@ -126,7 +127,7 @@ Resume with: codedeck send <id> "continue"
       const params: any = {
         prompt,
         agent,
-        model: opts.model,
+        model,
         effort,
         fast: effectiveFast,
         sandbox: effectiveSandbox,
