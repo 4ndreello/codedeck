@@ -1,24 +1,13 @@
 import type { Command } from "commander";
-import { createInterface, type Interface as ReadlineInterface } from "node:readline/promises";
 import type { DriverRegistry } from "../../core/driver.js";
 import {
-  flattenModels,
   getCachedOrDiscoverModels,
   type HarnessModels,
 } from "../../core/models.js";
 import type { AgentId } from "../../core/session.js";
 import type { PickerItem, Screen, ScreenResult } from "../picker-state.js";
 import { runScreens } from "../picker.js";
-import {
-  INDENT,
-  blockWidth,
-  colors,
-  columnize,
-  headingWith,
-  readDimensions,
-  renderLogo,
-  type Dimensions,
-} from "../ui.js";
+import { colors, readDimensions, type Dimensions } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import {
   loadConfig,
@@ -58,28 +47,6 @@ export function needsModelSetup(
   if (!isTTY) return false;
   return config == null || config.models == null;
 }
-
-
-// Canonical ids only, not aliases: the wizard is offering a list to pick from,
-// where two names for the same model are noise rather than choice.
-function getModelIds(harness: HarnessModels): string[] {
-  const ids = flattenModels(harness)
-    .map((model) => model.id)
-    .filter((id) => typeof id === "string" && id.trim() !== "");
-  return [...new Set(ids)];
-}
-
-function getDefaultModel(harness: HarnessModels, ids: string[], configured?: string): string | undefined {
-  if (configured && ids.includes(configured)) return configured;
-  for (const provider of harness.providers) {
-    const model = provider.models.find((candidate) => candidate.isDefault && ids.includes(candidate.id));
-    if (model) return model.id;
-  }
-  return ids[0];
-}
-
-/** Long enough to choose from, short enough to leave the other agents on screen. */
-const MAX_LISTED = 16;
 
 const AGENT_LABELS: Partial<Record<AgentId, string>> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 
@@ -160,148 +127,6 @@ export function collectSelections(
   return { models, write: shown > 0 && !aborted };
 }
 
-/**
- * `question` never settles once the interface closes, so Ctrl+D at a prompt
- * leaves the wizard hanging with no way out. Racing the close event turns EOF
- * into "no answer" instead. The rejection path is the same verdict by another
- * road: asking again after a close throws ERR_USE_AFTER_CLOSE.
- */
-function ask(readline: ReadlineInterface, prompt: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const onClose = () => resolve(undefined);
-    readline.once("close", onClose);
-    const done = (answer: string | undefined) => {
-      readline.off("close", onClose);
-      resolve(answer);
-    };
-    readline.question(prompt).then(done, () => done(undefined));
-  });
-}
-
-/** One numbered line on screen, and what picking that number means. */
-export interface ModelChoice {
-  number: number;
-  agent: AgentId;
-  model: string;
-}
-
-export interface ModelMenu {
-  screen: string;
-  choices: ModelChoice[];
-  defaults: Partial<Record<AgentId, string>>;
-  agents: AgentId[];
-}
-
-/**
- * Numbering runs across every agent rather than restarting per block, so one
- * line of input can answer all of them without saying which is which.
- */
-export function buildModelMenu(
-  harnesses: HarnessModels[],
-  configured: Partial<Record<AgentId, string>> = {},
-  width: number = 80,
-): ModelMenu {
-  const choices: ModelChoice[] = [];
-  const defaults: Partial<Record<AgentId, string>> = {};
-  const agents: AgentId[] = [];
-  const blocks: string[] = [];
-  const seen = new Set<AgentId>();
-
-  for (const harness of harnesses) {
-    if (!harness.available || seen.has(harness.agent)) continue;
-    seen.add(harness.agent);
-    agents.push(harness.agent);
-
-    const ids = getModelIds(harness);
-    const fallback = getDefaultModel(harness, ids, configured[harness.agent]);
-    if (fallback) defaults[harness.agent] = fallback;
-
-    if (ids.length === 0) {
-      // Still listed, so the agent is visibly known rather than quietly gone,
-      // and the one spelling that can set it is named right there.
-      // Zero width forces the inline form: there is no list to align against.
-      blocks.push(headingWith(agentLabel(harness.agent), `no models found, type ${harness.agent}=<id>`, 0));
-      continue;
-    }
-
-    // opencode proxies the whole OpenRouter catalog, some 1500 ids. Printing it
-    // scrolls every other agent off the screen, so the list is a shortlist and
-    // the rest stays reachable by typing the id.
-    const listed = ids.slice(0, MAX_LISTED);
-    const entries = listed.map((id) => {
-      choices.push({ number: choices.length + 1, agent: harness.agent, model: id });
-      return `${String(choices.length).padStart(2)} ${id}`;
-    });
-
-    const grid = columnize(entries, width);
-    const block = [
-      headingWith(agentLabel(harness.agent), `Enter = ${fallback ?? "none"}`, blockWidth(grid)),
-      ...grid,
-    ];
-    const hidden = ids.length - listed.length;
-    if (hidden > 0) block.push(`${INDENT}+${hidden} more, type ${harness.agent}=<id> for any of them`);
-    blocks.push(block.join("\n"));
-  }
-
-  return { screen: blocks.join("\n\n"), choices, defaults, agents };
-}
-
-export type ModelSelection =
-  | { ok: true; models: Partial<Record<AgentId, string>> }
-  | { ok: false; error: string };
-
-/**
- * Reads one line covering every agent at once. A number picks a listed model,
- * `agent=id` names one the list does not carry, and a bare id is accepted when
- * exactly one agent offers it. An empty line takes every default.
- */
-export function parseModelSelection(answer: string, menu: ModelMenu): ModelSelection {
-  const models: Partial<Record<AgentId, string>> = {};
-  const tokens = answer.trim().split(/\s+/).filter((token) => token !== "");
-
-  for (const token of tokens) {
-    let agent: AgentId | undefined;
-    let model: string | undefined;
-
-    const equals = token.indexOf("=");
-    if (equals > 0) {
-      const named = token.slice(0, equals) as AgentId;
-      if (!menu.agents.includes(named)) {
-        return { ok: false, error: `"${named}" is not an installed agent. Installed: ${menu.agents.join(", ")}.` };
-      }
-      agent = named;
-      model = token.slice(equals + 1);
-      if (!model) return { ok: false, error: `No model given after "${named}=".` };
-    } else if (/^\d+$/.test(token)) {
-      const choice = menu.choices.find((candidate) => candidate.number === Number(token));
-      if (!choice) return { ok: false, error: `There is no ${token} on the list.` };
-      agent = choice.agent;
-      model = choice.model;
-    } else {
-      const owners = [...new Set(menu.choices.filter((c) => c.model === token).map((c) => c.agent))];
-      if (owners.length === 0) {
-        return { ok: false, error: `"${token}" is not on the list. Write it as <agent>=${token} to use it anyway.` };
-      }
-      if (owners.length > 1) {
-        return { ok: false, error: `"${token}" is offered by ${owners.join(" and ")}. Write it as <agent>=${token}.` };
-      }
-      agent = owners[0];
-      model = token;
-    }
-
-    if (models[agent] !== undefined) {
-      return { ok: false, error: `Two models given for ${agentLabel(agent)}.` };
-    }
-    models[agent] = model;
-  }
-
-  return { ok: true, models };
-}
-
-/**
- * Run the interactive model setup. A non-TTY invocation returns immediately;
- * callers such as `open` can therefore invoke this safely without blocking.
- */
 /** Below this no list survives once the chrome is placed. */
 const MIN_ROWS = 8;
 

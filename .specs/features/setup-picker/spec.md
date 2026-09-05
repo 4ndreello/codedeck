@@ -168,33 +168,33 @@ uma licença pra deixar o requisito sem prova.
 
 | ID | Requisito | Seção | Status |
 | - | - | - | - |
-| SETUP-01 | Uma tela por agente com contador | P1 Picker | Pending |
-| SETUP-02 | Sessão única de raw mode | P1 Picker | Pending |
-| SETUP-03 | Agrupamento por provider | P1 Picker | Pending |
-| SETUP-04 | Filtro incremental e seus campos | P1 Picker | Pending |
-| SETUP-05 | Scroll sem corte | P1 Picker | Pending |
-| SETUP-10 | Navegação e escolha | P1 Teclas | Pending |
-| SETUP-11 | Pular com Ctrl+G, nunca Esc | P1 Teclas | Pending |
-| SETUP-12 | Ctrl+C como byte | P1 Teclas | Pending |
-| SETUP-13 | Bracketed paste | P1 Teclas | Pending |
-| SETUP-20 | Truncar por largura visível | P1 Render | Pending |
-| SETUP-21 | Limpeza do frame anterior | P1 Render | Pending |
-| SETUP-22 | Listener único de resize | P1 Render | Pending |
-| SETUP-23 | Dimensões e altura mínima | P1 Render | Pending |
-| SETUP-24 | `ui.ts` puro | P1 Render | Pending |
-| SETUP-30 | Restauração em `finally` e `exit` | P1 Terminal | Pending |
-| SETUP-31 | SIGTERM e o limite do SIGKILL | P1 Terminal | Pending |
-| SETUP-40 | Gravação por merge | P2 Escolha | Pending |
-| SETUP-41 | Sentinela `{}` só com tela mostrada | P2 Escolha | Pending |
-| SETUP-42 | Içar e marcar só com base real | P2 Escolha | Pending |
-| SETUP-43 | Linha sintética e catálogo vazio | P2 Escolha | Pending |
-| SETUP-44 | `harness.error` visível | P2 Escolha | Pending |
-| SETUP-45 | Validar id digitado à mão, com confirmação dupla | P2 Escolha | Pending |
-| SETUP-46 | Recuperação quando o modelo salvo sai do catálogo | P2 Escolha | Pending |
-| SETUP-47 | Gravação last-writer-wins, declarada | P2 Escolha | Pending |
-| SETUP-50 | `--refresh` | P2 Comando | Pending |
-| SETUP-51 | Aviso antes da descoberta | P2 Comando | Pending |
-| SETUP-52 | Mensagem de sem-TTY no lugar certo | P2 Comando | Pending |
+| SETUP-01 | Uma tela por agente com contador | P1 Picker | Done |
+| SETUP-02 | Sessão única de raw mode | P1 Picker | Done |
+| SETUP-03 | Agrupamento por provider | P1 Picker | Done |
+| SETUP-04 | Filtro incremental e seus campos | P1 Picker | Done |
+| SETUP-05 | Scroll sem corte | P1 Picker | Done |
+| SETUP-10 | Navegação e escolha | P1 Teclas | Done |
+| SETUP-11 | Pular com Ctrl+G, nunca Esc | P1 Teclas | Done |
+| SETUP-12 | Ctrl+C como byte | P1 Teclas | Done |
+| SETUP-13 | Bracketed paste | P1 Teclas | Done |
+| SETUP-20 | Truncar por largura visível | P1 Render | Done |
+| SETUP-21 | Limpeza do frame anterior | P1 Render | Done |
+| SETUP-22 | Listener único de resize | P1 Render | Done |
+| SETUP-23 | Dimensões e altura mínima | P1 Render | Done |
+| SETUP-24 | `ui.ts` puro | P1 Render | Done |
+| SETUP-30 | Restauração em `finally` e `exit` | P1 Terminal | Done |
+| SETUP-31 | SIGTERM e o limite do SIGKILL | P1 Terminal | Done |
+| SETUP-40 | Gravação por merge | P2 Escolha | Done |
+| SETUP-41 | Sentinela `{}` só com tela mostrada | P2 Escolha | Done |
+| SETUP-42 | Içar e marcar só com base real | P2 Escolha | Done |
+| SETUP-43 | Linha sintética e catálogo vazio | P2 Escolha | Done |
+| SETUP-44 | `harness.error` visível | P2 Escolha | Done |
+| SETUP-45 | Validar id digitado à mão, com confirmação dupla | P2 Escolha | Done |
+| SETUP-46 | Recuperação quando o modelo salvo sai do catálogo | P2 Escolha | Done |
+| SETUP-47 | Gravação last-writer-wins, declarada | P2 Escolha | Done |
+| SETUP-50 | `--refresh` | P2 Comando | Done |
+| SETUP-51 | Aviso antes da descoberta | P2 Comando | Done |
+| SETUP-52 | Mensagem de sem-TTY no lugar certo | P2 Comando | Done |
 
 ## Fora de escopo
 
