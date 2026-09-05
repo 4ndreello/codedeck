@@ -1,10 +1,10 @@
 {
   "name": "codedeck",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "CodeDeck, a local runtime for coding agents with session management, process supervision, event normalization, and git isolation",
   "type": "module",
   "bin": {
-    "codedeck": "./dist/cli/index.js"
+    "codedeck": "dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -31,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/4ndreello/run-agent.git"
+    "url": "git+https://github.com/4ndreello/run-agent.git"
   },
   "homepage": "https://github.com/4ndreello/run-agent#readme",
   "bugs": {
