@@ -226,7 +226,7 @@ export class SessionStore {
 
   setStatus(id: string, status: SessionStatus, extra?: Partial<Session>): void {
     const patch: Partial<Session> & { status: SessionStatus } = { status, updatedAt: new Date(), ...extra };
-    if (status === "completed" || status === "failed" || status === "stopped" || status === "orphaned") {
+    if (status === "completed" || status === "failed" || status === "stopped" || status === "orphaned" || status === "interrupted") {
       patch.completedAt = new Date();
     }
     this.update(id, patch);

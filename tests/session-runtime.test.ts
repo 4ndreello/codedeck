@@ -179,6 +179,56 @@ setInterval(() => h({ type: "text", text: "tick" }), 100);
     fs.rmSync(dir, { recursive: true, force: true });
   }, 15000);
 
+  it("shutdown drain drops partial output and waits for the consumer", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-"));
+    const runtime = SessionRuntime.spawn({
+      sessionId: "shutdown-drain",
+      cmd: process.execPath,
+      args: [
+        "-e",
+        `
+process.stdout.write(JSON.stringify({ type: "message" }) + "\\npartial");
+setInterval(() => {}, 1000);
+`,
+      ],
+      cwd: dir,
+      hooks: {
+        onLine: (_line, { sessionId, push }) => {
+          push({
+            type: "message",
+            sessionId,
+            timestamp: new Date().toISOString(),
+            role: "assistant",
+            content: "complete",
+          });
+        },
+        synthesizeTerminal: () => [
+          {
+            type: "session.failed",
+            sessionId: "shutdown-drain",
+            timestamp: new Date().toISOString(),
+            error: "unexpected synthesis",
+          },
+        ],
+      },
+    });
+    const collected: AgentEvent[] = [];
+    const consume = (async () => {
+      for await (const ev of runtime.events()) collected.push(ev);
+    })();
+    await waitFor(() => runtime.buffer.length === 1, "complete line");
+
+    runtime.prepareForShutdown();
+    const drain = runtime.drainForShutdown();
+    await drain;
+    await consume;
+
+    expect(collected).toHaveLength(1);
+    expect(collected[0]!.type).toBe("message");
+    try { process.kill(-runtime.pid, "SIGKILL"); } catch {}
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, 15000);
+
 });
 
 describe("SessionRuntime.reattach — daemon restart", () => {

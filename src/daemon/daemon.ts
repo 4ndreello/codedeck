@@ -11,7 +11,7 @@ import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
 import { isTerminalStatus, type AgentId, type Session } from "../core/session.js";
-import type { DriverSession } from "../core/driver.js";
+import type { AgentDriver, DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
@@ -50,6 +50,7 @@ class Daemon {
   // Best-effort delay-lock child (systemd-inhibit), alive for the daemon's
   // whole life when the binary exists; killed after TRUNCATE in the drain.
   private inhibitChild: ChildProcess | null = null;
+  private inhibitExitHookInstalled = false;
 
   constructor() {
     ensureDirs();
@@ -82,11 +83,11 @@ class Daemon {
     try { fs.writeFileSync(paths.daemonPid, String(process.pid), "utf-8"); } catch {}
 
     // Graceful power shutdown: exactly-once drain on power signals. SIGHUP
-    // covers lid-close/logout via logind. No "exit" handler: synchronous
-    // cleanup on "exit" cannot flush, and it would double-run after drain.
-    process.once("SIGTERM", () => this.onSignal("SIGTERM"));
-    process.once("SIGINT", () => this.onSignal("SIGINT"));
-    process.once("SIGHUP", () => this.onSignal("SIGHUP"));
+    // covers lid-close/logout via logind. Keep listeners installed so a
+    // repeated signal reaches the synchronous shuttingDown guard.
+    process.on("SIGTERM", () => this.onSignal("SIGTERM"));
+    process.on("SIGINT", () => this.onSignal("SIGINT"));
+    process.on("SIGHUP", () => this.onSignal("SIGHUP"));
 
     // Best-effort delay lock so the system waits for the drain. Silent
     // no-op when systemd-inhibit is absent (containers, macOS, CI).
@@ -236,6 +237,10 @@ class Daemon {
         let baseCommit: string | null | undefined;
 
         const gitInfo = await getGitInfo(cwd);
+        if (this.shuttingDown) {
+          send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+          return;
+        }
         if (gitInfo) repository = gitInfo.root;
 
         const wantsWorktree = p.worktree === true || (p.worktree === undefined && cfg.worktree === true);
@@ -244,6 +249,10 @@ class Daemon {
         if (wantsWorktree && gitInfo) {
           try {
             const wt = await createWorktree({ repoRoot: gitInfo.root, sessionId, prompt, name: p.name });
+            if (this.shuttingDown) {
+              send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+              return;
+            }
             worktree = wt.path;
             branch = wt.branch;
             baseCommit = wt.baseCommit;
@@ -285,6 +294,7 @@ class Daemon {
 
         // Now start driver in background
         this.startDriverForSession(sessionId, prompt, p.model).catch((e) => {
+          if (this.shuttingDown) return;
           const msg = e instanceof Error ? e.message : String(e);
           const failure = classifyFailure(msg);
           const failEv: AgentEvent = {
@@ -365,8 +375,24 @@ class Daemon {
           }
         }
 
+        const drvSession: DriverSession = {
+          id: s.id,
+          nativeSessionId: s.nativeSessionId,
+          cwd: s.worktree || s.cwd,
+          model: s.model,
+          effort: s.effort,
+          fast: s.fast,
+          sandbox: s.sandbox,
+          dangerouslyBypassApprovalsAndSandbox: s.dangerouslyBypassApprovalsAndSandbox,
+          pid: s.pid,
+          pidStartTime: s.pidStartTime,
+        };
         this.sessionLocks.add(s.id);
         try {
+          if (this.shuttingDown) {
+            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            return;
+          }
           this.sessions.setStatus(s.id, "working", { lastEvent: `send: ${p.message.slice(0, 80)}` });
 
           const turnEvent: AgentEvent = {
@@ -378,19 +404,12 @@ class Daemon {
           this.events.append(s.id, turnEvent);
           this.broadcast(s.id, turnEvent);
 
-          const drvSession: DriverSession = {
-            id: s.id,
-            nativeSessionId: s.nativeSessionId,
-            cwd: s.worktree || s.cwd,
-            model: s.model,
-            effort: s.effort,
-            fast: s.fast,
-            sandbox: s.sandbox,
-            dangerouslyBypassApprovalsAndSandbox: s.dangerouslyBypassApprovalsAndSandbox,
-            pid: s.pid,
-            pidStartTime: s.pidStartTime,
-          };
           await driver.send(drvSession, p.message);
+          if (this.shuttingDown) {
+            try { await driver.stop(drvSession); } catch {}
+            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            return;
+          }
 
           const handle = driver.getHandle?.(s.id);
           const handleNativeId =
@@ -418,10 +437,15 @@ class Daemon {
           send({ result: { ok: true } });
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
+          if (this.shuttingDown) {
+            try { await driver.stop(drvSession); } catch {}
+            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            return;
+          }
           try { this.sessions.setStatus(s.id, "failed"); } catch {}
           send({ error: { code: "SEND_FAILED", message } });
         } finally {
-          this.sessionLocks.delete(s.id);
+          if (!this.shuttingDown) this.sessionLocks.delete(s.id);
         }
         break;
       }
@@ -442,7 +466,7 @@ class Daemon {
           s.pidStartTime != null &&
           processAlive(s.pid) &&
           processStartTime(s.pid) === s.pidStartTime;
-        if (s.status === "stopped" || ((s.status === "completed" || s.status === "failed") && !hasRuntime && !liveIdentity)) {
+        if (isTerminalStatus(s.status) && !hasRuntime && !liveIdentity) {
           send({ error: { code: "SESSION_NOT_RUNNING", message: `Session ${s.id} is ${s.status}` } });
           return;
         }
@@ -453,7 +477,7 @@ class Daemon {
 
         this.sessionLocks.add(s.id);
         const previousStatus = s.status;
-        const hadTerminalStatus = s.status === "completed" || s.status === "failed";
+        const hadTerminalStatus = isTerminalStatus(s.status);
         const eventsBeforeStop = this.events.count(s.id);
         try {
           // Mark active sessions first so an attached event loop that ends
@@ -466,6 +490,10 @@ class Daemon {
             pid: s.pid,
             pidStartTime: s.pidStartTime,
           });
+          if (this.shuttingDown) {
+            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            return;
+          }
 
           const last = this.events.last(s.id);
           const terminalArrivedDuringStop =
@@ -490,10 +518,14 @@ class Daemon {
           }
           send({ result: { ok: true } });
         } catch (e) {
+          if (this.shuttingDown) {
+            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            return;
+          }
           try { this.sessions.setStatus(s.id, previousStatus); } catch {}
           send({ error: { code: "STOP_FAILED", message: e instanceof Error ? e.message : String(e) } });
         } finally {
-          this.sessionLocks.delete(s.id);
+          if (!this.shuttingDown) this.sessionLocks.delete(s.id);
         }
         break;
       }
@@ -647,13 +679,16 @@ class Daemon {
   }
 
   private async startDriverForSession(sessionId: string, prompt: string, model?: string): Promise<void> {
+    if (this.shuttingDown) return;
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error("Session not found for driver start");
+    if (this.shuttingDown) return;
 
     const driver = this.registry.get(session.agent);
-    this.sessions.update(sessionId, { status: "working" } as any);
+    if (this.shuttingDown) return;
+    this.sessions.update(sessionId, { status: "working" });
 
-    const turnEvent: AgentEvent = { type: "turn.started", sessionId, timestamp: new Date().toISOString(), prompt } as any;
+    const turnEvent: AgentEvent = { type: "turn.started", sessionId, timestamp: new Date().toISOString(), prompt };
     this.events.append(sessionId, turnEvent);
     this.broadcast(sessionId, turnEvent);
 
@@ -669,29 +704,47 @@ class Daemon {
       sandbox: session.sandbox,
       dangerouslyBypassApprovalsAndSandbox: session.dangerouslyBypassApprovalsAndSandbox,
     });
+    if (this.shuttingDown) {
+      try { await driver.stop(drvSession); } catch {}
+      return;
+    }
 
     // Update pid and native id when available
-    if (drvSession.pid) this.sessions.update(sessionId, { pid: drvSession.pid, pidStartTime: processStartTime(drvSession.pid) } as any);
+    if (drvSession.pid) this.sessions.update(sessionId, { pid: drvSession.pid, pidStartTime: processStartTime(drvSession.pid) });
     // Poll native id shortly
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 200));
-      const h: any = (driver as any).getHandle?.(sessionId);
-      if (h?.nativeSessionId && h.nativeSessionId !== session.nativeSessionId) {
-        this.sessions.update(sessionId, { nativeSessionId: h.nativeSessionId } as any);
-        session.nativeSessionId = h.nativeSessionId;
+      if (this.shuttingDown) {
+        try { await driver.stop(drvSession); } catch {}
+        return;
+      }
+      const handle = driver.getHandle?.(sessionId);
+      if (
+        handle &&
+        typeof handle === "object" &&
+        "nativeSessionId" in handle &&
+        typeof handle.nativeSessionId === "string" &&
+        handle.nativeSessionId !== session.nativeSessionId
+      ) {
+        this.sessions.update(sessionId, { nativeSessionId: handle.nativeSessionId });
+        session.nativeSessionId = handle.nativeSessionId;
         break;
       }
       if (drvSession.nativeSessionId) {
-        this.sessions.update(sessionId, { nativeSessionId: drvSession.nativeSessionId } as any);
+        this.sessions.update(sessionId, { nativeSessionId: drvSession.nativeSessionId });
         break;
       }
     }
 
+    if (this.shuttingDown) {
+      try { await driver.stop(drvSession); } catch {}
+      return;
+    }
     // Attach events
     await this.attachDriverEvents(sessionId, driver, drvSession);
   }
 
-  private async attachDriverEvents(sessionId: string, driver: any, drvSession: any): Promise<void> {
+  private async attachDriverEvents(sessionId: string, driver: AgentDriver, drvSession: DriverSession): Promise<void> {
     try {
       for await (const ev of driver.events(drvSession)) {
         // A stop operation owns the terminal outcome. A terminal frame already
@@ -703,7 +756,7 @@ class Daemon {
         db.exec("BEGIN");
         let inserted = 0;
         try {
-          inserted = this.events.append(sessionId, ev, (ev as any).raw);
+          inserted = this.events.append(sessionId, ev, ev.raw);
           const offsets = driver.getOffsets?.(sessionId);
           if (offsets) {
             this.sessions.update(sessionId, { logOffset: offsets.log, stderrOffset: offsets.stderr });
@@ -722,6 +775,7 @@ class Daemon {
         if (inserted !== 0) this.broadcast(sessionId, ev);
       }
     } catch (e) {
+      if (this.shuttingDown) return;
       // A driver exception mid-stream is a harness/pipe failure, not task
       // output — classify so agents can retry instead of blaming the work.
       const msg = e instanceof Error ? e.message : String(e);
@@ -740,6 +794,7 @@ class Daemon {
       return;
     }
 
+    if (this.shuttingDown) return;
     // When events done, ensure terminal status if not already. Any terminal
     // status counts — including `interrupted`, which must survive the drain
     // instead of flipping to a synthesized `failed`.
@@ -748,7 +803,7 @@ class Daemon {
       // Check last event
       const last = this.events.last(sessionId);
       if (last?.type === "session.completed") {
-        this.sessions.setStatus(sessionId, "completed", { lastEvent: (last as any).reason || "completed" });
+        this.sessions.setStatus(sessionId, "completed", { lastEvent: last.reason || "completed" });
       } else if (last?.type === "session.failed") {
         this.sessions.setStatus(sessionId, "failed", { lastEvent: last.error?.slice(0, 200), failure: last.failure });
       } else {
@@ -798,9 +853,8 @@ class Daemon {
   }
 
   private onSignal(reason: string): void {
-    // Synchronous guard: a repeated signal while draining is ignored instead
-    // of restarting the flush. (process.once already consumes one listener
-    // per signal; this covers cross-signal repeats like TERM-then-INT.)
+    // A repeated signal while draining is ignored instead of restarting the
+    // flush. This also covers cross-signal repeats like TERM-then-INT.
     if (this.shuttingDown) return;
     void this.handleShutdown(reason).finally(() => process.exit(0));
   }
@@ -832,6 +886,10 @@ class Daemon {
       child.on("error", () => {});
       child.unref();
       this.inhibitChild = child;
+      if (!this.inhibitExitHookInstalled) {
+        this.inhibitExitHookInstalled = true;
+        process.once("exit", () => this.killInhibitChild());
+      }
     } catch {
       this.inhibitChild = null;
     }
@@ -867,6 +925,7 @@ class Daemon {
     try { handle.exec("PRAGMA wal_checkpoint(PASSIVE)"); } catch {}
 
     const actives = this.safeListActive();
+    this.prepareLiveRuntimes(actives);
     for (const s of actives) {
       await this.markInterrupted(s, reason);
     }
@@ -878,6 +937,10 @@ class Daemon {
         .filter((s) => s.pid != null)
         .map((s) => killTree(s.pid as number, 1500, s.pidStartTime)),
     );
+    // Force any live runtime to consume complete lines before the final WAL
+    // checkpoint. Unterminated writes are deliberately discarded by the
+    // runtime's shutdown drain.
+    await this.drainLiveRuntimes(actives);
 
     try { handle.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
     // The delay lock has served its purpose; release it before closing.
@@ -899,6 +962,32 @@ class Daemon {
       // EROFS/EIO with the FS already gone: abort the flush, still close.
       return [];
     }
+  }
+
+  private prepareLiveRuntimes(sessions: Session[]): void {
+    for (const session of sessions) {
+      try {
+        const runtime = this.registry.get(session.agent).getHandle?.(session.id);
+        if (!runtime || typeof runtime !== "object") continue;
+        if ("prepareForShutdown" in runtime && typeof runtime.prepareForShutdown === "function") {
+          runtime.prepareForShutdown();
+        }
+      } catch {}
+    }
+  }
+
+  private async drainLiveRuntimes(sessions: Session[]): Promise<void> {
+    const drains: Promise<unknown>[] = [];
+    for (const session of sessions) {
+      try {
+        const runtime = this.registry.get(session.agent).getHandle?.(session.id);
+        if (!runtime || typeof runtime !== "object") continue;
+        if ("drainForShutdown" in runtime && typeof runtime.drainForShutdown === "function") {
+          drains.push(Promise.resolve(runtime.drainForShutdown()));
+        }
+      } catch {}
+    }
+    await Promise.allSettled(drains);
   }
 
   private async markInterrupted(s: Session, reason: string): Promise<void> {

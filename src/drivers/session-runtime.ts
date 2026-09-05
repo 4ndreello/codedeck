@@ -99,9 +99,11 @@ export class SessionRuntime {
   private exitWatch: NodeJS.Timeout | null = null;
   private expectedStartTime?: string;
   private stopRequested = false;
+  private shutdownRequested = false;
   private safeLogOffset = 0;
   private safeStderrOffset = 0;
   private yieldedEvents = 0;
+  private consumedEvents = 0;
   // A raw line can normalize to several events (e.g. opencode message emits
   // message + text.delta). Keep the safe offset behind the line until the
   // final event from that line has been yielded to the daemon. A line that
@@ -109,6 +111,9 @@ export class SessionRuntime {
   // move the cursor past an earlier buffered event.
   private readonly eventBoundaries = new WeakMap<AgentEvent, EventBoundary>();
   private pendingNoEvent: Record<StreamName, PendingNoEvent | null> = { log: null, stderr: null };
+  private eventConsumerStarted = false;
+  private shutdownDrainPromise: Promise<void> | null = null;
+  private shutdownDrainResolve: (() => void) | null = null;
 
   private constructor(
     readonly sessionId: string,
@@ -309,13 +314,19 @@ export class SessionRuntime {
   private finish(exitCode: number | null, signal: string | null): void {
     if (this.done) return;
     // Final drain so lines written just before exit are parsed before any
-    // terminal synthesis looks at the buffer.
-    this.tailer.flush();
-    this.stderrTailer.flush();
+    // terminal synthesis looks at the buffer. A power drain drops an
+    // unterminated write instead of classifying it as harness failure.
+    if (this.shutdownRequested) {
+      this.tailer.drainForShutdown();
+      this.stderrTailer.drainForShutdown();
+    } else {
+      this.tailer.flush();
+      this.stderrTailer.flush();
+    }
     this.exitCode = exitCode;
     this.done = true;
     const hasTerminal = this.buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
-    if (!hasTerminal && !this.stopRequested) {
+    if (!hasTerminal && !this.stopRequested && !this.shutdownRequested) {
       const hasMessage = this.buffer.some((e) => e.type === "message" || e.type === "text.delta");
       for (const ev of this.hooks.synthesizeTerminal({
         sessionId: this.sessionId,
@@ -330,6 +341,7 @@ export class SessionRuntime {
     }
     this.emitter.emit("done");
     this.tailer.stop();
+    this.resolveShutdownDrain();
     this.stderrTailer.stop();
   }
 
@@ -339,7 +351,13 @@ export class SessionRuntime {
     return { log: this.safeLogOffset, stderr: this.safeStderrOffset };
   }
   get drained(): boolean {
-    return this.done && this.yieldedEvents >= this.buffer.length;
+    return this.done && this.consumedEvents >= this.buffer.length;
+  }
+  private resolveShutdownDrain(): void {
+    const resolve = this.shutdownDrainResolve;
+    if (!resolve || (this.eventConsumerStarted && !this.drained)) return;
+    this.shutdownDrainResolve = null;
+    resolve();
   }
   async stop(graceMs = 3000): Promise<void> {
     if (!this.processMatches()) {
@@ -358,8 +376,35 @@ export class SessionRuntime {
     await killTree(this.pid, graceMs, this.expectedStartTime);
     if (!processAlive(this.pid) && !processGroupAlive(this.pid)) this.finish(null, "SIGTERM");
   }
+  prepareForShutdown(): void {
+    this.shutdownRequested = true;
+  }
+  // Drain both log streams at shutdown without turning an unterminated write
+  // into a synthetic event. The daemon calls this after killing the harness
+  // and before its final WAL checkpoint.
+  async drainForShutdown(): Promise<void> {
+    if (this.shutdownDrainPromise) return this.shutdownDrainPromise;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.shutdownDrainPromise = promise;
+    this.shutdownDrainResolve = resolve;
+
+    if (!this.done) {
+      this.tailer.drainForShutdown();
+      this.stderrTailer.drainForShutdown();
+      this.done = true;
+      this.exitCode = null;
+      this.tailer.stop();
+      this.stderrTailer.stop();
+      this.emitter.emit("done");
+    }
+    this.resolveShutdownDrain();
+    return promise;
+  }
+
 
   async *events(): AsyncGenerator<AgentEvent> {
+    this.eventConsumerStarted = true;
+    this.resolveShutdownDrain();
     let idx = 0;
     while (true) {
       while (idx < this.buffer.length) {
@@ -367,6 +412,8 @@ export class SessionRuntime {
         this.yieldedEvents += 1;
         this.markEventYielded(event);
         yield event;
+        this.consumedEvents += 1;
+        this.resolveShutdownDrain();
       }
       if (this.done && idx >= this.buffer.length) break;
       const { promise, resolve } = Promise.withResolvers<void>();

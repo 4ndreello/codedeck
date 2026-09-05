@@ -11,7 +11,7 @@ import { SessionStore } from "../src/store/sessions.js";
 import { EventStore } from "../src/store/events.js";
 import { killTree } from "../src/utils/process.js";
 import { Daemon } from "../src/daemon/daemon.js";
-import { fakeSocket, makeTempDir, removeTempDir, seed } from "./helpers/daemon-seam.js";
+import { fakeSocket, makeTempDir, removeTempDir, seed, seam } from "./helpers/daemon-seam.js";
 
 // Shutdown closes the DB by design; post-shutdown assertions reopen it like
 // a fresh process after reboot (spec independent test).
@@ -48,11 +48,46 @@ describe("power graceful shutdown", () => {
       const s = sessions.get(id);
       expect(s?.status).toBe("interrupted");
       expect(s?.failure).toMatchObject({ code: "SHUTDOWN", blame: "infra", retryable: true });
+      expect(s?.completedAt).toBeInstanceOf(Date);
       const listed = events.list(id, 100);
       expect(listed).toHaveLength(1);
       expect(listed[0].type).toBe("session.failed");
       expect(listed[0].failure).toMatchObject({ code: "SHUTDOWN", blame: "infra", retryable: true });
     }
+  });
+
+  it("drains live runtimes before the final WAL checkpoint", async () => {
+    const daemon = new Daemon();
+    seed(daemon, "s-drain", "working");
+    const runtime = { drainForShutdown: vi.fn() };
+    const internals = daemon as unknown as {
+      registry: { get(agent: "claude"): { getHandle?: (sessionId: string) => unknown } };
+    };
+    const driver = internals.registry.get("claude");
+    const previousGetHandle = driver.getHandle;
+    driver.getHandle = () => runtime;
+    try {
+      await daemon.handleShutdown("SIGTERM");
+      expect(runtime.drainForShutdown).toHaveBeenCalledTimes(1);
+    } finally {
+      driver.getHandle = previousGetHandle;
+    }
+  });
+
+  it("keeps an interrupted session terminal when stopped after shutdown", async () => {
+    const daemon = new Daemon();
+    seed(daemon, "s-interrupted", "interrupted", {
+      failure: { code: "SHUTDOWN", blame: "infra", retryable: true },
+    });
+    const { writes, socket } = fakeSocket();
+
+    await seam(daemon).handleRequest(
+      { id: "r-stop-interrupted", method: "session.stop", params: { id: "s-interrupted" } },
+      socket,
+    );
+
+    expect(JSON.parse(writes[0]).error).toMatchObject({ code: "SESSION_NOT_RUNNING" });
+    expect(seam(daemon).sessions.get("s-interrupted")?.status).toBe("interrupted");
   });
 
   it("kills each PID session with grace 1500 and identity, skipping pid-less rows", async () => {
