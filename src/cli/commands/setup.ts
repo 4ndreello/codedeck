@@ -25,14 +25,21 @@ export interface ModelWizardOptions {
 }
 
 /**
+ * Both streams have to be a terminal, not just stdout. A piped stdin leaves
+ * `question` waiting on input that can never arrive, and `tail -f /dev/null |
+ * codedeck open` keeps stdout a TTY while stdin is exactly that pipe.
+ */
+export function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+/**
  * The open command uses this decision before creating a readline interface.
  * Keeping the terminal state as an argument makes the first-run policy pure.
  */
 export function needsModelSetup(
   config: RunAgentConfig | null | undefined,
-  // The wizard reads answers, so an interactive stdout is not enough: a piped
-  // stdin would leave `question` waiting on input that never arrives.
-  isTTY: boolean = Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  isTTY: boolean = isInteractiveTerminal(),
 ): boolean {
   if (!isTTY) return false;
   return config == null || config.models == null;
@@ -60,7 +67,14 @@ function getDefaultModel(harness: HarnessModels, ids: string[], configured?: str
 /**
  * `question` never settles once the interface closes, so Ctrl+D at a prompt
  * leaves the wizard hanging with no way out. Racing the close event turns EOF
- * into "no answer" instead.
+ * into "no answer" instead. The rejection path is the same verdict by another
+ * road: asking again after a close throws ERR_USE_AFTER_CLOSE.
+ *
+ * Known limit, and not worth code here: input delivered as one burst rather
+ * than a line at a time (a piped fixture, never a terminal) drains every line
+ * while only the first question is pending, so the rest are lost and the run
+ * reports itself interrupted. It saves nothing when that happens, which is the
+ * safe outcome, and the wizard only ever runs on a TTY.
  */
 function ask(readline: ReadlineInterface, prompt: string): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -117,7 +131,7 @@ async function askForModel(
  */
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
   const config = options.config ?? loadConfig();
-  const isTTY = options.isTTY ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const isTTY = options.isTTY ?? isInteractiveTerminal();
   if (!isTTY) return config;
 
   const registry = options.registry ?? getRegistry();
