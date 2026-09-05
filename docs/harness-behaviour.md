@@ -110,8 +110,20 @@ completeness. The worker made the analogous call the other way and reported
 the gap at U+1F000-U+1F2FF as its top finding.
 
 That finding needs narrowing before it becomes a fix: it claims the whole
-block renders at two columns, and it does not. U+1F200-U+1F2FF (squared CJK)
-and U+1F004 are Wide by East Asian Width, while the playing cards at
-U+1F0A0-U+1F0F5 are Neutral. So the arm that cost 3.6x returned a real gap
-wrapped in an over-broad claim, and the cheap arm returned nothing to check.
-One sample, and the split is worth knowing before spending on either.
+block renders at two columns, and it does not. Counting only assigned code
+points against Unicode 16.0 East Asian Width:
+
+| Range | Assigned | Wide |
+| --- | --- | --- |
+| U+1F200-U+1F2FF, squared CJK | 64 | 64 |
+| U+1F000-U+1F02F, mahjong | 44 | 1, only U+1F004 |
+| U+1F0A0-U+1F0F5, playing cards | 82 | 1, only U+1F0CF |
+
+So one third of what the finding names is genuinely missing from the table
+and the rest is not. The arm that cost 3.6x returned a real gap wrapped in an
+over-broad claim, and the cheap arm returned nothing to check. One sample, and
+the split is worth knowing before spending on either.
+
+Checked with `unicodedata.east_asian_width`, skipping code points whose
+category is `Cn`, since an unassigned one reports `N` and would otherwise read
+as a narrow character that exists.
