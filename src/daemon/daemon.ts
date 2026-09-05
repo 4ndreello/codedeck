@@ -101,6 +101,11 @@ class Daemon {
     const paths = getPaths();
     const actives = this.sessions.listActive();
     for (const s of actives) {
+      // Power-shutdown rows are terminal: never reattach, never flip. A
+      // harness that survived the kill stays an untracked orphan by design
+      // (no hunt). Defensive: listActive() already returns only
+      // starting|working|needs_input|idle.
+      if (s.status === "interrupted") continue;
       const driver = this.registry.get(s.agent);
       const metadata = readSessionProcessMetadata(s.id);
       const pid = metadata?.pid ?? s.pid;
