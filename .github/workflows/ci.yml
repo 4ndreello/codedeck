@@ -58,7 +58,17 @@ jobs:
         # Pinned on purpose: this is the version every spelling in the plugin
         # contract was probed against, so the job checks the plugin under the
         # CLI the contract describes rather than whatever shipped today.
-        run: npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.258
+        #
+        # The install runs no lifecycle scripts, then invokes the one script
+        # this package actually needs, by name. claude ships its real binary
+        # through a postinstall, so skipping scripts outright leaves a CLI that
+        # exits with "claude native binary not installed". Naming the installer
+        # keeps that working while nothing else in the tree gets to run code
+        # during install.
+        run: |
+          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.258
+          node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs"
+          claude --version
 
       # Needs no credential: validation is a static read of the manifest.
       - name: Validate the plugin manifest
