@@ -18,6 +18,20 @@ export function which(cmd: string): string | null {
   }
 }
 
+// Fixed absolute candidates for systemd-inhibit. PATH-based lookup (which(1))
+// lets a writable directory shadow the binary (typescript:S4036); callers
+// MUST use this instead of which()/spawn-with-bare-name for inhibit.
+const INHIBIT_BIN_CANDIDATES = ["/usr/bin/systemd-inhibit", "/bin/systemd-inhibit"];
+
+export function resolveInhibitBin(): string | null {
+  for (const candidate of INHIBIT_BIN_CANDIDATES) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
 export function sleep(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);

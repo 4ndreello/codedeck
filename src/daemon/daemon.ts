@@ -16,7 +16,7 @@ import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { killTree, processAlive, processStartTime, sleep, which } from "../utils/process.js";
+import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
@@ -600,7 +600,7 @@ class Daemon {
             // cross-worker contract; CLI falls back to local detection).
             power: {
               serviceInstalled: powerServiceInstalled(),
-              inhibitAvailable: which("systemd-inhibit") !== null,
+              inhibitAvailable: resolveInhibitBin() !== null,
             },
           },
         });
@@ -807,14 +807,25 @@ class Daemon {
 
   // Best-effort delay lock: while this child lives, systemd/logind delays
   // shutdown up to InhibitDelayMaxSec so the drain can finish. Silent no-op
-  // when the binary is absent. Public so tests can drive it without start()
-  // (no socket binding), under the same PATH rules.
-  public maybeSpawnInhibit(): void {
+  // when the binary is absent. The binary resolves through fixed absolute
+  // paths only, never PATH (typescript:S4036). Public so tests can drive it
+  // without start() (no socket binding); binOverride is the test seam for
+  // a fake binary.
+  public maybeSpawnInhibit(binOverride?: string): void {
     if (this.inhibitChild) return;
-    if (!which("systemd-inhibit")) return;
+    const bin = binOverride ?? resolveInhibitBin();
+    if (!bin) return;
+    // Absent binary (removed between resolve and spawn, or a bogus test
+    // seam path) is a silent no-op: spawn(2) failure would only surface
+    // as an async error event, leaving a dead child behind.
+    try {
+      if (!fs.existsSync(bin)) return;
+    } catch {
+      return;
+    }
     try {
       const child = spawn(
-        "systemd-inhibit",
+        bin,
         ["--what=shutdown:sleep", "--who=CodeDeck", "--why=flush sessions", "--mode=delay", "sleep", "infinity"],
         { stdio: "ignore", detached: true },
       );

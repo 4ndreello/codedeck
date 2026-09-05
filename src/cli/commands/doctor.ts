@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { execFileSync } from "node:child_process";
+import { resolveInhibitBin } from "../../utils/process.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,8 +24,7 @@ export function detectPowerReadiness(homeDir?: string): PowerReadiness {
   }
   let inhibitAvailable = false;
   try {
-    execFileSync("which", ["systemd-inhibit"], { stdio: "ignore" });
-    inhibitAvailable = true;
+    inhibitAvailable = resolveInhibitBin() !== null;
   } catch {
     inhibitAvailable = false;
   }
