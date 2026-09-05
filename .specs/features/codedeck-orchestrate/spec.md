@@ -25,6 +25,7 @@ O que falta é durabilidade: um plano que sobrevive ao processo que o escreveu, 
 | Motor de loop (DAG, fan-out declarativo, orçamento) | O orquestrador aqui é plano + convenção; estados de motor (`exhausted`, `stalled`, `canceled`) seriam vocabulário que nada produz |
 | Reatachar processo de worker **morto** | Vira tarefa re-despachada do zero: reatar conversa de processo morto exige protocolo que o driver não tem. Isso **não** revoga o reatamento de sessão viva que o daemon já faz depois de reiniciar (`src/daemon/daemon.ts:207`), que continua valendo |
 | Tabela de tarefas no SQLite do daemon | O daemon descreve processo, não tarefa. A questão de **onde** o plano mora continua aberta (ver BD-3), mas misturar os eixos dentro do schema de sessão está descartado |
+| Agente consultor (modo autonomia máxima) | Parado a pedido, entra depois. A ideia: o orquestrador escala dúvida pra um consultor de contexto limpo em vez de pro humano, e só pergunta ao humano em última instância. O corte que faz isso funcionar é **pergunta descobrível vai pro consultor, pergunta de preferência vai pro humano**, e o consultor só vale os tokens se não herdar o contexto do orquestrador, senão vira eco. Depende de saber se agente de plugin é dispachável como subagente por outro agente de plugin, o que **não foi sondado** |
 
 ---
 

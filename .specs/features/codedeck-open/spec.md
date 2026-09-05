@@ -69,6 +69,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | Grilling | Skill própria, com trechos da skill MIT de Matt Pocock | MIT permite cópia mantendo o aviso de copyright: uma linha de crédito no cabeçalho ou NOTICE resolve | y |
 | CI | `.github/workflows/ci.yml`, matriz Node 24 e 26, rodando `npm ci`, `npm run build` e `npm test` | Primeiro workflow do repo. A matriz não inclui 20 nem 22 porque `src/store/database.ts` importa `node:sqlite` e o shim de teste repassa o specifier pro Node real em vez de fingir: precisa de runtime onde `node:sqlite` carrega sem flag. Verificado local: 28 arquivos, 168 testes, verdes | y |
 | Gate de tema no CI | Roda só quando houver credencial; fora disso é gate local | A captura de launch precisa de sessão `claude` autenticada, o que CI público não tem. `plugin validate --strict` roda sem credencial e cobre manifesto e agente, mas **não** cobre tema | n |
+| Análise estática | SonarCloud Automatic Analysis, já ativo. **Não** adicionar scanner ao CI | Roda pelo lado do SonarCloud, sem arquivo no repo e sem `SONAR_TOKEN`: por isso não há config nenhuma versionada. Verificado no PR #10, check `SonarCloud Code Analysis`, pass em 17s, projeto `4ndreello_run-agent`. Adicionar um `sonar-scanner` no workflow **desativa** a análise automática, então o CI daqui cobre build e teste e deixa o Sonar em paz | y |
 
 **Open questions:** nenhuma. A pendência do `engines` (declarava `>=20.0.0` com `node:sqlite` exigindo 23.4+) foi corrigida pra `>=24.0.0` junto do CI.
 
