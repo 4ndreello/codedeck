@@ -9,7 +9,9 @@ import type { DriverRegistry } from "../src/core/driver.js";
 import type { HarnessModels } from "../src/core/models.js";
 import { loadConfig } from "../src/config/config.js";
 import {
+  buildModelMenu,
   needsModelSetup,
+  parseModelSelection,
   registerSetupCommand,
   runModelSetupWizard,
 } from "../src/cli/commands/setup.js";
@@ -103,8 +105,8 @@ describe("runModelSetupWizard", () => {
     expect(saved).toBe(false);
   });
 
-  it("offers installed harnesses, allows manual ids, and persists choices", async () => {
-    const input = scriptedInput("2\nopenrouter/custom-model\n");
+  it("answers every agent from one line and persists the choices", async () => {
+    const input = scriptedInput("2 omp=openrouter/custom-model");
     const output = new PassThrough();
 
     const result = await runModelSetupWizard({
@@ -113,6 +115,7 @@ describe("runModelSetupWizard", () => {
       input,
       output,
       isTTY: true,
+      width: 80,
       discoverModels: async () => discoveredHarnesses(),
     });
 
@@ -130,9 +133,10 @@ describe("runModelSetupWizard", () => {
       const result = await runModelSetupWizard({
         config: { defaultAgent: "claude" },
         registry: {} as DriverRegistry,
-        input: scriptedInput("\n\n"),
+        input: scriptedInput(""),
         output: new PassThrough(),
         isTTY: true,
+        width: 80,
         discoverModels: async () => discoveredHarnesses(),
         save: () => {
           throw new Error("read-only config directory");
@@ -201,6 +205,124 @@ describe("runModelSetupWizard", () => {
     } finally {
       warning.mockRestore();
     }
+  });
+});
+
+const bulkHarness = (count: number): HarnessModels => ({
+  agent: "claude",
+  available: true,
+  providers: [
+    {
+      provider: "anthropic",
+      models: Array.from({ length: count }, (_, index) => ({
+        id: `claude-a-rather-long-model-name-${index}`,
+        name: "m",
+        provider: "anthropic",
+      })),
+    },
+  ],
+});
+
+describe("model menu", () => {
+  const menu = () => buildModelMenu(discoveredHarnesses(), {}, 80);
+
+  // Numbers restarting per agent would make a single input line ambiguous.
+  it("numbers straight through every agent", () => {
+    const { choices, agents } = menu();
+
+    expect(agents).toEqual(["claude", "omp"]);
+    expect(choices.map((choice) => choice.number)).toEqual([1, 2]);
+    expect(choices).toEqual([
+      { number: 1, agent: "claude", model: "claude-sonnet" },
+      { number: 2, agent: "claude", model: "claude-opus" },
+    ]);
+  });
+
+  it("skips an agent that is not installed", () => {
+    expect(menu().agents).not.toContain("codex");
+  });
+
+  // An agent whose discovery came back empty still has to be visible, or the
+  // user cannot tell it from one that is not installed.
+  it("keeps an agent with no models on screen and names the way to set it", () => {
+    const { screen, defaults } = menu();
+
+    expect(screen).toContain("omp");
+    expect(screen).toContain("omp=<id>");
+    expect(defaults.omp).toBeUndefined();
+  });
+
+  it("offers the harness default and says Enter takes it", () => {
+    const { screen, defaults } = menu();
+
+    expect(defaults.claude).toBe("claude-opus");
+    expect(screen).toContain("Enter = claude-opus");
+  });
+
+  // The old list was joined with two spaces and left to the terminal, which
+  // wrapped mid-id: "c" on one line and "laude-sonnet-4-5" on the next.
+  it("never lets a line run past the width it was given", () => {
+    const wide = buildModelMenu([bulkHarness(14)], {}, 60);
+
+    for (const line of wide.screen.split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(60);
+    }
+  });
+
+  // A pty with no window size reports 0, and taking that literally left one
+  // model per line no matter how wide the terminal actually was.
+  it("falls back to a usable width when the terminal reports none", () => {
+    const zero = buildModelMenu([bulkHarness(8)], {}, 0);
+
+    const rows = zero.screen.split("\n").filter((line) => /^\s+\d+ claude-a-rather/.test(line));
+
+    expect(rows).toHaveLength(4);
+  });
+
+  // opencode proxies the whole OpenRouter catalog. Printing it scrolled every
+  // other agent off the screen.
+  it("shortlists a catalog too long to read and says how to reach the rest", () => {
+    const huge = buildModelMenu([bulkHarness(600)], {}, 80);
+
+    expect(huge.choices).toHaveLength(16);
+    expect(huge.screen).toContain("+584 more, type claude=<id>");
+  });
+});
+
+describe("model selection", () => {
+  const menu = () => buildModelMenu(discoveredHarnesses(), {}, 80);
+
+  it("takes every default when the line is empty", () => {
+    expect(parseModelSelection("", menu())).toEqual({ ok: true, models: {} });
+    expect(parseModelSelection("   ", menu())).toEqual({ ok: true, models: {} });
+  });
+
+  it("answers two agents from one line", () => {
+    expect(parseModelSelection("1 omp=custom/thing", menu())).toEqual({
+      ok: true,
+      models: { claude: "claude-sonnet", omp: "custom/thing" },
+    });
+  });
+
+  it("accepts a bare id when exactly one agent offers it", () => {
+    expect(parseModelSelection("claude-opus", menu())).toEqual({
+      ok: true,
+      models: { claude: "claude-opus" },
+    });
+  });
+
+  it.each([
+    ["a number nobody listed", "99", /no 99 on the list/],
+    ["an id nobody listed", "gpt-9", /<agent>=gpt-9/],
+    ["an agent that is not installed", "codex=gpt-9", /not an installed agent/],
+    ["an agent named with no model", "omp=", /No model given/],
+    ["two models for one agent", "1 2", /Two models given for Claude Code/],
+  ])("refuses %s and says why", (_label, answer, expected) => {
+    const verdict = parseModelSelection(answer, menu());
+
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.error).toMatch(expected);
   });
 });
 

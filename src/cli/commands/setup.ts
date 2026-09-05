@@ -7,6 +7,7 @@ import {
   type HarnessModels,
 } from "../../core/models.js";
 import type { AgentId } from "../../core/session.js";
+import { INDENT, blockWidth, columnize, headingWith, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import {
   loadConfig,
@@ -22,6 +23,7 @@ export interface ModelWizardOptions {
   isTTY?: boolean;
   discoverModels?: (registry: DriverRegistry) => Promise<HarnessModels[]>;
   save?: (config: RunAgentConfig) => void;
+  width?: number;
 }
 
 /**
@@ -64,17 +66,20 @@ function getDefaultModel(harness: HarnessModels, ids: string[], configured?: str
   return ids[0];
 }
 
+/** Long enough to choose from, short enough to leave the other agents on screen. */
+const MAX_LISTED = 16;
+
+const AGENT_LABELS: Partial<Record<AgentId, string>> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
+
+function agentLabel(agent: AgentId): string {
+  return AGENT_LABELS[agent] ?? agent;
+}
+
 /**
  * `question` never settles once the interface closes, so Ctrl+D at a prompt
  * leaves the wizard hanging with no way out. Racing the close event turns EOF
  * into "no answer" instead. The rejection path is the same verdict by another
  * road: asking again after a close throws ERR_USE_AFTER_CLOSE.
- *
- * Known limit, and not worth code here: input delivered as one burst rather
- * than a line at a time (a piped fixture, never a terminal) drains every line
- * while only the first question is pending, so the rest are lost and the run
- * reports itself interrupted. It saves nothing when that happens, which is the
- * safe outcome, and the wizard only ever runs on a TTY.
  */
 function ask(readline: ReadlineInterface, prompt: string): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -88,41 +93,124 @@ function ask(readline: ReadlineInterface, prompt: string): Promise<string | unde
   });
 }
 
-/** A skipped question and a walked-out wizard need different handling. */
-type ModelAnswer = { aborted: true } | { aborted: false; model?: string };
+/** One numbered line on screen, and what picking that number means. */
+export interface ModelChoice {
+  number: number;
+  agent: AgentId;
+  model: string;
+}
 
-const chose = (model?: string): ModelAnswer => ({ aborted: false, model });
+export interface ModelMenu {
+  screen: string;
+  choices: ModelChoice[];
+  defaults: Partial<Record<AgentId, string>>;
+  agents: AgentId[];
+}
 
-async function askForModel(
-  readline: ReadlineInterface,
-  harness: HarnessModels,
-  configured?: string,
-): Promise<ModelAnswer> {
-  const ids = getModelIds(harness);
-  const agentName = harness.agent === "claude" ? "Claude Code" : harness.agent.charAt(0).toUpperCase() + harness.agent.slice(1);
+/**
+ * Numbering runs across every agent rather than restarting per block, so one
+ * line of input can answer all of them without saying which is which.
+ */
+export function buildModelMenu(
+  harnesses: HarnessModels[],
+  configured: Partial<Record<AgentId, string>> = {},
+  width: number = 80,
+): ModelMenu {
+  const choices: ModelChoice[] = [];
+  const defaults: Partial<Record<AgentId, string>> = {};
+  const agents: AgentId[] = [];
+  const blocks: string[] = [];
+  const seen = new Set<AgentId>();
 
-  if (ids.length === 0) {
-    const answer = await ask(
-      readline,
-      `No models discovered for ${agentName}. Enter a model id (or press Enter to skip): `,
-    );
-    if (answer === undefined) return { aborted: true };
-    return chose(answer.trim() || configured);
+  for (const harness of harnesses) {
+    if (!harness.available || seen.has(harness.agent)) continue;
+    seen.add(harness.agent);
+    agents.push(harness.agent);
+
+    const ids = getModelIds(harness);
+    const fallback = getDefaultModel(harness, ids, configured[harness.agent]);
+    if (fallback) defaults[harness.agent] = fallback;
+
+    if (ids.length === 0) {
+      // Still listed, so the agent is visibly known rather than quietly gone,
+      // and the one spelling that can set it is named right there.
+      // Zero width forces the inline form: there is no list to align against.
+      blocks.push(headingWith(agentLabel(harness.agent), `no models found, type ${harness.agent}=<id>`, 0));
+      continue;
+    }
+
+    // opencode proxies the whole OpenRouter catalog, some 1500 ids. Printing it
+    // scrolls every other agent off the screen, so the list is a shortlist and
+    // the rest stays reachable by typing the id.
+    const listed = ids.slice(0, MAX_LISTED);
+    const entries = listed.map((id) => {
+      choices.push({ number: choices.length + 1, agent: harness.agent, model: id });
+      return `${String(choices.length).padStart(2)} ${id}`;
+    });
+
+    const grid = columnize(entries, width);
+    const block = [
+      headingWith(agentLabel(harness.agent), `Enter = ${fallback ?? "none"}`, blockWidth(grid)),
+      ...grid,
+    ];
+    const hidden = ids.length - listed.length;
+    if (hidden > 0) block.push(`${INDENT}+${hidden} more, type ${harness.agent}=<id> for any of them`);
+    blocks.push(block.join("\n"));
   }
 
-  const defaultModel = getDefaultModel(harness, ids, configured);
-  const choices = ids.map((id, index) => `${index + 1}) ${id}`).join("  ");
-  const answer = await ask(
-    readline,
-    `${agentName} model [${defaultModel ?? "enter an id"}] ${choices}\nChoose a number or enter a model id: `,
-  );
-  if (answer === undefined) return { aborted: true };
-  const selected = answer.trim();
-  if (selected === "") return chose(defaultModel ?? configured);
+  return { screen: blocks.join("\n\n"), choices, defaults, agents };
+}
 
-  const number = Number(selected);
-  if (Number.isInteger(number) && number >= 1 && number <= ids.length) return chose(ids[number - 1]);
-  return chose(selected);
+export type ModelSelection =
+  | { ok: true; models: Partial<Record<AgentId, string>> }
+  | { ok: false; error: string };
+
+/**
+ * Reads one line covering every agent at once. A number picks a listed model,
+ * `agent=id` names one the list does not carry, and a bare id is accepted when
+ * exactly one agent offers it. An empty line takes every default.
+ */
+export function parseModelSelection(answer: string, menu: ModelMenu): ModelSelection {
+  const models: Partial<Record<AgentId, string>> = {};
+  const tokens = answer.trim().split(/\s+/).filter((token) => token !== "");
+
+  for (const token of tokens) {
+    let agent: AgentId | undefined;
+    let model: string | undefined;
+
+    const equals = token.indexOf("=");
+    if (equals > 0) {
+      const named = token.slice(0, equals) as AgentId;
+      if (!menu.agents.includes(named)) {
+        return { ok: false, error: `"${named}" is not an installed agent. Installed: ${menu.agents.join(", ")}.` };
+      }
+      agent = named;
+      model = token.slice(equals + 1);
+      if (!model) return { ok: false, error: `No model given after "${named}=".` };
+    } else if (/^\d+$/.test(token)) {
+      const choice = menu.choices.find((candidate) => candidate.number === Number(token));
+      if (!choice) return { ok: false, error: `There is no ${token} on the list.` };
+      agent = choice.agent;
+      model = choice.model;
+    } else {
+      const owners = [...new Set(menu.choices.filter((c) => c.model === token).map((c) => c.agent))];
+      if (owners.length === 0) {
+        return { ok: false, error: `"${token}" is not on the list. Write it as <agent>=${token} to use it anyway.` };
+      }
+      if (owners.length > 1) {
+        return { ok: false, error: `"${token}" is offered by ${owners.join(" and ")}. Write it as <agent>=${token}.` };
+      }
+      agent = owners[0];
+      model = token;
+    }
+
+    if (models[agent] !== undefined) {
+      return { ok: false, error: `Two models given for ${agentLabel(agent)}.` };
+    }
+    models[agent] = model;
+  }
+
+  return { ok: true, models };
 }
 
 /**
@@ -147,45 +235,54 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
 
   const output = options.output ?? process.stdout;
   const input = options.input ?? process.stdin;
-  const readline = createInterface({ input, output, terminal: false });
-  const models: Partial<Record<AgentId, string>> = { ...(config.models ?? {}) };
+  // `??` is not enough: a pty with no window size reports 0 columns, which
+  // collapses every grid to one column.
+  const width = options.width ?? process.stdout.columns ?? 0;
+  const menu = buildModelMenu(harnesses, config.models ?? {}, width);
 
-  let asked = 0;
-  let aborted = false;
+  // Writing `models` is what marks first-run setup as done. Doing that after
+  // showing nothing (discovery failed, or no harness is installed) would burn
+  // the one prompt the user gets and never offer it again, so leave the config
+  // untouched and let the next run try again.
+  if (menu.agents.length === 0) {
+    console.error("Warning: No installed agent reported any model; skipping model setup.");
+    return config;
+  }
+
+  output.write(renderLogo("first run · pick a model for each agent"));
+  output.write(`\n${menu.screen}\n`);
+
+  const readline = createInterface({ input, output, terminal: false });
+  let chosen: Partial<Record<AgentId, string>> | undefined;
   try {
-    const seenAgents = new Set<AgentId>();
-    for (const harness of harnesses) {
-      if (!harness.available || seenAgents.has(harness.agent)) continue;
-      seenAgents.add(harness.agent);
-      asked += 1;
-      const answer = await askForModel(readline, harness, config.models?.[harness.agent]);
-      // Walking out is reported by the answer itself rather than by watching
-      // for a close event: the normal path closes the interface too, so the
-      // event cannot tell the two apart.
-      if (answer.aborted) {
-        aborted = true;
+    // One line answers every agent, so a wrong token is worth re-reading rather
+    // than throwing the whole line away.
+    for (;;) {
+      const answer = await ask(readline, "\n  one number per agent, or Enter for the defaults\n  > ");
+      if (answer === undefined) break;
+      const selection = parseModelSelection(answer, menu);
+      if (selection.ok) {
+        chosen = selection.models;
         break;
       }
-      if (answer.model) models[harness.agent] = answer.model;
+      output.write(`  ${selection.error}\n`);
     }
   } finally {
     readline.close();
   }
 
-  // Writing `models` is what marks first-run setup as done. Doing that after
-  // asking nothing (discovery failed, or no harness is installed) would burn
-  // the one prompt the user gets and never offer it again, so leave the config
-  // untouched and let the next run try again.
-  if (asked === 0) {
-    console.error("Warning: No installed agent reported any model; skipping model setup.");
+  // Walking out is reported by the answer itself rather than by watching for a
+  // close event: the normal path closes the interface too, so the event cannot
+  // tell the two apart. Ctrl+D is not an answer, so nothing is written.
+  if (chosen === undefined) {
+    console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
   }
 
-  // Same reasoning for a walk-out: Ctrl+D partway through is not an answer, so
-  // half the choices are not worth marking setup as done.
-  if (aborted) {
-    console.error("Warning: Model setup was interrupted; nothing was saved.");
-    return config;
+  const models: Partial<Record<AgentId, string>> = { ...(config.models ?? {}) };
+  for (const agent of menu.agents) {
+    const picked = chosen[agent] ?? menu.defaults[agent];
+    if (picked) models[agent] = picked;
   }
 
   const updatedConfig: RunAgentConfig = { ...config, models };
@@ -195,6 +292,10 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
   }
+
+  output.write(
+    `\n  saved: ${menu.agents.map((agent) => `${agentLabel(agent)} ${models[agent] ?? "unset"}`).join(" · ")}\n\n`,
+  );
   return updatedConfig;
 }
 

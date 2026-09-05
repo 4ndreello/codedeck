@@ -10,6 +10,7 @@ import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 import { loadConfig, resolveModel } from "../../config/config.js";
 import { isInteractiveTerminal, needsModelSetup, runModelSetupWizard } from "./setup.js";
+import { renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import {
@@ -148,10 +149,8 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return sanitized;
 }
 
-export function renderBanner(role: Role): string {
-  const title = ` CodeDeck · ${role} `;
-  const border = "─".repeat(title.length);
-  return `\n┌${border}┐\n│${title}│\n└${border}┘\n\n`;
+export function renderBanner(role: Role, model: string, effort: string): string {
+  return `${renderLogo(`${role} · ${model} · ${effort}`)}\n`;
 }
 
 function selectRole(): Promise<Role> {
@@ -595,7 +594,7 @@ export function registerOpenCommand(program: Command): void {
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
-      process.stdout.write(renderBanner(role));
+      process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
       await launchClaude(claudeBin, model, args, cwd);
     });
 }

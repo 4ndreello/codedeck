@@ -128,12 +128,12 @@ describe("open command pure helpers", () => {
     expect(env.CLAUDE_CODE_CHILD_SESSION).toBe("1");
   });
 
-  it("renders one readable banner string", () => {
-    const banner = renderBanner("reviewer");
+  it("renders one banner string carrying the whole launch context", () => {
+    const banner = renderBanner("reviewer", "claude-opus-5", "xhigh");
 
     expect(typeof banner).toBe("string");
-    expect(banner).toContain("CodeDeck · reviewer");
-    expect(banner).toContain("\n");
+    expect(banner).toContain("reviewer · claude-opus-5 · xhigh");
+    expect(banner).toContain("╔═╗");
   });
 
   it("resolves a module-relative plugin directory", () => {

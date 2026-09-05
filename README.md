@@ -119,13 +119,29 @@ A launch carrying `-p`/`--print` answers once and exits, so it never asks anythi
 
 ### Choosing a model per agent
 
-The first interactive `open` asks which model each installed agent should use and saves the answers. Re-run it any time:
+The first interactive `open` puts every installed agent on one screen and takes one line for all of them. Re-run it any time:
 
 ```bash
 npx codedeck setup
 ```
 
-The list per agent comes from `codedeck models`, and a hand-typed id is accepted when discovery returns nothing. Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
+```
+  Claude Code                              Enter = claude-opus-5
+   1 claude-sonnet-4-6     3 claude-opus-4-5
+   2 claude-opus-5         4 claude-haiku-4-5
+
+  Codex                                     Enter = gpt-5.6-sol
+   5 gpt-5.6-sol           6 gpt-5.6-terra
+
+  omp · no models found, type omp=<id>
+
+  one number per agent, or Enter for the defaults
+  > 2 6
+```
+
+Numbers run straight through the screen, so one per agent is enough and order does not matter. Enter alone takes every default, an agent left out of the line keeps its default, and `agent=<id>` types an id the list does not show. The lists come from `codedeck models`, shortlisted to sixteen per agent because opencode alone proxies some 600 ids and would scroll everything else away.
+
+Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
 
 ## Session
 
