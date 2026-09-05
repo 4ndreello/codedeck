@@ -98,7 +98,7 @@ Session {
   id: string          // e.g. a83f (CodeDeck)
   nativeSessionId?    // internal harness id
   agent: "claude" | "codex" | "opencode" | "omp"
-  status: "starting" | "working" | "needs_input" | "idle" | "completed" | "failed" | "stopped" | "orphaned"
+  status: "starting" | "working" | "needs_input" | "idle" | "completed" | "failed" | "stopped" | "orphaned" | "interrupted"
   cwd, worktree, branch, repository, baseCommit
   pid, usage, createdAt, updatedAt
 }
@@ -152,7 +152,7 @@ Codedeck is consumed by agents as a subprocess, so failures are machine-readable
 | 0 | session completed or stopped |
 | 1 | task failed — the agent's work failed; retrying unchanged won't help |
 | 2 | harness crashed (EPIPE, signal, unhandled rejection) — retryable |
-| 3 | infra — daemon, worktree, spawn, or usage errors |
+| 3 | infra — daemon, worktree, spawn, or usage errors; `interrupted` sessions after power loss |
 
 `run` blocks and follows events by default. `run --bg` starts the session,
 prints its session object or ID, and exits without waiting. `--detach` remains
@@ -178,6 +178,25 @@ and synthesizes a structured failure when the harness left no terminal frame.
 
 `codedeck stop <id>` also falls back to the persisted PID, so stopping a
 reattached session works even when no in-memory process handle exists.
+
+### Power loss and resume
+
+A `poweroff`, `reboot`, or lid-close sends the daemon `SIGTERM`/`SIGHUP`. The
+daemon drains running sessions best-effort (a few seconds, no root) and marks
+each active session `interrupted` with a `session.failed` event carrying
+`failure: { "code": "SHUTDOWN", "blame": "infra", "retryable": true }` —
+never a silent `completed`.
+
+- `codedeck ps` shows interrupted sessions with `⏻`; `codedeck show <id> --json`
+  exposes `session.failure.code = "SHUTDOWN"`.
+- `codedeck wait <id>` on an interrupted session returns immediately with exit 3.
+- Resume is explicit: `codedeck send <id> "continue"` reopens the turn with
+  `--resume <nativeId>` in the same `cwd`/`worktree`. Sessions without a
+  resumable harness id are rejected with `CAPABILITY_NOT_SUPPORTED`.
+- Where `systemd-inhibit` exists the daemon holds a `--mode=delay` lock while
+  draining so shutdown waits up to `InhibitDelayMaxSec`; without it the daemon
+  still shuts down cleanly on `SIGTERM`. `codedeck doctor` reports both under
+  `Power`. No setup step or privileged install is required or promised.
 
 
 ## Worktrees
