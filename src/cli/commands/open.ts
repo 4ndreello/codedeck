@@ -274,23 +274,28 @@ async function preflightModel(model: string): Promise<void> {
   throw new Error(`Model "${model}" is not in the Claude catalog.${hint}`);
 }
 
-async function assertClaudeAvailable(): Promise<void> {
+/**
+ * Returns the resolved path rather than a boolean so everything downstream
+ * launches the exact binary that was checked, instead of asking PATH again and
+ * hoping it answers the same way.
+ */
+async function resolveClaudeBinary(): Promise<string> {
+  const missing = "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
   let installation;
   try {
     installation = await detectBinary("claude");
   } catch (error) {
     const details = errorDetails(error);
-    throw new Error(`Claude Code was not found on PATH. Install Claude Code and retry. (${details.text})`);
+    throw new Error(`${missing} (${details.text})`);
   }
 
-  if (!installation.installed) {
-    throw new Error("Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.");
-  }
+  if (!installation.installed || !installation.path) throw new Error(missing);
+  return installation.path;
 }
 
-async function assertSystemPromptFlagSupported(cwd: string): Promise<void> {
+async function assertSystemPromptFlagSupported(claudeBin: string, cwd: string): Promise<void> {
   try {
-    await execFileAsync("claude", ["--append-system-prompt-file"], {
+    await execFileAsync(claudeBin, ["--append-system-prompt-file"], {
       cwd,
       env: sanitizeEnv(process.env),
       timeout: 5000,
@@ -329,11 +334,11 @@ function relayOutput(child: ChildProcess, output: { value: string }): void {
   relay(child.stderr, process.stderr);
 }
 
-function launchClaude(model: string, args: string[], cwd: string): Promise<void> {
+function launchClaude(claudeBin: string, model: string, args: string[], cwd: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const output = { value: "" };
-    const child = spawn("claude", args, {
+    const child = spawn(claudeBin, args, {
       cwd,
       env: sanitizeEnv(process.env),
       stdio: ["inherit", "inherit", "pipe"],
@@ -405,10 +410,10 @@ export function registerOpenCommand(program: Command): void {
       const args = buildOpenArgs(role, { ...opts, model }, pluginDir, invocation.passthrough);
 
       await preflightModel(model);
-      await assertClaudeAvailable();
-      await assertSystemPromptFlagSupported(cwd);
+      const claudeBin = await resolveClaudeBinary();
+      await assertSystemPromptFlagSupported(claudeBin, cwd);
 
       process.stdout.write(renderBanner(role));
-      await launchClaude(model, args, cwd);
+      await launchClaude(claudeBin, model, args, cwd);
     });
 }

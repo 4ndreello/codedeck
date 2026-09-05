@@ -29,7 +29,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - run: npm run build
 
@@ -55,7 +55,10 @@ jobs:
           node-version: "24"
 
       - name: Install the claude CLI
-        run: npm i -g @anthropic-ai/claude-code
+        # Pinned on purpose: this is the version every spelling in the plugin
+        # contract was probed against, so the job checks the plugin under the
+        # CLI the contract describes rather than whatever shipped today.
+        run: npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.258
 
       # Needs no credential: validation is a static read of the manifest.
       - name: Validate the plugin manifest
@@ -67,7 +70,7 @@ jobs:
         # authenticated claude. It builds first because it drives dist/.
         if: env.ANTHROPIC_API_KEY != ''
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run build
           ./scripts/theme-gate.sh
 
