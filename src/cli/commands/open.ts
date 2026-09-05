@@ -4,7 +4,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import * as readline from "node:readline";
 import { constants } from "node:os";
-import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
@@ -20,8 +19,9 @@ import {
   type HarnessModels,
 } from "../../core/models.js";
 
-export const ROLES = ["general", "orchestrator", "reviewer"] as const;
-export type Role = (typeof ROLES)[number];
+import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
+
+export { ROLES, parseRole, resolvePluginDir, type Role };
 
 export interface OpenFlags {
   model?: string;
@@ -38,22 +38,6 @@ const PLUGIN_NAME = "codedeck";
 const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
-
-/**
- * Resolve the bundled plugin from this module, not from the caller's cwd.
- * Source files live below src/cli/commands; built files live below dist/cli/commands.
- */
-export function resolvePluginDir(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-  const distPlugin = path.resolve(moduleDir, "../../plugin");
-  const sourcePlugin = path.resolve(moduleDir, "../../../plugin");
-  const moduleRoot = path.resolve(moduleDir, "../..");
-  const candidates = path.basename(moduleRoot) === "dist"
-    ? [distPlugin, sourcePlugin]
-    : [sourcePlugin, distPlugin];
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
-}
 
 /**
  * statusLine.command is handed to a shell, so an install directory carrying a
@@ -100,7 +84,12 @@ export function buildOpenArgs(
     path.join(pluginDir, "ultra.md"),
     "--settings",
     settingsArgument(pluginDir, flags),
-    ...(role === "general" ? [] : ["--agent", `${PLUGIN_NAME}:${role}`]),
+    // `--agent` layers on top of Claude's own system prompt rather than
+    // replacing it, and an agent file with no `tools:` key inherits the whole
+    // toolset. So `general` carries its contract the same way the others do,
+    // with nothing taken away.
+    "--agent",
+    `${PLUGIN_NAME}:${role}`,
     "-n",
     `CodeDeck · ${role}`,
     ...(flags.resume ? ["--resume", flags.resume] : []),
@@ -135,13 +124,6 @@ export function effectiveModel(passthrough: string[]): string | undefined {
   }
 }
 
-export function parseRole(input: string | undefined): Role | undefined {
-  if (input === undefined) return undefined;
-  const normalized = input.trim().toLowerCase();
-  return (ROLES as readonly string[]).includes(normalized)
-    ? (normalized as Role)
-    : undefined;
-}
 
 export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
@@ -180,7 +162,7 @@ function selectRole(): Promise<Role> {
     });
 
     const ask = () => {
-      rl.question("Role [general] (general/orchestrator/reviewer): ", (answer) => {
+      rl.question(`Role [general] (${ROLES.join("/")}): `, (answer) => {
         const role = parseRole(answer || "general");
         if (role) {
           finish(role);

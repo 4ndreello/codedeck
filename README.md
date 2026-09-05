@@ -84,7 +84,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
 | `npx codedeck setup` | Choose the model each installed agent should use |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
-| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
+| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
 | `npx codedeck ps [--all] [--json]` | List recent sessions |
 | `npx codedeck show <id> [--json]` | Show session details |
@@ -103,15 +103,24 @@ npx codedeck open reviewer     # straight into a role
 npx codedeck open -- --add-dir ../other-repo   # anything after -- goes to claude verbatim
 ```
 
-Three roles, and the restriction is a tool allowlist rather than an instruction:
+Four roles. Each is an agent file in the plugin, and the restriction is a tool allowlist rather than an instruction:
 
-| Role | Can write? | For |
-|------|-----------|-----|
-| `general` | yes | ordinary work |
-| `orchestrator` | no `Edit`/`Write`, keeps `Bash` | conducting work, delegating writes to `codedeck run` |
-| `reviewer` | no `Edit`/`Write`/`Bash` | reading and judging, structurally unable to edit |
+| Role | Can write? | Can dispatch? | For |
+|------|-----------|---------------|-----|
+| `general` | yes | yes | ordinary work, done here |
+| `orchestrator` | no `Edit`/`Write` | yes | building by spreading the work, proving it with `codedeck diff` |
+| `auditor` | no `Edit`/`Write` | yes | reviewing a scope too large for one pass, sliced by dimension |
+| `reviewer` | no `Edit`/`Write` | no | one pass, no fan-out, says what it did not cover |
 
-The `reviewer` restriction holds even with permissions bypassed, because a tool allowlist is orthogonal to permission bypass. The `orchestrator` keeps `Bash`, so its boundary is only partly enforced: with `Bash` it can still write by redirection, and the rest rests on the prompt.
+The allowlist holds even with permissions bypassed, because it is orthogonal to permission bypass. It is not a sandbox either: every role but `general` keeps `Bash`, so each can still write by redirection, and the rest of the boundary rests on the prompt.
+
+Two things worth knowing before you edit an agent file. `--agent` layers on top of Claude Code's own system prompt rather than replacing it, and an agent file with no `tools:` key inherits the whole toolset, which is how `general` keeps `Edit` and `Write`. And granting `Bash` drops `Grep` and `Glob` from the resolved toolset, whatever the file lists, because `Bash` already covers them.
+
+`codedeck run --role <role>` gives a worker the same contract. `--agent` is Claude's flag and no other harness has it, so there the role body is prefixed to the prompt instead, frontmatter stripped. The text travels; the allowlist does not, so a codex or opencode worker is held to the role by prose alone.
+
+```bash
+npx codedeck run "review the diff on this branch" --agent codex --role reviewer
+```
 
 `--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
 
