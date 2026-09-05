@@ -57,33 +57,58 @@ function getDefaultModel(harness: HarnessModels, ids: string[], configured?: str
   return ids[0];
 }
 
+/**
+ * `question` never settles once the interface closes, so Ctrl+D at a prompt
+ * leaves the wizard hanging with no way out. Racing the close event turns EOF
+ * into "no answer" instead.
+ */
+function ask(readline: ReadlineInterface, prompt: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const onClose = () => resolve(undefined);
+    readline.once("close", onClose);
+    const done = (answer: string | undefined) => {
+      readline.off("close", onClose);
+      resolve(answer);
+    };
+    readline.question(prompt).then(done, () => done(undefined));
+  });
+}
+
+/** A skipped question and a walked-out wizard need different handling. */
+type ModelAnswer = { aborted: true } | { aborted: false; model?: string };
+
+const chose = (model?: string): ModelAnswer => ({ aborted: false, model });
+
 async function askForModel(
   readline: ReadlineInterface,
   harness: HarnessModels,
   configured?: string,
-): Promise<string | undefined> {
+): Promise<ModelAnswer> {
   const ids = getModelIds(harness);
   const agentName = harness.agent === "claude" ? "Claude Code" : harness.agent.charAt(0).toUpperCase() + harness.agent.slice(1);
 
   if (ids.length === 0) {
-    const answer = await readline.question(
+    const answer = await ask(
+      readline,
       `No models discovered for ${agentName}. Enter a model id (or press Enter to skip): `,
     );
-    const model = answer.trim();
-    return model || configured;
+    if (answer === undefined) return { aborted: true };
+    return chose(answer.trim() || configured);
   }
 
   const defaultModel = getDefaultModel(harness, ids, configured);
   const choices = ids.map((id, index) => `${index + 1}) ${id}`).join("  ");
-  const answer = await readline.question(
+  const answer = await ask(
+    readline,
     `${agentName} model [${defaultModel ?? "enter an id"}] ${choices}\nChoose a number or enter a model id: `,
   );
+  if (answer === undefined) return { aborted: true };
   const selected = answer.trim();
-  if (selected === "") return defaultModel ?? configured;
+  if (selected === "") return chose(defaultModel ?? configured);
 
   const number = Number(selected);
-  if (Number.isInteger(number) && number >= 1 && number <= ids.length) return ids[number - 1];
-  return selected;
+  if (Number.isInteger(number) && number >= 1 && number <= ids.length) return chose(ids[number - 1]);
+  return chose(selected);
 }
 
 /**
@@ -112,14 +137,22 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   const models: Partial<Record<AgentId, string>> = { ...(config.models ?? {}) };
 
   let asked = 0;
+  let aborted = false;
   try {
     const seenAgents = new Set<AgentId>();
     for (const harness of harnesses) {
       if (!harness.available || seenAgents.has(harness.agent)) continue;
       seenAgents.add(harness.agent);
       asked += 1;
-      const selected = await askForModel(readline, harness, config.models?.[harness.agent]);
-      if (selected) models[harness.agent] = selected;
+      const answer = await askForModel(readline, harness, config.models?.[harness.agent]);
+      // Walking out is reported by the answer itself rather than by watching
+      // for a close event: the normal path closes the interface too, so the
+      // event cannot tell the two apart.
+      if (answer.aborted) {
+        aborted = true;
+        break;
+      }
+      if (answer.model) models[harness.agent] = answer.model;
     }
   } finally {
     readline.close();
@@ -131,6 +164,13 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   // untouched and let the next run try again.
   if (asked === 0) {
     console.error("Warning: No installed agent reported any model; skipping model setup.");
+    return config;
+  }
+
+  // Same reasoning for a walk-out: Ctrl+D partway through is not an answer, so
+  // half the choices are not worth marking setup as done.
+  if (aborted) {
+    console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
   }
 

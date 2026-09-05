@@ -146,6 +146,37 @@ describe("runModelSetupWizard", () => {
     }
   });
 
+  // `readline/promises` question() never settles once the interface closes, so
+  // Ctrl+D at a prompt used to leave the wizard hanging with no way out.
+  it("gives up instead of hanging when stdin closes mid-question", async () => {
+    const warning = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.fn();
+    try {
+      const config = { defaultAgent: "claude" as const };
+      const closed = new PassThrough();
+      closed.end();
+
+      const result = await runModelSetupWizard({
+        config,
+        registry: {} as DriverRegistry,
+        input: closed,
+        output: new PassThrough(),
+        isTTY: true,
+        discoverModels: async () => discoveredHarnesses(),
+        save,
+      });
+
+      // Half an answer is not an answer, so nothing is written and the next run
+      // gets to ask again.
+      expect(save).not.toHaveBeenCalled();
+      expect(result).toEqual(config);
+      expect(needsModelSetup(result, true)).toBe(true);
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("interrupted"));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   // Writing `models` is the flag that first-run setup already happened. Writing
   // it after asking nothing would spend the single prompt the user ever gets.
   it("leaves the config untouched when no agent had anything to offer", async () => {
