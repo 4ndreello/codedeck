@@ -7,7 +7,7 @@ import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
-import { composeRolePrompt, parseRole, resolvePluginDir, ROLES } from "../../core/roles.js";
+import { resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -46,14 +46,12 @@ Resume with: codedeck send <id> "continue"
       // `open` hands the role to Claude as `--agent`, which no other harness
       // has. Here it becomes a prompt prefix instead, so a codex or opencode
       // worker gets the same contract through the only channel it shares.
-      let rolePrompt = prompt;
-      if (opts.role) {
-        const role = parseRole(opts.role);
-        if (!role) {
-          console.error(`Invalid role "${opts.role}". Available roles: ${ROLES.join(", ")}`);
-          process.exit(3); // usage error — infra class
-        }
-        rolePrompt = composeRolePrompt(resolvePluginDir(), role, prompt);
+      let rolePrompt: string;
+      try {
+        rolePrompt = resolveRolePrompt(resolvePluginDir(), opts.role, prompt);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        process.exit(3); // usage error — infra class
       }
 
       // Validate here so a typo fails before a session row is created; codex

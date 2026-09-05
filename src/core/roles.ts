@@ -45,20 +45,41 @@ export function roleFile(pluginDir: string, role: Role): string {
  */
 export function roleBody(pluginDir: string, role: Role): string {
   const raw = fs.readFileSync(roleFile(pluginDir, role), "utf8");
-  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(raw);
+  // The closing delimiter may be the last bytes of the file. Requiring a
+  // newline after it used to leave the whole block in the body, which is how
+  // `tools:` reached a prompt as if it were prose.
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
   return (match ? raw.slice(match[0].length) : raw).trim();
 }
 
+export function composeRolePrompt(pluginDir: string, role: Role, prompt: string): string {
+  return `${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
+}
+
 /**
- * Prefixes a prompt with its role. Returns the prompt untouched when the role
- * has no file, so a plugin directory that shipped without one degrades to a
- * plain run instead of failing the session.
+ * Turns whatever `--role` carried into the prompt a worker receives.
+ *
+ * Throws rather than degrading. Asking for a role and silently getting a plain
+ * run is the failure this repository's own system prompt calls rounding failure
+ * to success: the session looks fine, costs full price, and is not the thing
+ * that was asked for. An absent flag is the only case that means "no role".
  */
-export function composeRolePrompt(
+export function resolveRolePrompt(
   pluginDir: string,
-  role: Role | undefined,
+  roleInput: string | undefined,
   prompt: string,
 ): string {
-  if (!role || !fs.existsSync(roleFile(pluginDir, role))) return prompt;
-  return `${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
+  if (roleInput === undefined) return prompt;
+
+  const role = parseRole(roleInput);
+  if (!role) {
+    throw new Error(`Invalid role "${roleInput}". Available roles: ${ROLES.join(", ")}`);
+  }
+
+  const file = roleFile(pluginDir, role);
+  if (!fs.existsSync(file)) {
+    throw new Error(`Role "${role}" has no agent file at ${file}. The CodeDeck plugin is incomplete.`);
+  }
+
+  return composeRolePrompt(pluginDir, role, prompt);
 }

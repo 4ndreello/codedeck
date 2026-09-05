@@ -7,6 +7,7 @@ import {
   composeRolePrompt,
   parseRole,
   resolvePluginDir,
+  resolveRolePrompt,
   roleBody,
   ROLES,
 } from "../src/core/roles.js";
@@ -47,6 +48,17 @@ describe("roleBody", () => {
     expect(roleBody(dir, "reviewer")).toBe("You review.");
   });
 
+  // Requiring a newline after the closing delimiter left the whole block in
+  // the body, which is how `tools:` would reach a prompt as if it were prose.
+  it.each([
+    ["ends at the closing delimiter", "---\nname: reviewer\ntools: Read, Bash\n---"],
+    ["ends at the closing delimiter with CRLF", "---\r\nname: reviewer\r\n---"],
+  ])("strips a frontmatter that %s", (_label, source) => {
+    const dir = pluginWith({ "reviewer.md": source });
+
+    expect(roleBody(dir, "reviewer")).toBe("");
+  });
+
   // A `---` rule inside the prose is not a second frontmatter block.
   it("strips only the leading block", () => {
     const dir = pluginWith({
@@ -68,18 +80,43 @@ describe("composeRolePrompt", () => {
     );
   });
 
-  it("returns the prompt untouched when no role was asked for", () => {
+});
+
+describe("resolveRolePrompt", () => {
+  it("passes the prompt through when the flag was not given", () => {
     const dir = pluginWith({ "auditor.md": "You audit.\n" });
 
-    expect(composeRolePrompt(dir, undefined, "check the diff")).toBe("check the diff");
+    expect(resolveRolePrompt(dir, undefined, "check the diff")).toBe("check the diff");
   });
 
-  // A plugin directory that shipped without the file degrades to a plain run.
-  // Failing the session over a missing prompt costs more than running without it.
-  it("returns the prompt untouched when the role file is missing", () => {
+  it("composes when the flag names a real role", () => {
+    const dir = pluginWith({ "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n" });
+
+    expect(resolveRolePrompt(dir, " AUDITOR ", "check the diff")).toBe(
+      "You audit.\n\n---\n\ncheck the diff",
+    );
+  });
+
+  // `--role=` reaches commander as an empty string, not as an absent flag.
+  // Treating it as absent ran the session with no role and no complaint.
+  it.each([
+    ["an empty value", ""],
+    ["an unknown role", "implementer"],
+  ])("rejects %s", (_label, input) => {
+    const dir = pluginWith({ "auditor.md": "You audit.\n" });
+
+    expect(() => resolveRolePrompt(dir, input, "check the diff")).toThrow(/Invalid role/);
+  });
+
+  // Asking for a role and silently getting a plain run is what ultra.md calls
+  // rounding failure to success: the session costs full price and is not the
+  // thing that was asked for.
+  it("refuses a role whose agent file is missing", () => {
     const dir = pluginWith({});
 
-    expect(composeRolePrompt(dir, "auditor", "check the diff")).toBe("check the diff");
+    expect(() => resolveRolePrompt(dir, "auditor", "check the diff")).toThrow(
+      /has no agent file/,
+    );
   });
 });
 

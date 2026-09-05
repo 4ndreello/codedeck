@@ -162,7 +162,7 @@ function selectRole(): Promise<Role> {
     });
 
     const ask = () => {
-      rl.question("Role [general] (general/orchestrator/reviewer): ", (answer) => {
+      rl.question(`Role [general] (${ROLES.join("/")}): `, (answer) => {
         const role = parseRole(answer || "general");
         if (role) {
           finish(role);
