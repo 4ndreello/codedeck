@@ -227,10 +227,6 @@ export function findClosestModel(query: string, candidates: string[]): string | 
     }
   }
 
-  if (bestSubMatch !== undefined) {
-    return bestSubMatch;
-  }
-
   // 3. Fuzzy Levenshtein match
   let bestFuzzyMatch: string | undefined;
   let minDistance = Infinity;
@@ -245,5 +241,13 @@ export function findClosestModel(query: string, candidates: string[]): string | 
     }
   }
 
-  return bestFuzzyMatch;
+  // A substring hit is not automatically the better answer. "claude-opus-4-9"
+  // contains "opus", so returning on the substring pass suggested the alias and
+  // never even looked at "claude-opus-4-8", one character away. Both passes are
+  // kept because each catches what the other misses: the substring pass reaches
+  // matches the distance threshold rejects as too long, such as "Sonnet" for
+  // "claude-sonnet-5".
+  if (bestSubMatch === undefined) return bestFuzzyMatch;
+  if (bestFuzzyMatch === undefined) return bestSubMatch;
+  return minDistance < levenshtein(q, bestSubMatch.toLowerCase()) ? bestFuzzyMatch : bestSubMatch;
 }
