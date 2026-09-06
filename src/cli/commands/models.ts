@@ -7,7 +7,7 @@ import {
   type ModelInfo,
   type ProviderModels,
 } from "../../core/models.js";
-import type { AgentId } from "../../core/session.js";
+import { AGENT_IDS, type AgentId } from "../../core/session.js";
 
 export interface ModelsCliOptions {
   provider?: string;
@@ -155,14 +155,13 @@ export function registerModelsCommand(program: Command): void {
     .option("--refresh", "bypass cache and refresh model catalogs from harnesses")
     .option("--json", "output JSON with complete model details")
     .action(async (agentArg?: string, opts: ModelsCliOptions = {}) => {
-      const validAgents: AgentId[] = ["claude", "codex", "opencode", "omp"];
       let agent: AgentId | undefined;
 
       if (agentArg) {
         const normalized = agentArg.toLowerCase() as AgentId;
-        if (!validAgents.includes(normalized)) {
+        if (!AGENT_IDS.includes(normalized)) {
           console.error(
-            `Invalid agent "${agentArg}". Available agents: ${validAgents.join(", ")}`,
+            `Invalid agent "${agentArg}". Available agents: ${AGENT_IDS.join(", ")}`,
           );
           process.exit(1);
         }

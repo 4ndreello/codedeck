@@ -9,8 +9,9 @@ import type { DriverRegistry } from "../src/core/driver.js";
 import type { HarnessModels } from "../src/core/models.js";
 import type { AgentId } from "../src/core/session.js";
 import { loadConfig } from "../src/config/config.js";
+import { itemKey } from "../src/cli/picker-state.js";
 import {
-  buildAgentScreen,
+  buildRoleScreen,
   buildScreens,
   collectSelections,
   needsModelSetup,
@@ -50,20 +51,38 @@ function discoveredHarnesses(): HarnessModels[] {
       error: "codex binary not found",
       providers: [],
     },
+    // A second installed harness with a catalog of its own, so the flat list
+    // really spans two of them and a screen can be answered with either.
     {
       agent: "omp",
       available: true,
-      providers: [],
+      providers: [
+        {
+          provider: "openai",
+          models: [{ id: "omp-fast", name: "Fast", provider: "openai" }],
+        },
+      ],
     },
   ];
 }
 
 describe("needsModelSetup", () => {
-  it("only asks on a TTY when models are absent", () => {
+  it("only asks on a TTY when the agent bindings are absent", () => {
     expect(needsModelSetup({ defaultAgent: "claude" }, true)).toBe(true);
-    expect(needsModelSetup({ defaultAgent: "claude", models: {} }, true)).toBe(false);
-    expect(needsModelSetup({ defaultAgent: "claude", models: { claude: "sonnet" } }, true)).toBe(false);
+    expect(needsModelSetup({ defaultAgent: "claude", agents: {} }, true)).toBe(false);
+    expect(
+      needsModelSetup(
+        { defaultAgent: "claude", agents: { general: { harness: "claude", model: "opus" } } },
+        true,
+      ),
+    ).toBe(false);
     expect(needsModelSetup({ defaultAgent: "claude" }, false)).toBe(false);
+  });
+
+  // The per-harness map answers "what model does codex run", never "what runs
+  // the reviewer", so a config holding only that has not been through setup.
+  it("still asks when only the older per-harness models are saved", () => {
+    expect(needsModelSetup({ defaultAgent: "claude", models: { claude: "sonnet" } }, true)).toBe(true);
   });
 });
 
@@ -138,32 +157,62 @@ describe("runModelSetupWizard", () => {
     expect(discoverModels).toHaveBeenCalledWith(expect.anything(), true);
   });
 
-  // Two screens: claude has a catalog, omp reports none and only takes a typed
-  // id, which needs a second Enter because no catalog can vouch for it.
-  it("persists one pick per agent and writes the config", async () => {
+  // Four screens, one per agent, each spanning claude and omp. The second is
+  // typed by hand and needs a second Enter because no catalog vouches for it.
+  it("persists one harness and model per agent, and writes the config", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", "c", "u", "s", "t", "o", "m", "\r", "\r"]);
+    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
-    expect(result.models).toEqual({ claude: "claude-opus", omp: "custom" });
-    expect(result.models).not.toHaveProperty("codex");
+    expect(result.agents).toEqual({
+      general: { harness: "claude", model: "claude-opus" },
+      orchestrator: { harness: "omp", model: "custom" },
+      reviewer: { harness: "claude", model: "claude-opus" },
+      auditor: { harness: "claude", model: "claude-opus" },
+    });
     expect(loadConfig()).toEqual(result);
+  });
+
+  // Two harnesses on one screen, so the answer for an agent can come from
+  // either. Picking the pin every time would prove nothing about the second.
+  it("binds an agent to a harness other than the default one", async () => {
+    const { input, output } = io();
+    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output });
+
+    expect(result.agents?.general).toEqual({ harness: "omp", model: "omp-fast" });
+    expect(result.agents?.reviewer).toEqual({ harness: "claude", model: "claude-opus" });
+  });
+
+  // codex reported unavailable, so it reaches no screen: not as a row, not as a
+  // group header, not as a prefix free text could name.
+  it("offers only the installed harnesses", async () => {
+    const { input, output, seen } = io();
+    drive(input, output, ["\r", "\r", "\r", "\r"]);
+
+    await runModelSetupWizard({ ...base(), input, output });
+    const painted = seen.join("");
+
+    expect(painted).toContain("-- claude ");
+    expect(painted).toContain("-- omp ");
+    expect(painted).not.toContain("codex");
   });
 
   it("leaves an agent unset when it is skipped", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
-    expect(result.models).toEqual({ claude: "claude-opus" });
+    expect(result.agents).toEqual({ general: { harness: "claude", model: "claude-opus" } });
   });
 
   it("warns and continues when config persistence fails", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07"]);
 
     try {
       const result = await runModelSetupWizard({
@@ -175,8 +224,26 @@ describe("runModelSetupWizard", () => {
         },
       });
 
-      expect(result.models).toEqual({ claude: "claude-opus" });
+      expect(result.agents).toEqual({ general: { harness: "claude", model: "claude-opus" } });
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("Could not save config"));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  // Walking out mid-run is the case worth pinning: answers already given are
+  // dropped with the rest, so a half-answered run cannot reach the file.
+  it("writes nothing when the run is aborted after an agent was answered", async () => {
+    const warning = vi.spyOn(console, "error").mockImplementation(() => {});
+    const save = vi.fn();
+    const { input, output } = io();
+    drive(input, output, ["\r", "\x03"]);
+
+    try {
+      const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+      expect(save).not.toHaveBeenCalled();
+      expect(result.agents).toBeUndefined();
     } finally {
       warning.mockRestore();
     }
@@ -194,7 +261,7 @@ describe("runModelSetupWizard", () => {
       const result = await runModelSetupWizard({ ...base(), input, output, save });
 
       expect(save).not.toHaveBeenCalled();
-      expect(result.models).toBeUndefined();
+      expect(result.agents).toBeUndefined();
       expect(needsModelSetup(result, true)).toBe(true);
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("interrupted"));
     } finally {
@@ -202,9 +269,9 @@ describe("runModelSetupWizard", () => {
     }
   });
 
-  // Writing `models` is the flag that first-run setup already happened. Writing
+  // Writing `agents` is the flag that first-run setup already happened. Writing
   // it after asking nothing would spend the single prompt the user ever gets.
-  it("leaves the config untouched when no agent had anything to offer", async () => {
+  it("leaves the config untouched when no harness had anything to offer", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const save = vi.fn();
     const { input, output } = io();
@@ -219,7 +286,7 @@ describe("runModelSetupWizard", () => {
       });
 
       expect(save).not.toHaveBeenCalled();
-      expect(result.models).toBeUndefined();
+      expect(result.agents).toBeUndefined();
       expect(needsModelSetup(result, true)).toBe(true);
     } finally {
       warning.mockRestore();
@@ -236,7 +303,7 @@ describe("runModelSetupWizard", () => {
       const result = await runModelSetupWizard({ ...base(), input, output, save });
 
       expect(save).not.toHaveBeenCalled();
-      expect(result.models).toBeUndefined();
+      expect(result.agents).toBeUndefined();
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("5 rows"));
     } finally {
       warning.mockRestore();
@@ -254,23 +321,51 @@ const harness = (agent: AgentId, providers: Array<[string, string[]]>, defaults:
 });
 
 describe("agent screens", () => {
-  it("gives one screen per installed harness, numbered", () => {
+  it("gives one screen per agent, each spanning every installed harness", () => {
     const screens = buildScreens(
-      [harness("claude", [["anthropic", ["a"]]]), { agent: "codex", available: false, providers: [] }],
+      ["general", "reviewer"],
+      [
+        harness("claude", [["anthropic", ["a"]]]),
+        harness("codex", [["openai", ["g"]]]),
+        { agent: "opencode", available: false, providers: [] },
+      ],
       {},
     );
 
-    expect(screens).toHaveLength(1);
-    expect(screens[0].counter).toBe("agente 1 de 1");
+    expect(screens).toHaveLength(2);
+    expect(screens.map((screen) => screen.role)).toEqual(["general", "reviewer"]);
+    expect(screens[0].counter).toBe("agente 1 de 2");
+    expect(screens[0].items.map((item) => item.harness)).toEqual(["claude", "codex"]);
+    // An unavailable harness reaches no screen, so it cannot be picked at all.
+    expect(screens[0].harnesses).toEqual(new Set(["claude", "codex"]));
   });
 
-  // A linha fixa fica fora do agrupamento, senao ela contradiz a ordem dos providers.
-  it("pins the configured model above the groups and marks it atual", () => {
-    const screen = buildAgentScreen(harness("opencode", [["a", ["a/1"]], ["b", ["b/2"]]]), 0, 1, "b/2");
+  // Asking which harness runs an agent is unanswerable with none installed, and
+  // writing the bindings anyway would mark first-run setup as done.
+  it("gives no screens when nothing is installed", () => {
+    expect(
+      buildScreens(["general"], [{ agent: "codex", available: false, providers: [] }], {}),
+    ).toEqual([]);
+  });
+
+  // A linha fixa fica fora do agrupamento, senao ela contradiz a ordem dos harnesses.
+  it("pins the configured binding above the groups and names its harness", () => {
+    const screen = buildRoleScreen(
+      "reviewer",
+      [harness("opencode", [["a", ["a/1"]], ["b", ["b/2"]]])],
+      0,
+      1,
+      { harness: "opencode", model: "b/2" },
+    );
 
     expect(screen.pinned).toBe(true);
-    expect(screen.items[0]).toMatchObject({ id: "b/2", note: "atual" });
-    expect(screen.items[0].group).toBeUndefined();
+    expect(screen.items[0]).toMatchObject({
+      id: "b/2",
+      harness: "opencode",
+      note: "atual · opencode",
+    });
+    // Listed once: the pin replaces the catalog row rather than doubling it.
+    expect(screen.items.filter((item) => item.id === "b/2")).toHaveLength(1);
   });
 
   // 1,462 catalog entries spell the version readably in `name` and only in
@@ -291,107 +386,215 @@ describe("agent screens", () => {
       ],
     };
 
-    const screen = buildAgentScreen(catalog, 0, 1);
+    const screen = buildRoleScreen("general", [catalog], 0, 1, undefined);
 
     expect(screen.items.find((item) => item.id === "claude-opus-5")?.name).toBe("Claude Opus 5");
     expect(screen.items.find((item) => item.id === "claude-haiku")).not.toHaveProperty("name");
   });
 
-  it("pins a real isDefault and marks it padrao", () => {
-    const screen = buildAgentScreen(harness("claude", [["anthropic", ["x", "y"]]], ["y"]), 0, 1);
+  // With nothing saved for the agent, the suggestion comes from whichever
+  // harness runs everything else, and only if that harness names a default.
+  it("pins a real isDefault of the fallback harness and marks it padrao", () => {
+    const screen = buildRoleScreen(
+      "general",
+      [harness("omp", [["bedrock", ["z"]]]), harness("claude", [["anthropic", ["x", "y"]]], ["y"])],
+      0,
+      1,
+      undefined,
+      "claude",
+    );
 
-    expect(screen.items[0]).toMatchObject({ id: "y", note: "padrao" });
+    expect(screen.items[0]).toMatchObject({ id: "y", harness: "claude", note: "padrao · claude" });
   });
 
-  // omp e opencode nao declaram isDefault: ids[0] e acidente alfabetico.
+  // omp e opencode nao declaram isDefault: o primeiro id e acidente alfabetico.
   it("pins nothing when neither config nor isDefault exists", () => {
-    const screen = buildAgentScreen(harness("omp", [["bedrock", ["a", "b"]]]), 0, 1);
+    const screen = buildRoleScreen(
+      "general",
+      [harness("omp", [["bedrock", ["a", "b"]]])],
+      0,
+      1,
+      undefined,
+      "omp",
+    );
 
     expect(screen.pinned).toBe(false);
     expect(screen.items[0].note).toBeUndefined();
   });
 
-  it("keeps a harness with an empty catalog on screen with nothing to list", () => {
-    const screen = buildAgentScreen({ agent: "omp", available: true, providers: [] }, 1, 3);
+  it("pins nothing when the fallback harness is not installed", () => {
+    const screen = buildRoleScreen(
+      "general",
+      [harness("omp", [["bedrock", ["a"]]], ["a"])],
+      0,
+      1,
+      undefined,
+      "claude",
+    );
+
+    expect(screen.pinned).toBe(false);
+  });
+
+  it("keeps a harness with an empty catalog listed without contributing rows", () => {
+    const screen = buildRoleScreen("reviewer", [{ agent: "omp", available: true, providers: [] }], 1, 3, undefined);
 
     expect(screen.items).toEqual([]);
     expect(screen.counter).toBe("agente 2 de 3");
+    // Still typeable as a prefix: the harness is installed, it just listed nothing.
+    expect(screen.harnesses).toEqual(new Set(["omp"]));
   });
 
-  it("carries the discovery error so an empty list is not mistaken for no models", () => {
-    const screen = buildAgentScreen(
-      { agent: "omp", available: true, error: "discovery timed out", providers: [] },
+  // One screen now spans every harness, so the error has to say whose it is.
+  it("names the harness behind a discovery error", () => {
+    const screen = buildRoleScreen(
+      "reviewer",
+      [
+        harness("claude", [["anthropic", ["a"]]]),
+        { agent: "omp", available: true, error: "discovery timed out", providers: [] },
+      ],
       0,
       1,
+      undefined,
     );
 
-    expect(screen.error).toBe("discovery timed out");
+    expect(screen.error).toBe("omp: discovery timed out");
   });
 
-  it("counts an id once even when two providers report it", () => {
-    const screen = buildAgentScreen(harness("opencode", [["a", ["dup"]], ["b", ["dup"]]]), 0, 1);
+  it("counts an id once per harness, and keeps the same id under two of them", () => {
+    const screen = buildRoleScreen(
+      "reviewer",
+      [harness("opencode", [["a", ["dup"]], ["b", ["dup"]]]), harness("codex", [["openai", ["dup"]]])],
+      0,
+      1,
+      undefined,
+    );
 
-    expect(screen.items.filter((item) => item.id === "dup")).toHaveLength(1);
+    expect(screen.items.filter((item) => item.id === "dup")).toHaveLength(2);
+    expect(screen.items.map((item) => item.harness)).toEqual(["opencode", "codex"]);
   });
 
-  it("lists every model, with no cap", () => {
+  it("lists every model of every harness, with no cap", () => {
     const many = Array.from({ length: 600 }, (_, i) => `m-${i}`);
+    const screen = buildRoleScreen(
+      "reviewer",
+      [harness("opencode", [["p", many]]), harness("codex", [["openai", ["g"]]])],
+      0,
+      1,
+      undefined,
+    );
 
-    expect(buildAgentScreen(harness("opencode", [["p", many]]), 0, 1).items).toHaveLength(600);
+    expect(screen.items).toHaveLength(601);
   });
 
   // A blank id used to become a selectable blank row that Enter saved as the model.
   it("drops a model whose id is blank", () => {
-    const screen = buildAgentScreen(harness("opencode", [["p", ["", "   ", "real"]]]), 0, 1);
+    const screen = buildRoleScreen("reviewer", [harness("opencode", [["p", ["", "   ", "real"]]])], 0, 1, undefined);
 
     expect(screen.items.map((item) => item.id)).toEqual(["real"]);
-    expect(screen.known.has("")).toBe(false);
+    expect(screen.known.has(itemKey("opencode", ""))).toBe(false);
   });
 
   // open tells the user their saved model left the catalog and to run setup.
   // Setup then has to show which model that was.
-  it("still pins a configured model the catalog no longer lists", () => {
-    const screen = buildAgentScreen(harness("codex", [["openai", ["gpt-6"]]]), 0, 1, "gpt-retired");
+  it("still pins a configured binding the catalog no longer lists", () => {
+    const screen = buildRoleScreen("reviewer", [harness("codex", [["openai", ["gpt-6"]]])], 0, 1, {
+      harness: "codex",
+      model: "gpt-retired",
+    });
 
     expect(screen.pinned).toBe(true);
-    expect(screen.items[0]).toMatchObject({ id: "gpt-retired", note: "atual, fora do catalogo" });
+    expect(screen.items[0]).toMatchObject({
+      id: "gpt-retired",
+      harness: "codex",
+      note: "atual · codex, fora do catalogo",
+    });
     // Synthetic, so keeping it costs the same second Enter as typing it by hand.
     expect(screen.items[0].synthetic).toBe(true);
-    expect(screen.known.has("gpt-retired")).toBe(false);
+    expect(screen.known.has(itemKey("codex", "gpt-retired"))).toBe(false);
+  });
+
+  // Not the same case as a retired model: here the whole harness is gone from
+  // the machine. The binding still has to be visible, because setup is where
+  // the user goes to move the agent somewhere else.
+  it("still pins a binding whose harness is no longer installed", () => {
+    const screen = buildRoleScreen("reviewer", [harness("claude", [["anthropic", ["a"]]])], 0, 1, {
+      harness: "codex",
+      model: "gpt-5.6-luna",
+    });
+
+    expect(screen.items[0]).toMatchObject({
+      id: "gpt-5.6-luna",
+      harness: "codex",
+      note: "atual · codex, fora do catalogo",
+      synthetic: true,
+    });
+    // Gone from the machine, so free text cannot name it as a prefix either.
+    expect(screen.harnesses).toEqual(new Set(["claude"]));
+  });
+
+  // The catalog trims ids and keys the rows by the trimmed value, so a default
+  // looked up untrimmed missed its own row and pinned nothing.
+  it("pins a default whose id the harness reported padded", () => {
+    const padded: HarnessModels = {
+      agent: "claude",
+      available: true,
+      providers: [
+        {
+          provider: "anthropic",
+          models: [{ id: "  claude-opus  ", name: "Opus", provider: "anthropic", isDefault: true }],
+        },
+      ],
+    };
+    const screen = buildRoleScreen("reviewer", [padded], 0, 1, undefined, "claude");
+
+    expect(screen.pinned).toBe(true);
+    expect(screen.items[0]).toMatchObject({ id: "claude-opus", note: "padrao · claude" });
+    // Pinned means hoisted, never duplicated.
+    expect(screen.items.filter((item) => item.id === "claude-opus")).toHaveLength(1);
   });
 });
 
 describe("collecting selections", () => {
-  it("writes what was picked", () => {
-    expect(collectSelections([{ kind: "picked", agent: "claude", id: "x" }], undefined, 1)).toEqual({
-      models: { claude: "x" },
+  it("writes both halves of what was picked", () => {
+    expect(
+      collectSelections([{ kind: "picked", role: "reviewer", harness: "codex", id: "x" }], undefined, 1),
+    ).toEqual({
+      agents: { reviewer: { harness: "codex", model: "x" } },
       write: true,
     });
   });
 
   // Pular significa "nao mexe", nunca "desconfigura".
   it("leaves an earlier choice untouched when the agent is skipped", () => {
-    expect(collectSelections([{ kind: "skipped", agent: "codex" }], { codex: "gpt-x" }, 1)).toEqual({
-      models: { codex: "gpt-x" },
+    expect(
+      collectSelections(
+        [{ kind: "skipped", role: "reviewer" }],
+        { reviewer: { harness: "codex", model: "gpt-x" } },
+        1,
+      ),
+    ).toEqual({
+      agents: { reviewer: { harness: "codex", model: "gpt-x" } },
       write: true,
     });
   });
 
   it("writes the empty sentinel when everything was skipped and nothing was configured", () => {
-    expect(collectSelections([{ kind: "skipped", agent: "claude" }], undefined, 1)).toEqual({
-      models: {},
+    expect(collectSelections([{ kind: "skipped", role: "general" }], undefined, 1)).toEqual({
+      agents: {},
       write: true,
     });
   });
 
   // Sem tela mostrada, gravar queimaria a unica pergunta que o usuario recebe.
   it("writes nothing when no screen was shown at all", () => {
-    expect(collectSelections([], undefined, 0)).toEqual({ models: {}, write: false });
+    expect(collectSelections([], undefined, 0)).toEqual({ agents: {}, write: false });
   });
 
   it("writes nothing when the run was aborted", () => {
-    expect(collectSelections([{ kind: "aborted" }], { claude: "keep" }, 2)).toEqual({
-      models: { claude: "keep" },
+    expect(
+      collectSelections([{ kind: "aborted" }], { general: { harness: "claude", model: "keep" } }, 2),
+    ).toEqual({
+      agents: { general: { harness: "claude", model: "keep" } },
       write: false,
     });
   });

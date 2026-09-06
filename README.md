@@ -82,7 +82,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | Command | Description |
 |---------|-------------|
 | `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
-| `npx codedeck setup` | Choose the model each installed agent should use |
+| `npx codedeck setup` | Choose the harness and model each agent should run on |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
@@ -126,9 +126,9 @@ npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 
 A launch carrying `-p`/`--print` answers once and exits, so it never asks anything. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
 
-### Choosing a model per agent
+### Choosing a harness and model per agent
 
-Launching never asks. Which model each harness should use is a question worth answering deliberately, not one to greet someone with, so it lives in its own command:
+Launching never asks. Which harness and model each of the four agents should run on is a question worth answering deliberately, not one to greet someone with, so it lives in its own command:
 
 ```bash
 npx codedeck setup
@@ -139,24 +139,35 @@ npx codedeck setup
   ║  ║ ║║║║╠═ ║║║╠═ ║  ╠╩╗
   ╚═╝╚═╝═╩╝╚═╝═╩╝╚═╝╚═╝╩ ╩
 
-  opencode  ~  agente 3 de 4
+  reviewer  ~  agente 3 de 4
 
   filtrar: sonnet
-    opencode/claude-sonnet-4-6    opencode
-  › openrouter/anthropic/claude-sonnet-4-6    openrouter
-    zai-coding-plan/claude-sonnet-4-6    zai-coding-plan
-    3 de 614   move ^ v   Enter escolhe   ^G pula   ^C sai
+    claude-sonnet-4-6    claude
+  › opencode/claude-sonnet-4-6    opencode
+    zai-coding-plan/claude-sonnet-4-6    opencode
+    4 de 731   move ^ v   Enter escolhe   ^G pula   ^C sai
 ```
 
-Typing filters as you go, which is the answer to opencode proxying some 600 ids: nothing is capped and nothing is hidden. With the filter empty the list is grouped by provider with a count per group. Your current choice, or a default the harness actually declares, is pinned to the top and marked. Only the claude and codex drivers declare one, so opencode and omp pin nothing rather than dress an alphabetical accident up as a recommendation.
+One screen per agent, and the list on it is every model of every installed harness at once, grouped by harness. A single Enter answers both halves: `reviewer` becomes `codex:gpt-5.6-luna`, `general` stays on claude. The axis used to run the other way, one screen per harness, which answered a question nobody asks (what codex should run, in the abstract, when nothing says who is running it).
 
-`^G` skips an agent and leaves its saved choice alone. `^C` walks out and writes nothing. Esc does neither, on purpose: it takes half a second to resolve and a fragmented arrow key arrives looking exactly like it.
+Typing filters as you go, which is the answer to opencode alone proxying some 600 ids: nothing is capped and nothing is hidden. With the filter empty the list is grouped by harness with a count per group, and the agent's current binding is pinned to the top and marked `atual`. Turn a filter on and both markings give way to the harness, which moves to the end of every row. With nothing saved yet the pin is the default declared by `defaultAgent`'s harness, and only the claude and codex drivers declare one, so a config pointing at opencode or omp pins nothing rather than dress an alphabetical accident up as a recommendation.
 
-An id the catalog does not list can still be typed. Enter asks once to confirm, and a second Enter writes it.
+`^G` skips an agent and leaves its saved binding alone. `^C` walks out and writes nothing. Esc does neither, on purpose: it takes half a second to resolve and a fragmented arrow key arrives looking exactly like it.
+
+An id the catalog does not list can still be typed, with its harness as a prefix:
+
+```
+  filtrar: codex:gpt-5.7
+  › usar "gpt-5.7" em codex
+```
+
+The prefix is required, because a bare id names half a binding and there is no honest way to guess the other half. Enter asks once to confirm, and a second Enter writes it.
 
 The catalog is cached for four hours. `codedeck setup --refresh` ignores the cache and rediscovers.
 
-Precedence is `--model`, then the agent's saved model, then `defaultModel`, then the driver's own default, so `codedeck run --agent codex` picks up the codex choice without repeating the flag.
+`codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model, rather than hand one harness another's id.
+
+Anything the bindings do not answer falls back the way it always did. The harness comes from `defaultAgent`, then claude; the model from `models[harness]`, then `defaultModel`, then whatever the driver picks for itself. A role nobody bound, because it was skipped in setup, lands in that same fallback instead of failing.
 
 ## Session
 

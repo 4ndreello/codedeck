@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyKey, initialState, type Key, type Screen } from "../src/cli/picker-state.js";
+import { applyKey, initialState, itemKey, type Key, type Screen } from "../src/cli/picker-state.js";
 import {
   chromeHeight,
   colors,
@@ -90,15 +90,16 @@ describe("text primitives", () => {
 });
 
 const catalog = (overrides: Partial<Screen> = {}): Screen => ({
-  agent: "opencode",
-  title: "opencode",
+  role: "reviewer",
+  title: "reviewer",
   counter: "agente 3 de 4",
   pinned: false,
+  harnesses: new Set(["opencode", "codex"]),
   known: new Set(),
   items: [
-    { id: "opencode/a", label: "opencode/a", group: "opencode" },
-    { id: "opencode/b", label: "opencode/b", group: "opencode" },
-    { id: "openrouter/c", label: "openrouter/c", group: "openrouter" },
+    { id: "opencode/a", label: "opencode/a", group: "opencode", harness: "opencode" },
+    { id: "opencode/b", label: "opencode/b", group: "opencode", harness: "opencode" },
+    { id: "gpt-5.6-luna", label: "gpt-5.6-luna", group: "codex", harness: "codex" },
   ],
   ...overrides,
 });
@@ -109,19 +110,35 @@ const press = (screen: Screen, char: string) => {
 };
 
 describe("frame", () => {
-  it("groups by provider with a count while the filter is empty", () => {
+  it("groups by harness with a count while the filter is empty", () => {
     const text = renderFrame(initialState(catalog()), { rows: 40, columns: 80 }, plain).join("\n");
 
     expect(text).toMatch(/-- opencode -+ 2 --/);
-    expect(text).toMatch(/-- openrouter -+ 1 --/);
+    expect(text).toMatch(/-- codex -+ 1 --/);
   });
 
-  // With a filter on, the headers go and the provider becomes a row suffix.
+  // With a filter on, the headers go and the harness becomes a row suffix.
+  // The filter has to cut the list down, or "de 3" would read the same whether
+  // the count meant hits or the whole catalog.
   it("drops the headers and counts the hits once filtering", () => {
-    const text = renderFrame(press(catalog(), "c"), { rows: 40, columns: 80 }, plain).join("\n");
+    const text = renderFrame(press(catalog(), "l"), { rows: 40, columns: 80 }, plain).join("\n");
 
     expect(text).not.toContain("--");
-    expect(text).toContain("de 3");
+    expect(text).toContain("1 de 3");
+    expect(text).toMatch(/gpt-5\.6-luna\s+codex/);
+    expect(text).not.toContain("opencode/a");
+  });
+
+  // The pending confirmation is the identity key, and the footer prints it
+  // verbatim. A key joined on a control character rendered as "codexnope" here,
+  // asking the user about an id no screen had ever shown them.
+  it("names the typed id readably while asking to confirm it", () => {
+    const state = { ...initialState(catalog()), filter: "codex:nope", confirming: itemKey("codex", "nope") };
+    const text = renderFrame(state, { rows: 40, columns: 80 }, plain).join("\n");
+
+    expect(text).toContain('"codex:nope" nao esta no catalogo');
+    // eslint-disable-next-line no-control-regex
+    expect(text).not.toMatch(/[\x00-\x08]/);
   });
 
   it("never writes a line wider than the terminal", () => {
@@ -207,6 +224,8 @@ describe("frame height", () => {
     const text = renderFrame(press(catalog(), "z"), { rows: 40, columns: 80 }, plain).join("\n");
 
     expect(text).toContain("0 de 3");
-    expect(text).toContain('usar "z" como id');
+    // Text with no harness in front of it is not pickable, so the row asks for
+    // one instead of offering an id the screen could not save.
+    expect(text).toContain("escreva opencode:z");
   });
 });

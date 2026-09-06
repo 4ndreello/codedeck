@@ -1,6 +1,12 @@
 import type { CodexSandbox, ReasoningEffort } from "./driver.js";
 import type { FailureInfo } from "./errors.js";
-export type AgentId = "claude" | "codex" | "opencode" | "omp";
+export const AGENT_IDS = ["claude", "codex", "opencode", "omp"] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+
+/** Narrows a string read off disk or off a flag to a harness CodeDeck drives. */
+export function isAgentId(value: unknown): value is AgentId {
+  return typeof value === "string" && (AGENT_IDS as readonly string[]).includes(value);
+}
 
 export type SessionStatus =
   | "starting"

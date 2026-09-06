@@ -1,13 +1,13 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig, resolveModel } from "../../config/config.js";
+import { loadConfig, resolveModel, resolveRoleBinding } from "../../config/config.js";
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
-import { resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
+import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -40,8 +40,14 @@ Resume with: codedeck send <id> "continue"
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const cfg = loadConfig();
-      const agent = (opts.agent || cfg.defaultAgent || "claude") as AgentId;
-      const model = resolveModel(agent, opts.model, cfg);
+      // A role carries both halves, so naming one is enough to pick a harness
+      // and a model. Explicit flags still win over it.
+      const binding = resolveRoleBinding(parseRole(opts.role), cfg);
+      const agent = (opts.agent || binding?.harness || cfg.defaultAgent || "claude") as AgentId;
+      // The bound model belongs to the bound harness. `--agent codex --role
+      // reviewer` with reviewer on claude must not hand codex a claude id.
+      const bound = binding && binding.harness === agent ? binding.model : undefined;
+      const model = resolveModel(agent, opts.model ?? bound, cfg);
 
       // `open` hands the role to Claude as `--agent`, which no other harness
       // has. Here it becomes a prompt prefix instead, so a codex or opencode
