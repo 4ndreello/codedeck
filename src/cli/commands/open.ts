@@ -477,7 +477,7 @@ export function installSigintGuard(
   };
 }
 
-function writeStdoutSync(text: string): void {
+export function writeStdoutSync(text: string): void {
   try {
     const bytes = Buffer.from(text);
     let offset = 0;
@@ -966,13 +966,15 @@ export function entitlementError(model: string, output: string): string | undefi
   return `Claude Code rejected model "${rejected}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
 }
 
-function launchClaude(
+export function launchClaude(
   claudeBin: string,
   model: string,
   args: string[],
   cwd: string,
   sessionFile: string,
   onClose: () => void,
+  spawnChild: typeof spawn = spawn,
+  signalHost: SignalHost = process,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -983,7 +985,7 @@ function launchClaude(
         ? sanitizeEnv(process.env)
         : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
     let child: ChildProcess | undefined;
-    const sigintGuard = installSigintGuard(() => child);
+    const sigintGuard = installSigintGuard(() => child, signalHost);
     const fail = (error: unknown) => {
       if (settled) return;
       settled = true;
@@ -993,7 +995,7 @@ function launchClaude(
     };
 
     try {
-      child = spawn(claudeBin, args, {
+      child = spawnChild(claudeBin, args, {
         cwd,
         env: { ...childEnv, CODEDECK_SESSION_FILE: sessionFile },
         // Keep Claude in the foreground process group so the terminal sends

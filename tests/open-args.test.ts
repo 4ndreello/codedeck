@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { spawn } from "node:child_process";
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 
@@ -28,7 +29,9 @@ import {
   sanitizeEnv,
   scanOptions,
   ensureCodedeckShim,
+  launchClaude,
   withCodedeckOnPath,
+  writeStdoutSync,
   SPINNER_VERB_WIDTH,
 } from "../src/cli/commands/open.js";
 
@@ -356,7 +359,38 @@ describe("open command pure helpers", () => {
     expect(removed).toHaveLength(1);
   });
 
-  it("escalates a flooded SIGINT and stops after the child closes", () => {
+  // A real process-group flood would kill the test runner. Driving the installed
+  // listener keeps this test on the parent side while exercising every transition.
+  it("survives a SIGINT flood and escalates after the grace window", () => {
+    vi.useFakeTimers();
+    let onSigint: (() => void) | undefined;
+    const signalHost = {
+      on: (_event: "SIGINT", listener: () => void) => {
+        onSigint = listener;
+      },
+      removeListener: vi.fn(),
+    };
+    const child = { kill: vi.fn(() => true) };
+    const guard = installSigintGuard(() => child, signalHost);
+
+    try {
+      for (let i = 0; i < 5; i++) onSigint?.();
+
+      expect(signalHost.removeListener).not.toHaveBeenCalled();
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(999);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1);
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    } finally {
+      guard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels the SIGKILL timer when the child closes during grace", () => {
     vi.useFakeTimers();
     let onSigint: (() => void) | undefined;
     const signalHost = {
@@ -371,18 +405,118 @@ describe("open command pure helpers", () => {
     try {
       onSigint?.();
       onSigint?.();
-      expect(child.kill).not.toHaveBeenCalled();
       onSigint?.();
-
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-      vi.runOnlyPendingTimers();
-      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
 
       guard.childClosed();
-      onSigint?.();
-      expect(child.kill).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1000);
+
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       guard.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("reassembles partial synchronous stdout writes", () => {
+    const text = "farewell resume line";
+    const chunks: Buffer[] = [];
+    const writeSync = vi.spyOn(fs, "writeSync").mockImplementation(
+      ((_fd, buffer, offset = 0, length = buffer.byteLength - offset) => {
+        const written = Math.min(2, length);
+        chunks.push(Buffer.from(buffer as Uint8Array).subarray(offset, offset + written));
+        return written;
+      }) as typeof fs.writeSync,
+    );
+
+    try {
+      writeStdoutSync(text);
+
+      expect(Buffer.concat(chunks).toString()).toBe(text);
+      expect(writeSync).toHaveBeenCalledTimes(Math.ceil(text.length / 2));
+    } finally {
+      writeSync.mockRestore();
+    }
+  });
+
+  it("swallows EPIPE from a closed terminal", () => {
+    const writeSync = vi.spyOn(fs, "writeSync").mockImplementation(
+      (() => {
+        const error = new Error("terminal closed") as NodeJS.ErrnoException;
+        error.code = "EPIPE";
+        throw error;
+      }) as typeof fs.writeSync,
+    );
+
+    try {
+      expect(() => writeStdoutSync("farewell")).not.toThrow();
+    } finally {
+      writeSync.mockRestore();
+    }
+  });
+
+  it("writes the farewell when a force-killed child closes", async () => {
+    vi.useFakeTimers();
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const previousExitCode = process.exitCode;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-force-test-"));
+    const sessionFile = path.join(tempDir, "session");
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    fs.writeFileSync(sessionFile, sessionId);
+    process.env.RUN_AGENT_DIR = tempDir;
+
+    const close = vi.fn();
+    const child = {
+      stderr: null,
+      kill: vi.fn(() => true),
+      once: vi.fn((_event: string, listener: (...args: unknown[]) => void) => {
+        if (_event === "close") close.mockImplementation(listener);
+      }),
+    };
+    const spawnChild = vi.fn(() => child) as unknown as typeof spawn;
+    let onSigint: (() => void) | undefined;
+    const signalHost = {
+      on: (_event: "SIGINT", listener: () => void) => {
+        onSigint = listener;
+      },
+      removeListener: vi.fn(),
+    };
+    let output = "";
+
+    try {
+      const launched = launchClaude(
+        "claude",
+        "claude-opus-4-8",
+        [],
+        tempDir,
+        sessionFile,
+        () => finishOpenSession("reviewer", sessionFile, (text) => {
+          output += text;
+        }),
+        spawnChild,
+        signalHost,
+      );
+
+      onSigint?.();
+      onSigint?.();
+      onSigint?.();
+      vi.advanceTimersByTime(1000);
+
+      expect(child.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+      expect(child.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+
+      close(null, "SIGKILL");
+      await launched;
+
+      expect(output).toContain(`codedeck open reviewer --resume ${sessionId}`);
+      expect(process.exitCode).toBe(137);
+      expect(signalHost.removeListener).toHaveBeenCalledTimes(1);
+    } finally {
+      process.exitCode = previousExitCode;
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      fs.rmSync(tempDir, { recursive: true, force: true });
       vi.useRealTimers();
     }
   });
