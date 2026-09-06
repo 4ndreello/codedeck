@@ -65,9 +65,20 @@ export class Database {
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        path_glob TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
+      );
+
       CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_active_session_path
+        ON claims(session_id, path_glob) WHERE active = 1;
     `);
 
     this.addMissingColumns();
