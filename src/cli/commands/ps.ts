@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { isActiveStatus, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
+import { truncate, visibleWidth } from "../ui.js";
 
 function formatAge(date: string | Date): string {
   const d = new Date(date);
@@ -31,6 +32,195 @@ type PsSession = {
 
 const LAST_EVENT_WIDTH = 15;
 
+const SEP = "  ";
+
+function padToWidth(s: string, w: number): string {
+  const v = visibleWidth(s);
+  if (v >= w) return s;
+  return s + " ".repeat(w - v);
+}
+
+function ellipsizeEnd(s: string, w: number): string {
+  if (w <= 0) return "";
+  if (visibleWidth(s) <= w) return padToWidth(s, w);
+  if (w === 1) return "…";
+  return padToWidth(`${truncate(s, w - 1)}…`, w);
+}
+
+function ellipsizeStart(s: string, w: number): string {
+  if (w <= 0) return "";
+  if (visibleWidth(s) <= w) return padToWidth(s, w);
+  if (w === 1) return "…";
+  const chars = Array.from(s);
+  let width = 0;
+  let take = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const cw = visibleWidth(chars[i]);
+    if (width + cw > w - 1) break;
+    width += cw;
+    take++;
+  }
+  return padToWidth(`…${chars.slice(chars.length - take).join("")}`, w);
+}
+
+type PsColumnKey =
+  | "id"
+  | "name"
+  | "agent"
+  | "model"
+  | "status"
+  | "age"
+  | "last"
+  | "lastEvent"
+  | "cwd";
+
+type PsColumn = {
+  key: PsColumnKey;
+  header: string;
+  pref: number;
+  min: number;
+  startTruncate?: boolean;
+};
+
+const PS_COLUMNS: readonly PsColumn[] = [
+  { key: "id", header: "ID", pref: 4, min: 4 },
+  { key: "name", header: "NAME", pref: 16, min: 8 },
+  { key: "agent", header: "AGENT", pref: 9, min: 5 },
+  { key: "model", header: "MODEL", pref: 16, min: 8 },
+  { key: "status", header: "STATUS", pref: 13, min: 6 },
+  { key: "age", header: "AGE", pref: 5, min: 5 },
+  { key: "last", header: "LAST", pref: 5, min: 5 },
+  { key: "lastEvent", header: "LAST EVENT", pref: LAST_EVENT_WIDTH, min: 10 },
+  { key: "cwd", header: "CWD", pref: 12, min: 12, startTruncate: true },
+];
+
+// First dropped first. ID and NAME never drop: on a very narrow terminal the
+// table degrades to ID + NAME rather than wrapping onto two physical lines.
+const PS_DROP_ORDER: readonly PsColumnKey[] = [
+  "cwd",
+  "lastEvent",
+  "last",
+  "model",
+  "agent",
+  "age",
+  "status",
+];
+
+function columnValue(col: PsColumnKey, s: PsSession): string {
+  switch (col) {
+    case "id":
+      return s.id || "";
+    case "name":
+      return s.name || s.branch?.replace("ra/", "") || "-";
+    case "agent":
+      return s.agent || "";
+    case "model":
+      return s.model || "-";
+    case "status":
+      return displayStatus(s);
+    case "age":
+      return formatAge(s.createdAt);
+    case "last":
+      return formatAge(s.updatedAt);
+    case "lastEvent":
+      return (s.lastEvent || "-").replace(/[\r\n\t]+/g, " ");
+    case "cwd":
+      return (s.worktree || s.cwd || "").replace(process.env.HOME || "", "~");
+  }
+}
+
+function formatCell(col: PsColumn, raw: string, width: number): string {
+  if (col.key === "id" || col.key === "age" || col.key === "last") {
+    const cut = truncate(raw, width);
+    return padToWidth(cut, width);
+  }
+  if (col.startTruncate) return ellipsizeStart(raw, width);
+  return ellipsizeEnd(raw, width);
+}
+
+export function resolvePsWidth(explicit?: number): number {
+  if (explicit != null && Number.isFinite(explicit) && explicit > 0) {
+    return Math.floor(explicit);
+  }
+  const stdout = process.stdout as { columns?: number; isTTY?: boolean } | undefined;
+  const cols = stdout?.columns;
+  if (stdout?.isTTY && typeof cols === "number" && cols > 0) return cols;
+  return Number.POSITIVE_INFINITY;
+}
+
+function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColumnKey, number> } {
+  const visible: PsColumn[] = [...PS_COLUMNS];
+
+  if (!Number.isFinite(maxWidth)) {
+    const widths = new Map<PsColumnKey, number>(visible.map((c) => [c.key, c.pref]));
+    return { cols: visible, widths };
+  }
+
+  // 8 is the floor the force-shrink below can always reach (ID 2 + NAME 4
+  // + one separator), so the fit guarantee holds for every width >= 8.
+  const width = Math.max(8, Math.floor(maxWidth));
+  const totalFor = (cols: PsColumn[], widths: Map<PsColumnKey, number>): number => {
+    let sum = 0;
+    for (const c of cols) sum += widths.get(c.key) ?? c.pref;
+    return sum + SEP.length * Math.max(0, cols.length - 1);
+  };
+
+  // Drop low-priority columns first so NAME/MODEL keep their full width at
+  // 80 columns (ID NAME AGENT MODEL STATUS AGE LAST = exactly 80).
+  let widths = new Map<PsColumnKey, number>(visible.map((c) => [c.key, c.pref]));
+  while (visible.length > 2) {
+    if (totalFor(visible, widths) <= width) break;
+    const dropKey = PS_DROP_ORDER.find((k) => visible.some((c) => c.key === k));
+    if (!dropKey) break;
+    const idx = visible.findIndex((c) => c.key === dropKey);
+    visible.splice(idx, 1);
+    widths.delete(dropKey);
+  }
+
+  // Shrink what remains from pref down to min, least important first.
+  widths = new Map(visible.map((c) => [c.key, c.pref]));
+  const shrinkOrder = [...visible]
+    .filter((c) => c.pref > c.min)
+    .sort((a, b) => {
+      const pa = PS_DROP_ORDER.indexOf(a.key);
+      const pb = PS_DROP_ORDER.indexOf(b.key);
+      return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+    });
+  for (const col of shrinkOrder) {
+    let total = totalFor(visible, widths);
+    if (total <= width) break;
+    const cur = widths.get(col.key) ?? col.pref;
+    const reduce = Math.min(cur - col.min, total - width);
+    widths.set(col.key, cur - reduce);
+  }
+
+  // Extremely narrow terminal: force NAME (then STATUS, then ID) below min
+  // rather than emitting a line that wraps.
+  while (totalFor(visible, widths) > width) {
+    const name = visible.find((c) => c.key === "name");
+    const nameW = name ? (widths.get("name") ?? name.pref) : 0;
+    if (name && nameW > 4) {
+      widths.set("name", nameW - 1);
+      continue;
+    }
+    const status = visible.find((c) => c.key === "status");
+    const statusW = status ? (widths.get("status") ?? status.pref) : 0;
+    if (status && statusW > 4) {
+      widths.set("status", statusW - 1);
+      continue;
+    }
+    const id = visible.find((c) => c.key === "id");
+    const idW = id ? (widths.get("id") ?? id.pref) : 0;
+    if (id && idW > 2) {
+      widths.set("id", idW - 1);
+      continue;
+    }
+    break;
+  }
+
+  return { cols: visible, widths };
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -60,26 +250,46 @@ export function psEmptyMessage(all: boolean): string {
 export function formatPsJson(sessions: readonly PsSession[]): string {
   return JSON.stringify(sessions, null, 2);
 }
-export function renderPsTable(sessions: readonly PsSession[]): string {
-  const lines = [
-    "ID    NAME              AGENT      MODEL             STATUS         AGE    LAST   LAST EVENT       CWD",
-    "─".repeat(80),
-  ];
+export function renderPsTable(sessions: readonly PsSession[], width?: number): string {
+  const maxWidth = resolvePsWidth(width);
+  const { cols, widths } = planPsColumns(maxWidth);
 
-  for (const s of sessions) {
-    const id = (s.id || "").slice(0, 4).padEnd(4);
-    const name = (s.name || s.branch?.replace("ra/", "") || "-").slice(0, 16).padEnd(16);
-    const agent = (s.agent || "").slice(0, 9).padEnd(9);
-    const model = (s.model || "-").slice(0, 16).padEnd(16);
-    const status = displayStatus(s).slice(0, 13).padEnd(13);
-    const age = formatAge(s.createdAt).padEnd(5);
-    const last = formatAge(s.updatedAt).padEnd(5);
-    const lastEvent = (s.lastEvent || "-").replace(/[\r\n\t]+/g, " ").slice(0, LAST_EVENT_WIDTH).padEnd(LAST_EVENT_WIDTH);
-    const cwd = (s.worktree || s.cwd || "").replace(process.env.HOME || "", "~");
-    lines.push(`${id}  ${name}  ${agent}  ${model}  ${status}  ${age}  ${last}  ${lastEvent}  ${cwd}`);
+  // CWD is fill: with rows it takes the longest path that still fits, without
+  // rows it shrinks to its header, so the divider matches the real width.
+  if (cols.some((c) => c.key === "cwd")) {
+    const cwdContent = Math.max(
+      3,
+      ...sessions.map((s) => visibleWidth(columnValue("cwd", s))),
+    );
+    if (Number.isFinite(maxWidth)) {
+      const others = cols.filter((c) => c.key !== "cwd");
+      const othersWidth =
+        others.reduce((sum, c) => sum + (widths.get(c.key) ?? c.pref), 0) +
+        SEP.length * Math.max(0, cols.length - 1);
+      widths.set(
+        "cwd",
+        Math.max(3, Math.min(cwdContent, Math.floor(maxWidth) - othersWidth)),
+      );
+    } else {
+      widths.set("cwd", cwdContent);
+    }
   }
 
-  return lines.join("\n");
+  const formatRow = (cells: string[]): string => {
+    const line = cols
+      .map((c, i) => formatCell(c, cells[i], widths.get(c.key) ?? c.pref))
+      .join(SEP);
+    return line.trimEnd();
+  };
+
+  const header = formatRow(cols.map((c) => c.header));
+  const rows = sessions.map((s) => formatRow(cols.map((c) => columnValue(c.key, s))));
+  const tableWidth = Math.max(visibleWidth(header), ...rows.map((r) => visibleWidth(r)));
+  const dividerWidth = Number.isFinite(maxWidth)
+    ? Math.min(tableWidth, Math.floor(maxWidth))
+    : tableWidth;
+
+  return [header, "─".repeat(dividerWidth), ...rows].join("\n");
 }
 
 export function registerPsCommand(program: Command): void {
