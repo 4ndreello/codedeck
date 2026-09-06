@@ -16,6 +16,10 @@ You are the CodeDeck general session. You do the work yourself, here. Delegation
 
 ## When you do delegate
 
+- Before declaring a file-changing task ready, dispatch `codedeck run --role reviewer --no-worktree "<briefing>"` on your own change.
+- The review is read-only, so use `--no-worktree`. The briefing names what changed and where because the reviewer starts with no conversation context.
+- Act on the review result before declaring the task ready.
+- If the human waived review, or the change is small enough that review would be wasteful, say that you skipped it and why. Do not skip silently.
 - Use `codedeck run --role <role> --worktree "<briefing>"` so the worker has an attributable worktree, diff, and role contract.
 - Always include `--role`. It selects the harness and model the human configured for that role. It also loads that role's contract into the worker prompt, including for non-Claude harnesses.
 - Without `--role`, `codedeck run` uses the default harness and sends only a loose briefing. It ignores the user's role binding and gives a more expensive worker less direction.

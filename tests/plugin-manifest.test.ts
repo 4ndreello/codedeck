@@ -159,7 +159,8 @@ describe("CodeDeck plugin manifest contract", () => {
     // The reviewer is the single pass. Dispatching is what separates it from
     // the auditor, so the allowlist has to carry that and not just the prose.
     expect(tools("reviewer")).not.toMatch(/\b(Task|Agent)\b/);
-    expect(tools("orchestrator")).toMatch(/\bTask\b/);
+    expect(tools("orchestrator")).toBe("Bash");
+    expect(tools("orchestrator")).not.toMatch(/\b(Read|Grep|Glob|Task)\b/);
     expect(tools("auditor")).toMatch(/\bTask\b/);
   });
 
@@ -187,13 +188,17 @@ describe("CodeDeck plugin manifest contract", () => {
 
   it("pins the orchestration and review boundaries", () => {
     const orchestrator = readText(plugin("agents", "orchestrator.md"));
+    const general = readText(plugin("agents", "general.md"));
     const reviewer = readText(plugin("agents", "reviewer.md"));
     const auditor = readText(plugin("agents", "auditor.md"));
     const statusline = readText(plugin("statusline.sh"));
 
     expect(orchestrator).toContain('codedeck run --role <role> --worktree "<briefing>"');
-    expect(orchestrator).toContain("codedeck diff <id>");
+    expect(orchestrator).toContain('codedeck run --role general --worktree "<briefing>"');
+    expect(orchestrator).toContain("codedeck diff <id> --stat");
+    expect(orchestrator).not.toMatch(/codedeck diff <id>(?! --stat)/);
     expect(orchestrator).toContain("codedeck stop <id>");
+    expect(general).toContain('codedeck run --role reviewer --no-worktree "<briefing>"');
 
     // Both review roles owe the same third list. A shallow pass reported as a
     // complete one is the failure mode neither prompt may drop.
