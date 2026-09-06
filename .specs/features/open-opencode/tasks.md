@@ -198,12 +198,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] All four roles return exact objects, no role relies on user defaults
-- [ ] Gate check passes: `npm run build` + `npx vitest run tests/open-opencode.test.ts`
-- [ ] Test count: ≥4 tests (one per role, exact object match)
+- [x] All four roles return exact objects, no role relies on user defaults
+- [x] Gate check passes: `npm run build` + `npx vitest run tests/open-opencode.test.ts`
+- [x] Test count: 4 tests (one per role, exact object match)
 
 **Tests**: unit (new `tests/open-opencode.test.ts`)
 **Gate**: build
+
+**Status**: complete
 
 **Commit**: `feat(open): add opencode role permission map`
 
