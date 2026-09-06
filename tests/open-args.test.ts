@@ -67,6 +67,18 @@ describe("open command argument builder", () => {
     ]);
   });
 
+  // The session name is what Claude shows in the window title, so it carries
+  // the project folder along with the role. Without a cwd it stays exactly as
+  // it always was.
+  it("names the session with the project so windows stay distinguishable", () => {
+    const args = buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", [], "/home/u/dev/codedeck");
+
+    expect(args.slice(args.indexOf("-n"))).toEqual(["-n", "CodeDeck · codedeck · orchestrator"]);
+    expect(buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", []).slice(-1)).toEqual([
+      "CodeDeck · orchestrator",
+    ]);
+  });
+
   // `--agent` layers on Claude's own system prompt instead of replacing it, and
   // an agent file with no `tools:` key keeps the whole toolset, so general has
   // no reason to be the one role launched without its contract.

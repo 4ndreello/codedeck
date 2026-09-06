@@ -9,6 +9,7 @@ set -u
 node --input-type=module -e '
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 
 let payload;
 try {
@@ -55,8 +56,8 @@ const tail = (value) => {
 };
 
 /**
- * `codedeck open` launches with -n "CodeDeck . <role>", so session_name is the
- * one field that always carries the role. `agent.name` is serialised only when
+ * `codedeck open` launches with -n "CodeDeck . <project> . <role>", so
+ * session_name is the one field that always carries the role. `agent.name` is serialised only when
  * the session actually has an agent set, which makes it the fallback and not
  * the source: reading it first left the label blank on ordinary sessions.
  */
@@ -67,6 +68,13 @@ const role =
 
 const model = firstText(payload.model?.display_name, payload.model?.id, payload.model);
 const cwd = firstText(payload.workspace?.current_dir, payload.cwd) ?? process.cwd();
+
+/**
+ * The folder name is what tells three windows apart when every one of them
+ * runs the same role on the same branch. Basename on purpose: the full path
+ * would eat the single row the status line gets.
+ */
+const project = text(basename(cwd)) ?? (cwd === "/" ? "/" : undefined);
 
 /**
  * `workspace.git_worktree` is NOT a branch. Claude Code fills it with the
@@ -125,6 +133,7 @@ const costField = () => {
 };
 
 const fields = [
+  project && paint(TEXT, clean(project)),
   role && paint(EMBER, clean(role)),
   model && paint(TEXT, clean(model)),
   branch && paint(BLOOD, clean(branch)),

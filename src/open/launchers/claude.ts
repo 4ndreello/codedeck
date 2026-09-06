@@ -75,11 +75,25 @@ export function buildSettings(pluginDir: string, flags: OpenFlags): Record<strin
   };
 }
 
+/**
+ * The session name is what Claude shows on the ruler above the input, in
+ * `/resume` and in the window title, so it carries the project folder along
+ * with the role. With three terminals open on the same role, the role alone
+ * leaves them indistinguishable. The role stays last because the status line
+ * reads it off the tail of this same string.
+ */
+export function sessionName(role: Role, cwd?: string): string {
+  const project = cwd?.split("/").filter(Boolean).at(-1)?.replace(/[\t\r\n]/g, " ").trim();
+  if (!project) return `CodeDeck · ${role}`;
+  return `CodeDeck · ${project} · ${role}`;
+}
+
 export function buildOpenArgs(
   role: Role,
   flags: OpenFlags,
   pluginDir: string,
   passthrough: string[],
+  cwd?: string,
 ): string[] {
   const args = [
     "--model",
@@ -100,7 +114,7 @@ export function buildOpenArgs(
     "--agent",
     `${PLUGIN_NAME}:${role}`,
     "-n",
-    `CodeDeck · ${role}`,
+    sessionName(role, cwd),
     ...(flags.resume ? ["--resume", flags.resume] : []),
     ...(flags.worktree ? ["-w"] : []),
     ...passthrough,

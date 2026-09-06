@@ -54,7 +54,7 @@ import {
 
 export { ROLES, parseRole, resolvePluginDir, type Role };
 export { effectiveModel };
-export { buildOpenArgs, buildSettings, entitlementError, judgeModel } from "../../open/launchers/claude.js";
+export { buildOpenArgs, buildSettings, entitlementError, judgeModel, sessionName } from "../../open/launchers/claude.js";
 export type { ModelVerdict } from "../../open/contract.js";
 export {
   bootFrame,
@@ -427,7 +427,7 @@ export function registerOpenCommand(program: Command): void {
       }
 
       const resolved = boundModel ?? DEFAULT_MODEL;
-      const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
+      const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough, cwd);
       const model = passthroughModel ?? resolved;
 
       await preflightModel(model, fromConfig);
