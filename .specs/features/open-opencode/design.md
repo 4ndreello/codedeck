@@ -1,7 +1,7 @@
 # Open multi-harness Design
 
 **Spec**: `.specs/features/open-opencode/spec.md`
-**Status**: Draft
+**Status**: Approved
 
 ---
 

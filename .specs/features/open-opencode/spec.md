@@ -136,29 +136,29 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 | Requirement ID | Requisito | Story | Status |
 | -------------- | --------- | ----- | ------ |
-| OO-01 | Args do Claude preservados na factory | P1 Factory | Implementing |
-| OO-02 | Módulo de contrato sem dependência de harness | P1 Factory | Implementing |
-| OO-03 | Suíte open-args verde sem mudar expectativa | P1 Factory | Implementing |
-| OO-04 | Fim do harnessMismatch para roles no opencode | P1 Factory | Implementing |
-| OO-05 | Conteúdo inline com agente e instructions | P1 Opencode | Implementing |
-| OO-06 | Flags `--agent`, `--model`, `--auto` no launch | P1 Opencode | Implementing |
-| OO-07 | `--resume` vira `--session` | P1 Opencode | Implementing |
-| OO-08 | Passthrough após `--` verbatim | P1 Opencode | Implementing |
-| OO-09 | Binário ausente falha com instrução | P1 Opencode | Implementing |
-| OO-10 | Preflight de modelo no catálogo opencode | P1 Opencode | Implementing |
-| OO-11 | Farewell ao fechar, sem limpeza | P1 Opencode | Implementing |
-| OO-12 | Daemon garantido antes do spawn | P1 Opencode | Implementing |
-| OO-13 | `--no-theme` aceito, TUI stock | P2 UI | Implementing |
-| OO-14 | Sonda de restrição do reviewer | P2 Prova | Implementing |
-| OO-15 | Rejeição de modelo com veredito por harness | P1 Opencode | Implementing |
-| OO-16 | TUI stock sem tema nem statusline no MVP | P2 UI | Implementing |
-| OO-17 | Resultado da sonda registrado antes da equivalência | P2 Prova | Implementing |
-| OO-18 | Montagem do inline aborta antes do spawn | Edge | Implementing |
-| OO-19 | Env próprio por processo, sem compartilhamento | Edge | Implementing |
-| OO-20 | `--worktree` no opencode avisa e segue | Edge | Implementing |
-| OO-21 | Modelo fora do formato falha antes do spawn | Edge | Implementing |
-| OO-22 | `cwd` morto falha antes do spawn | Edge | Implementing |
-| OO-23 | Fora de git sobe normalmente | Edge | Implementing |
+| OO-01 | Args do Claude preservados na factory | P1 Factory | Verified |
+| OO-02 | Módulo de contrato sem dependência de harness | P1 Factory | Verified |
+| OO-03 | Suíte open-args verde sem mudar expectativa | P1 Factory | Verified |
+| OO-04 | Fim do harnessMismatch para roles no opencode | P1 Factory | Verified |
+| OO-05 | Conteúdo inline com agente e instructions | P1 Opencode | Verified |
+| OO-06 | Flags `--agent`, `--model`, `--auto` no launch | P1 Opencode | Verified |
+| OO-07 | `--resume` vira `--session` | P1 Opencode | Verified |
+| OO-08 | Passthrough após `--` verbatim | P1 Opencode | Verified |
+| OO-09 | Binário ausente falha com instrução | P1 Opencode | Verified |
+| OO-10 | Preflight de modelo no catálogo opencode | P1 Opencode | Verified |
+| OO-11 | Farewell ao fechar, sem limpeza | P1 Opencode | Verified |
+| OO-12 | Daemon garantido antes do spawn | P1 Opencode | Verified |
+| OO-13 | `--no-theme` aceito, TUI stock | P2 UI | Verified |
+| OO-14 | Sonda de restrição do reviewer | P2 Prova | Verified |
+| OO-15 | Rejeição de modelo com veredito por harness | P1 Opencode | Verified |
+| OO-16 | TUI stock sem tema nem statusline no MVP | P2 UI | Verified |
+| OO-17 | Resultado da sonda registrado antes da equivalência | P2 Prova | Verified |
+| OO-18 | Montagem do inline aborta antes do spawn | Edge | Verified |
+| OO-19 | Env próprio por processo, sem compartilhamento | Edge | Verified |
+| OO-20 | `--worktree` no opencode avisa e segue | Edge | Verified |
+| OO-21 | Modelo fora do formato falha antes do spawn | Edge | Verified |
+| OO-22 | `cwd` morto falha antes do spawn | Edge | Verified |
+| OO-23 | Fora de git sobe normalmente | Edge | Verified |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 

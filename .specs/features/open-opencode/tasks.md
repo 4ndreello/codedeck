@@ -93,7 +93,7 @@ T7 → T8 → T9
 **Tests**: unit (new `tests/open-contract.test.ts`)
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `refactor(open): extract contract module from open command`
 
@@ -121,7 +121,7 @@ T7 → T8 → T9
 **Tests**: unit (existing `tests/open-args.test.ts`, untouched)
 **Gate**: quick
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `refactor(open): extract runtime module from open command`
 
@@ -149,7 +149,7 @@ T7 → T8 → T9
 **Tests**: unit
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `refactor(open): split pure catalog verdict from harness fetch`
 
@@ -177,7 +177,7 @@ T7 → T8 → T9
 **Tests**: unit (existing suites, untouched)
 **Gate**: quick
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `refactor(open): extract claude launcher`
 
@@ -205,7 +205,7 @@ T7 → T8 → T9
 **Tests**: unit (new `tests/open-opencode.test.ts`)
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `feat(open): add opencode role permission map`
 
@@ -236,7 +236,7 @@ T7 → T8 → T9
 **Tests**: unit
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `feat(open): add opencode inline config and args builders`
 
@@ -265,7 +265,7 @@ T7 → T8 → T9
 **Tests**: unit
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `feat(open): dispatch open by role binding`
 
@@ -293,7 +293,7 @@ T7 → T8 → T9
 **Tests**: integration (script itself + spec record in same commit)
 **Gate**: probe
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `test(open): probe opencode reviewer write refusal`
 
@@ -321,7 +321,7 @@ T7 → T8 → T9
 **Tests**: none (docs layer, build gate only)
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `docs(open): document opencode launcher`
 
@@ -437,7 +437,7 @@ No dependency points to a later phase.
 **Tests**: unit
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `test(open): pin dispatch and edge behavior with action tests`
 
@@ -456,7 +456,7 @@ No dependency points to a later phase.
 **Tests**: none (docs layer, build gate only)
 **Gate**: build
 
-**Status**: complete
+**Status**: verified
 
 **Commit**: `test(open): pin dispatch and edge behavior with action tests`
 
