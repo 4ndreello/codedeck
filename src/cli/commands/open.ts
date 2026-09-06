@@ -14,7 +14,7 @@ import {
   type RoleBinding,
 } from "../../config/config.js";
 import { isInteractiveTerminal } from "./setup.js";
-import { INDENT, renderLogo } from "../ui.js";
+import { INDENT, LOGO, renderFarewell, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import {
@@ -277,7 +277,22 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  */
 export function resumeHint(role: Role, id: string | undefined): string | undefined {
   if (id === undefined || !/^[0-9a-fA-F-]{8,}$/.test(id)) return undefined;
-  return `\n${INDENT}resume: codedeck open ${role} --resume ${id}\n`;
+  return `${INDENT}resume: codedeck open ${role} --resume ${id}\n`;
+}
+
+/**
+ * The way out, on the primary screen the alternate one just handed back.
+ *
+ * Drawn even when there is no id to offer, because the sign-off is the point
+ * and a session that ended without one still ended.
+ */
+export function renderExit(role: Role, id: string | undefined): string {
+  const farewell = renderFarewell()
+    .split("\n")
+    .map((line) => (line.trim() === "" ? line : blood(line)))
+    .join("\n");
+  const hint = resumeHint(role, id);
+  return hint ? `${farewell}${muted(hint)}` : farewell;
 }
 
 /** Reads what the SessionStart hook left, and takes the file with it. */
@@ -309,10 +324,76 @@ function takeSessionId(file: string): string | undefined {
  * Colour is written by hand here for the same reason the status line writes its
  * own: this runs before Claude Code exists, so no theme is loaded yet.
  */
-export function renderBanner(role: Role, model: string, effort: string): string {
-  const blood = (value: string) => `\x1b[38;2;225;29;72m${value}\x1b[0m`;
-  const muted = (value: string) => `\x1b[38;2;163;139;143m${value}\x1b[0m`;
+/**
+ * The logo resolving out of katakana noise, one frame at a time.
+ *
+ * Same alphabet as the spinner, so the launch and the session read as one
+ * thing. Blanks in the logo stay blank: the mark keeps its silhouette the whole
+ * way through and the noise fills only the strokes, which is what makes it look
+ * like the letters arriving rather than a rectangle of static.
+ *
+ * Pure, with the noise supplied by the caller, so a test can pin an exact frame
+ * instead of asserting around randomness.
+ */
+export function bootFrame(progress: number, noise: (column: number) => string): string[] {
+  const width = LOGO[0].length;
+  const settled = Math.round(width * Math.min(1, Math.max(0, progress)));
 
+  return LOGO.map((line) =>
+    [...line]
+      .map((glyph, column) => {
+        if (column < settled || glyph === " ") return glyph;
+        return noise(column);
+      })
+      .join(""),
+  );
+}
+
+const BOOT_STEPS = 18;
+const BOOT_STEP_MS = 40;
+const KATAKANA = [...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph));
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Plays the launch animation, then leaves the finished banner on screen.
+ *
+ * It runs BEFORE the spawn, and that ordering is the whole design. Once Claude
+ * Code is spawned the two processes share one terminal, and the moment it
+ * switches to the alternate screen anything written here lands inside its TUI.
+ * There is no layer to sit on top of, so the choice is before or corrupted.
+ * The cost is honest: this animation is time added to the launch, not time
+ * borrowed from Claude Code starting up.
+ *
+ * A pipe gets the still banner. Cursor movement assumes a terminal that is
+ * showing the last thing written, which a redirect into a file is not.
+ */
+async function playBoot(role: Role, model: string, effort: string): Promise<void> {
+  const out = process.stdout;
+  if (!out.isTTY) {
+    out.write(renderBanner(role, model, effort));
+    return;
+  }
+
+  const noise = () => KATAKANA[Math.floor(Math.random() * KATAKANA.length)];
+  out.write("\n");
+
+  for (let step = 0; step <= BOOT_STEPS; step++) {
+    if (step > 0) out.write(`\x1b[${LOGO.length}A`);
+    for (const line of bootFrame(step / BOOT_STEPS, noise)) {
+      out.write(`\r\x1b[2K${INDENT}${blood(line)}\n`);
+    }
+    await delay(BOOT_STEP_MS);
+  }
+
+  out.write(`${INDENT}${muted(`${role} · ${model} · ${effort}`)}\n`);
+  out.write(`${INDENT}${muted("booting…")}\n`);
+}
+
+const blood = (value: string) => `\x1b[38;2;225;29;72m${value}\x1b[0m`;
+const muted = (value: string) => `\x1b[38;2;163;139;143m${value}\x1b[0m`;
+
+export function renderBanner(role: Role, model: string, effort: string): string {
   const logo = renderLogo()
     .split("\n")
     .map((line) => (line.trim() === "" ? line : blood(line)))
@@ -785,10 +866,16 @@ export function registerOpenCommand(program: Command): void {
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
       const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
-      process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
-      await launchClaude(claudeBin, model, args, cwd, sessionFile);
+      const effort = opts.effort ?? DEFAULT_EFFORT;
 
-      const hint = resumeHint(role, takeSessionId(sessionFile));
-      if (hint) process.stdout.write(hint);
+      // --no-theme asks for no CodeDeck styling, and an animation is styling.
+      if (opts.theme === false) {
+        process.stdout.write(renderBanner(role, model, effort));
+      } else {
+        await playBoot(role, model, effort);
+      }
+
+      await launchClaude(claudeBin, model, args, cwd, sessionFile);
+      process.stdout.write(renderExit(role, takeSessionId(sessionFile)));
     });
 }

@@ -3,9 +3,12 @@ import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import type { HarnessModels } from "../src/core/models.js";
+import { LOGO } from "../src/cli/ui.js";
 import {
   ROLES,
+  bootFrame,
   buildOpenArgs,
+  renderExit,
   effectiveModel,
   entitlementError,
   exitCodeFor,
@@ -240,6 +243,37 @@ describe("open command pure helpers", () => {
     expect(resumeHint("reviewer", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain(
       "codedeck open reviewer --resume 92d88cce-bdbc-46db-8573-916afd32f6f7",
     );
+  });
+
+  // The sign-off is the point of the exit, not the id, so a session that ended
+  // without one still gets it.
+  it("signs off with or without an id to offer", () => {
+    expect(renderExit("general", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain("╔╗ ╦ ╦╔═╗");
+    expect(renderExit("general", undefined)).toContain("╔╗ ╦ ╦╔═╗");
+    expect(renderExit("general", undefined)).not.toContain("--resume");
+  });
+
+  // Blanks stay blank so the mark keeps its silhouette while it resolves. Noise
+  // in the gaps would read as a rectangle of static rather than as letters
+  // arriving, and the last frame has to be the logo exactly.
+  it("resolves the logo out of noise from left to right", () => {
+    const noise = () => "ﾊ";
+
+    expect(bootFrame(0, noise)[0]).toBe("ﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊ");
+    expect(bootFrame(1, noise)).toEqual(LOGO);
+    expect(bootFrame(0.5, noise)[0]).toBe("╔═╗╔═╗╔╦╗╔═╗ﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊ");
+    // Row two of the logo carries the only blanks, and they survive every frame.
+    expect(bootFrame(0, noise)[1]).toBe("ﾊ  ﾊ ﾊﾊﾊﾊﾊﾊ ﾊﾊﾊﾊﾊ ﾊ  ﾊﾊﾊ");
+  });
+
+  // Every frame is one row per logo line, so the cursor walk that redraws them
+  // stays in step with what was written.
+  it("keeps every frame the shape of the logo", () => {
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      const frame = bootFrame(progress, () => "ｦ");
+      expect(frame).toHaveLength(LOGO.length);
+      frame.forEach((line, i) => expect([...line]).toHaveLength([...LOGO[i]].length));
+    }
   });
 
   // A hook that never ran leaves nothing, and a session that otherwise worked
