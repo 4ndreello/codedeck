@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatPsJson, psEmptyMessage, renderPsTable } from "../src/cli/commands/ps.js";
+import { formatPsJson, psEmptyMessage, renderPsTable, resolvePsWidth } from "../src/cli/commands/ps.js";
 import { visibleWidth } from "../src/cli/ui.js";
 
 function findMissingPid(): number {
@@ -145,7 +145,7 @@ describe("ps responsive table", () => {
     });
   }
 
-  it.each([40, 60, 80, 100, 120])("keeps every line within %i columns", (width) => {
+  it.each([20, 40, 60, 80, 100, 120])("keeps every line within %i columns", (width) => {
     const rows = [
       wideSession(),
       wideSession({ name: "xpto-xyv-long-name", model: "claude-sonnet-4-5", lastEvent: "Claude exited with code 1" }),
@@ -177,5 +177,24 @@ describe("ps responsive table", () => {
 
     expect(row).toContain("…");
     expect(row).toContain("spike-ooooo");
+  });
+
+  it("reads the width from the terminal when TTY", () => {
+    const stdout = process.stdout as { columns?: number; isTTY?: boolean };
+    const prevColumns = stdout.columns;
+    const prevIsTTY = stdout.isTTY;
+    stdout.columns = 80;
+    stdout.isTTY = true;
+    try {
+      expect(resolvePsWidth()).toBe(80);
+      expect(renderPsTable([wideSession()])).toBe(renderPsTable([wideSession()], 80));
+    } finally {
+      stdout.columns = prevColumns;
+      stdout.isTTY = prevIsTTY;
+    }
+  });
+
+  it("keeps the full table when not a TTY", () => {
+    expect(resolvePsWidth()).toBe(Number.POSITIVE_INFINITY);
   });
 });

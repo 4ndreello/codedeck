@@ -149,7 +149,6 @@ export function resolvePsWidth(explicit?: number): number {
 }
 
 function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColumnKey, number> } {
-  const byKey = new Map<PsColumnKey, PsColumn>(PS_COLUMNS.map((c) => [c.key, c]));
   const visible: PsColumn[] = [...PS_COLUMNS];
 
   if (!Number.isFinite(maxWidth)) {
@@ -157,7 +156,9 @@ function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColu
     return { cols: visible, widths };
   }
 
-  const width = Math.max(14, Math.floor(maxWidth));
+  // 8 is the floor the force-shrink below can always reach (ID 2 + NAME 4
+  // + one separator), so the fit guarantee holds for every width >= 8.
+  const width = Math.max(8, Math.floor(maxWidth));
   const totalFor = (cols: PsColumn[], widths: Map<PsColumnKey, number>): number => {
     let sum = 0;
     for (const c of cols) sum += widths.get(c.key) ?? c.pref;
@@ -193,8 +194,8 @@ function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColu
     widths.set(col.key, cur - reduce);
   }
 
-  // Extremely narrow terminal: force NAME (then STATUS) below min rather
-  // than emitting a line that wraps.
+  // Extremely narrow terminal: force NAME (then STATUS, then ID) below min
+  // rather than emitting a line that wraps.
   while (totalFor(visible, widths) > width) {
     const name = visible.find((c) => c.key === "name");
     const nameW = name ? (widths.get("name") ?? name.pref) : 0;
@@ -206,6 +207,12 @@ function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColu
     const statusW = status ? (widths.get("status") ?? status.pref) : 0;
     if (status && statusW > 4) {
       widths.set("status", statusW - 1);
+      continue;
+    }
+    const id = visible.find((c) => c.key === "id");
+    const idW = id ? (widths.get("id") ?? id.pref) : 0;
+    if (id && idW > 2) {
+      widths.set("id", idW - 1);
       continue;
     }
     break;
