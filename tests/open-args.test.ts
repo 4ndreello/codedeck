@@ -331,6 +331,28 @@ describe("open command pure helpers", () => {
     ).toContain("codedeck-dev run --role reviewer");
   });
 
+  it("refuses to write an alias shim for hostile CLI names", () => {
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    try {
+      for (const hostile of ["../evil", "/tmp/codedeck-evil-probe", "a b", "a;b"]) {
+        const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-hostile-"));
+        process.env.RUN_AGENT_DIR = runAgentDir;
+        process.env.CODEDECK_CLI_NAME = hostile;
+
+        const binDir = ensureCodedeckShim();
+        expect(binDir).toBe(path.join(runAgentDir, "bin"));
+        if (binDir === undefined) continue;
+        expect(fs.readdirSync(binDir)).toEqual(["codedeck"]);
+
+        fs.rmSync(runAgentDir, { recursive: true, force: true });
+      }
+      expect(fs.existsSync("/tmp/codedeck-evil-probe")).toBe(false);
+    } finally {
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+    }
+  });
+
   it("writes a renamed alias shim pointing at the real CLI entry", () => {
     const previousRunAgentDir = process.env.RUN_AGENT_DIR;
     const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-alias-"));
@@ -771,6 +793,18 @@ describe("option scanning", () => {
 
   it("still rejects an unknown option among valid ones", () => {
     expect(() => scan(["--model", "sonnet", "--no-bypas"])).toThrow(/--no-bypas/);
+  });
+
+  it("names the renamed CLI in scan errors and spinner tips", () => {
+    process.env.CODEDECK_CLI_NAME = "codedeck-dev";
+
+    expect(() => scan(["--model", "sonnet", "--no-bypas"])).toThrow("codedeck-dev open");
+    expect(() => scan(["--no-bypass=false"])).toThrow("codedeck-dev open");
+
+    const { spinnerTipsOverride } = settingsOf(
+      buildOpenArgs("general", {}, "/opt/codedeck/plugin", []),
+    );
+    expect(spinnerTipsOverride.tips[0]).toMatch(/^codedeck-dev run/);
   });
 
   // The operands are what tells a role from a value that happens to spell one.
