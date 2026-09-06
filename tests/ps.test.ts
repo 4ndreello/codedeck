@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { formatPsJson, psEmptyMessage, renderPsTable } from "../src/cli/commands/ps.js";
+import { visibleWidth } from "../src/cli/ui.js";
 
 function findMissingPid(): number {
   for (let pid = process.pid + 1; pid < process.pid + 10_000; pid++) {
@@ -48,7 +49,7 @@ describe("ps table liveness", () => {
     const lastEvent = "message: " + "x".repeat(40);
     const row = renderPsTable([session({ lastEvent })]).split("\n")[2];
 
-    expect(row).toContain("message: xxxxxx");
+    expect(row).toContain("message: xxxxx…");
     expect(row).not.toContain(lastEvent);
   });
 
@@ -58,7 +59,7 @@ describe("ps table liveness", () => {
     ]);
 
     expect(output.split("\n")).toHaveLength(3);
-    expect(output).toContain("tool: Bash next");
+    expect(output).toContain("tool: Bash nex…");
   });
 
   it("marks every active status dead when its process is gone", () => {
@@ -127,5 +128,54 @@ describe("ps output contract", () => {
     const parsed: unknown = JSON.parse(formatPsJson([session()]));
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
+  });
+});
+
+describe("ps responsive table", () => {
+  function wideSession(overrides: Record<string, unknown> = {}) {
+    return session({
+      id: "add0pen",
+      name: "tighten-shim-per-extra-long",
+      agent: "codex",
+      model: "gpt-5.6-luna",
+      status: "completed",
+      lastEvent: "You've hit your usage limit, please try again later",
+      cwd: "/home/dev/codedeck.worktrees/spike-ooooo",
+      ...overrides,
+    });
+  }
+
+  it.each([40, 60, 80, 100, 120])("keeps every line within %i columns", (width) => {
+    const rows = [
+      wideSession(),
+      wideSession({ name: "xpto-xyv-long-name", model: "claude-sonnet-4-5", lastEvent: "Claude exited with code 1" }),
+    ];
+    for (const line of renderPsTable(rows, width).split("\n")) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it("drops CWD and LAST EVENT at 80 columns but keeps the core", () => {
+    const output = renderPsTable([wideSession()], 80);
+
+    expect(output).not.toContain("CWD");
+    expect(output).not.toContain("LAST EVENT");
+    expect(output).toContain("NAME");
+    expect(output).toContain("STATUS");
+    expect(output).toContain("tighten-shim-pe…");
+  });
+
+  it("truncates a long NAME with an ellipsis", () => {
+    const row = renderPsTable([wideSession()], 200).split("\n")[2];
+
+    expect(row).toContain("tighten-shim-pe…");
+    expect(row).not.toContain("tighten-shim-per-extra-long");
+  });
+
+  it("keeps the tail of a truncated CWD", () => {
+    const row = renderPsTable([wideSession()], 120).split("\n")[2];
+
+    expect(row).toContain("…");
+    expect(row).toContain("spike-ooooo");
   });
 });
