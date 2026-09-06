@@ -439,7 +439,9 @@ export function bootFrame(progress: number, noise: (column: number) => string): 
 
 const BOOT_STEPS = 18;
 const BOOT_STEP_MS = 40;
-const KATAKANA = [...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph));
+const KATAKANA = [
+  ...new Set([...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph))),
+];
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
