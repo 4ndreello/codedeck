@@ -47,38 +47,45 @@ const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
  * them, so this list is the entire vocabulary and has to be long enough that a
  * single session does not visibly cycle it.
  *
- * The block motifs are here because the spinner glyph itself cannot be reached.
- * Its frames are module constants (`["·","✢","✳","✶","✻","✽"]`, mirrored for
- * the ping-pong) picked only by whether TERM is xterm-ghostty, and no setting
- * touches them. The verb is the one part of that line CodeDeck owns, so it is
- * where the blocks go. They are all U+2580..U+259F, which every terminal font
- * that draws a progress bar already has.
+ * The verb is glyphs rather than a word because the spinner symbol itself
+ * cannot be reached. Its frames are module constants (`["·","✢","✳","✶","✻",
+ * "✽"]`, mirrored for the ping-pong) picked only by whether TERM is
+ * xterm-ghostty, and no setting touches them. The verb is the one part of that
+ * line CodeDeck owns, so the character is made there instead.
+ *
+ * Halfwidth katakana on purpose, mixed with digits. It is the one dense
+ * non-latin block that is single width, so a row of it cannot push the elapsed
+ * time and token count out of alignment the way fullwidth kana would, and the
+ * fonts that ship with a terminal carry it.
+ *
+ * Nothing is lost by dropping the words. The line still carries the elapsed
+ * seconds, the token count and the effort, which is the part anyone reads.
  */
 const SPINNER_VERBS = [
-  "▛▀ Overclocking",
-  "▙▄ Redlining",
-  "▚▞ Warping",
-  "██ Turbocharging",
-  "▓▒ Supercharging",
-  "▞▚ Blazing",
-  "▛▜ Rocketing",
-  "▄█ Thundering",
-  "░▒ Cranking",
-  "▐█ Surging",
-  "█▌ Roaring",
-  "▟▙ Sprinting",
-  "▀▄ Igniting",
-  "▒▓ Accelerating",
-  "▜▛ Screaming",
-  "▙▟ Hammering",
-  "█▀ Launching",
-  "▄▀ Boosting",
-  "▌▐ Charging",
-  "▞▞ Ripping",
-  "▚▚ Barreling",
-  "▓█ Steamrolling",
-  "███ Going ultra",
-  "░░ Rolling hot",
+  "ﾊ7ｦ2ｲ",
+  "ｷ0ｼ9ﾏ",
+  "ﾃ4ﾅ8ﾆ",
+  "ｦ1ｱ5ｳ",
+  "ｵ9ｶ3ｷ",
+  "ｺ2ｻ7ｼ",
+  "ｾ8ｿ0ﾀ",
+  "ﾈ5ﾊ1ﾋ",
+  "ﾏ3ﾐ6ﾑ",
+  "ﾓ7ﾔ2ﾕ",
+  "ﾘ0ﾜ4ｦ",
+  "ｳ6ｴ9ｵ",
+  "ｶ1ｷ8ｹ",
+  "ｻ4ｼ0ｽ",
+  "ｿ2ﾀ5ﾂ",
+  "ﾅ9ﾆ3ﾇ",
+  "ﾋ6ﾎ1ﾏ",
+  "ﾑ8ﾒ4ﾓ",
+  "ﾕ0ﾗ7ﾘ",
+  "ｱ3ｳ5ｴ",
+  "ｹ7ｺ2ｻ",
+  "ｽ1ｾ9ｿ",
+  "ﾂ5ﾃ0ﾅ",
+  "ﾇ8ﾈ6ﾊ",
 ];
 
 /**

@@ -133,16 +133,15 @@ describe("open command argument builder", () => {
   });
 
   // The spinner glyph is a module constant chosen by TERM alone, so the verb is
-  // the only part of that line CodeDeck can paint. The blocks stay inside
-  // U+2580..U+259F, which is the range terminal fonts ship for progress bars:
-  // reaching outside it is how a spinner turns into tofu on someone else's box.
-  it("keeps the spinner blocks inside the range terminal fonts actually have", () => {
+  // the only part of that line CodeDeck can paint. Halfwidth katakana and
+  // digits only: fullwidth kana is two columns wide, and a verb that measures
+  // wider than it counts pushes the elapsed time and token count out of line.
+  it("keeps every spinner verb single width", () => {
     const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
 
     for (const verb of spinnerVerbs.verbs) {
-      const [blocks, ...words] = verb.split(" ");
-      expect(words.join(" "), verb).toMatch(/^[A-Za-z][A-Za-z ]*$/);
-      expect(blocks, verb).toMatch(/^[▀-▟]+$/);
+      expect(verb, verb).toMatch(/^[ｦ-ﾝ0-9]+$/);
+      expect([...verb].length, verb).toBeLessThanOrEqual(8);
     }
   });
 
