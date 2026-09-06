@@ -13,6 +13,7 @@ import {
 import { isInteractiveTerminal } from "./setup.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
+import { getCliName } from "../cli-name.js";
 import { effectiveModel, resolveOpenModel, type OpenFlags } from "../../open/contract.js";
 import {
   buildArgs as buildOpencodeArgs,
@@ -33,7 +34,6 @@ import {
   resolveBinary,
 } from "../../open/launchers/claude.js";
 import {
-  SPINNER_TIPS,
   SPINNER_VERBS,
   assertPluginDirectory,
   currentWorkingDirectory,
@@ -63,6 +63,7 @@ export {
   renderExit,
   resumeHint,
   sanitizeEnv,
+  spinnerTips,
   withCodedeckOnPath,
   writeStdoutSync,
 } from "../../open/runtime.js";
@@ -118,8 +119,8 @@ export function harnessMismatch(role: Role, binding: RoleBinding | undefined): s
     return undefined;
   }
   return (
-    `Agent "${role}" runs on ${binding.harness}, and codedeck open only launches claude and opencode sessions. ` +
-    `Use \`codedeck run --role ${role} "<prompt>"\`, or move it with \`codedeck setup\`.`
+    `Agent "${role}" runs on ${binding.harness}, and ${getCliName()} open only launches claude and opencode sessions. ` +
+    `Use \`${getCliName()} run --role ${role} "<prompt>"\`, or move it with \`${getCliName()} setup\`.`
   );
 }
 
@@ -135,7 +136,7 @@ export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenH
   if (harness === "claude" || harness === "opencode") return harness;
   const mismatch = harnessMismatch(role, binding);
   throw new Error(
-    mismatch ?? `Agent "${role}" runs on ${harness}, which codedeck open does not launch.`,
+    mismatch ?? `Agent "${role}" runs on ${harness}, which ${getCliName()} open does not launch.`,
   );
 }
 
@@ -265,7 +266,7 @@ export function scanOptions(tokens: string[], command: Command): string[] {
     const wantsValue = takesValue.get(name);
     if (wantsValue === undefined) {
       throw new Error(
-        `Unknown option "${name}" for codedeck open. Options for Claude go after "--".`,
+        `Unknown option "${name}" for ${getCliName()} open. Options for Claude go after "--".`,
       );
     }
 
@@ -273,7 +274,7 @@ export function scanOptions(tokens: string[], command: Command): string[] {
     // whole token otherwise, so `--no-bypass=false` would read as accepted and
     // launch with the bypass still on.
     if (separator >= 0 && !wantsValue) {
-      throw new Error(`Option "${name}" for codedeck open takes no value.`);
+      throw new Error(`Option "${name}" for ${getCliName()} open takes no value.`);
     }
 
     // The next token belongs to this option even when it looks like a flag,
@@ -372,7 +373,7 @@ export function registerOpenCommand(program: Command): void {
         // takes a string and a TypeError is not a diagnostic.
         if (boundModel === undefined) {
           throw new Error(
-            `Agent "${role}" has no model bound. Run \`codedeck setup\` to bind one.`,
+            `Agent "${role}" has no model bound. Run \`${getCliName()} setup\` to bind one.`,
           );
         }
         if (opts.worktree) {

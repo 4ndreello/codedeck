@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   effectiveModel,
@@ -25,6 +25,10 @@ const catalog = (models: string[]): HarnessModels => ({
 });
 
 const pluginDir = resolvePluginDir();
+
+afterEach(() => {
+  delete process.env.CODEDECK_CLI_NAME;
+});
 
 describe("resolveRoleContract", () => {
   it("returns the agent body without frontmatter plus the ultra text", () => {
@@ -116,6 +120,16 @@ describe("judgeModelIn", () => {
       kind: "rejected",
       error:
         'Model "prov/abd" is not in the opencode catalog. Did you mean "prov/abc"? Run `codedeck setup` to pick another.',
+    });
+  });
+
+  it("names the renamed CLI in the config recovery hint", () => {
+    process.env.CODEDECK_CLI_NAME = "codedeck-dev";
+
+    expect(judgeModelIn(catalog(["prov/abc"]), "prov/abd", true, "opencode")).toEqual({
+      kind: "rejected",
+      error:
+        'Model "prov/abd" is not in the opencode catalog. Did you mean "prov/abc"? Run `codedeck-dev setup` to pick another.',
     });
   });
 

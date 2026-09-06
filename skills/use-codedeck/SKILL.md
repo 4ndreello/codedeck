@@ -7,6 +7,10 @@ description: Use when an agent needs to start, monitor, wait for, stop, or inspe
 
 CodeDeck runs coding-agent sessions and persists their state. The session ID is the durable handle. `run --bg` confirms a session started, `wait` confirms it finished. Dispatch a worker with `--role`, never a bare prompt.
 
+## Custom CLI name
+
+Examples here use `codedeck`. If the checkout runs under another name (for example `codedeck-dev` via `CODEDECK_CLI_NAME`), use that name in place of `codedeck` in every command on this page.
+
 ## Dispatch: always `--role`
 
 `codedeck run --role <role> "<briefing>"` is the shape. The role picks the harness and model the human bound in `codedeck setup`, and it prepends that role's contract to the worker prompt for every harness, codex and opencode included. Without `--role`, run falls back to the default harness and sends a loose prompt, so you pay for a pricier worker and give it less direction. That is the cost lever. Choose the role, and its binding chooses the model.

@@ -618,4 +618,29 @@ describe("setup command", () => {
     const setup = program.commands.find((command) => command.name() === "setup");
     expect(setup?.options.map((option) => option.long)).toContain("--refresh");
   });
+
+  it("names the renamed CLI when setup has no terminal", async () => {
+    const previousCliName = process.env.CODEDECK_CLI_NAME;
+    process.env.CODEDECK_CLI_NAME = "codedeck-dev";
+    const errors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.join(" "));
+    };
+    const originalExitCode = process.exitCode;
+    try {
+      const program = new Command();
+      program.exitOverride();
+      registerSetupCommand(program);
+      await program.parseAsync(["setup"], { from: "user" });
+
+      expect(errors.join("\n")).toContain("codedeck-dev setup needs a terminal");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      console.error = originalError;
+      process.exitCode = originalExitCode;
+      if (previousCliName === undefined) delete process.env.CODEDECK_CLI_NAME;
+      else process.env.CODEDECK_CLI_NAME = previousCliName;
+    }
+  });
 });
