@@ -21,13 +21,21 @@ export function resolvePluginDir(): string {
 
 export const ROLES = ["general", "orchestrator", "reviewer", "auditor"] as const;
 export type Role = (typeof ROLES)[number];
+// Three characters is a contract, not a count of today's unique initials. A
+// fifth role can make a shorter prefix ambiguous without changing this rule.
+const MIN_ROLE_PREFIX_LENGTH = 3;
 
 export function parseRole(input: string | undefined): Role | undefined {
   if (input === undefined) return undefined;
   const normalized = input.trim().toLowerCase();
-  return (ROLES as readonly string[]).includes(normalized)
-    ? (normalized as Role)
-    : undefined;
+  const exact = ROLES.find((role) => role === normalized);
+  if (exact) return exact;
+  if (normalized.length < MIN_ROLE_PREFIX_LENGTH) return undefined;
+
+  const matches = ROLES.filter((role) => role.startsWith(normalized));
+  // Multiple matches stay unresolved. Picking one would also choose its
+  // harness and model, so ambiguity must not launch an unrequested session.
+  if (matches.length === 1) return matches[0];
 }
 
 export function roleFile(pluginDir: string, role: Role): string {

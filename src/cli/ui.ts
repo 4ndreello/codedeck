@@ -7,10 +7,17 @@ import { hitCount, visibleItems, type PickerState } from "./picker-state.js";
 
 // Box-drawing letters, every row exactly 24 columns wide. Kept as three
 // separate strings rather than one template so an editor cannot reflow it.
-const LOGO = [
+export const LOGO = [
   "╔═╗╔═╗╔╦╗╔═╗╔╦╗╔═╗╔═╗╦╔═",
   "║  ║ ║║║║╠═ ║║║╠═ ║  ╠╩╗",
   "╚═╝╚═╝═╩╝╚═╝═╩╝╚═╝╚═╝╩ ╩",
+];
+
+// The sign-off, same alphabet as the logo so the two ends of a session match.
+const FAREWELL = [
+  "╔╗ ╦ ╦╔═╗",
+  "╠╩╗╚╦╝╠═ ",
+  "╚═╝ ╩ ╚═╝",
 ];
 
 export const INDENT = "  ";
@@ -18,6 +25,13 @@ export const INDENT = "  ";
 /** The logo with an optional line of context under it. */
 export function renderLogo(subtitle?: string): string {
   const lines = LOGO.map((line) => `${INDENT}${line}`);
+  if (subtitle) lines.push(`${INDENT}${subtitle}`);
+  return `\n${lines.join("\n")}\n`;
+}
+
+/** The same, for the way out. */
+export function renderFarewell(subtitle?: string): string {
+  const lines = FAREWELL.map((line) => `${INDENT}${line}`);
   if (subtitle) lines.push(`${INDENT}${subtitle}`);
   return `\n${lines.join("\n")}\n`;
 }

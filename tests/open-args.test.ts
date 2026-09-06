@@ -1,11 +1,16 @@
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
 import type { HarnessModels } from "../src/core/models.js";
+import { LOGO } from "../src/cli/ui.js";
 import {
   ROLES,
+  bootFrame,
   buildOpenArgs,
+  renderExit,
   effectiveModel,
   entitlementError,
   exitCodeFor,
@@ -15,16 +20,25 @@ import {
   parseRole,
   registerOpenCommand,
   renderBanner,
+  resumeHint,
+  resolveRole,
   resolvePluginDir,
   sanitizeEnv,
   scanOptions,
+  ensureCodedeckShim,
+  withCodedeckOnPath,
 } from "../src/cli/commands/open.js";
+
+/** The launcher passes settings inline, so every assertion reads them back. */
+const settingsOf = (args: string[]) =>
+  JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}") as Record<string, any>;
 
 describe("open command argument builder", () => {
   it("uses the CodeDeck defaults and plugin contract", () => {
     const args = buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", []);
+    const settingsIndex = args.indexOf("--settings");
 
-    expect(args).toEqual([
+    expect(args.filter((_, i) => i !== settingsIndex + 1)).toEqual([
       "--model",
       "claude-opus-4-8",
       "--effort",
@@ -35,7 +49,6 @@ describe("open command argument builder", () => {
       "--append-system-prompt-file",
       "/opt/codedeck/plugin/ultra.md",
       "--settings",
-      "/opt/codedeck/plugin/settings.json",
       "--agent",
       "codedeck:orchestrator",
       "-n",
@@ -68,8 +81,9 @@ describe("open command argument builder", () => {
       "/opt/codedeck/plugin",
       ["--model", "claude-opus-4-8", "--add-dir", "other tree"],
     );
+    const settingsIndex = args.indexOf("--settings");
 
-    expect(args).toEqual([
+    expect(args.filter((_, i) => i !== settingsIndex + 1)).toEqual([
       "--model",
       "claude-sonnet",
       "--effort",
@@ -79,7 +93,6 @@ describe("open command argument builder", () => {
       "--append-system-prompt-file",
       "/opt/codedeck/plugin/ultra.md",
       "--settings",
-      "/opt/codedeck/plugin/settings.json",
       "--agent",
       "codedeck:reviewer",
       "-n",
@@ -94,12 +107,87 @@ describe("open command argument builder", () => {
     ]);
   });
 
-  it("keeps statusLine while removing theme settings", () => {
-    const args = buildOpenArgs("general", { theme: false }, "/opt/codedeck/plugin", []);
-    const settingsIndex = args.indexOf("--settings");
-    const settings = JSON.parse(args[settingsIndex + 1] ?? "{}");
+  // ${CLAUDE_PLUGIN_ROOT} is expanded only for hooks declared in a plugin's
+  // hooks/hooks.json. In statusLine.command it throws inside the runner, which
+  // swallows it: no status line, no error, not even under --debug. The command
+  // has to name a path that needs no expansion.
+  it("resolves the statusline path instead of leaving a plugin-root placeholder", () => {
+    const settings = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
 
-    expect(settings).toEqual({
+    expect(settings.statusLine).toEqual({
+      type: "command",
+      command: "bash '/opt/codedeck/plugin/statusline.sh'",
+    });
+    expect(JSON.stringify(settings)).not.toContain("CLAUDE_PLUGIN_ROOT");
+  });
+
+  it("declares the whole CodeDeck look", () => {
+    const settings = settingsOf(buildOpenArgs("reviewer", {}, "/opt/codedeck/plugin", []));
+
+    expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
+    expect(settings.tui).toBe("fullscreen");
+    expect(settings.spinnerVerbs.mode).toBe("replace");
+    expect(settings.spinnerVerbs.verbs.length).toBeGreaterThan(8);
+    expect(settings.spinnerTipsOverride).toMatchObject({ excludeDefault: true, label: "ULTRA" });
+    expect(settings.spinnerTipsOverride.tips.length).toBeGreaterThan(0);
+  });
+
+  // "replace" drops Claude Code's own verbs, so an empty or one-entry list
+  // would leave the spinner saying the same word for a whole session.
+  it("carries enough spinner verbs to replace the built-in ones", () => {
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
+
+    expect(new Set(spinnerVerbs.verbs).size).toBe(spinnerVerbs.verbs.length);
+    for (const verb of spinnerVerbs.verbs) expect(verb.trim()).toBe(verb);
+  });
+
+  // The spinner glyph is a module constant chosen by TERM alone, so the verb is
+  // the only part of that line CodeDeck can paint. Halfwidth katakana and
+  // digits only: fullwidth kana is two columns wide, and a verb that measures
+  // wider than it counts pushes the elapsed time and token count out of line.
+  it("keeps every spinner verb single width", () => {
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
+
+    for (const verb of spinnerVerbs.verbs) {
+      expect(verb, verb).toMatch(/^[ｦ-ﾝ0-9]+$/);
+      expect([...verb].length, verb).toBeLessThanOrEqual(8);
+    }
+  });
+
+  // Every tip is read as a command someone will type, so a tip naming a command
+  // this CLI does not ship is worse than no tip.
+  it("only advertises commands the CLI actually ships", () => {
+    const commands = new Set([
+      "run", "ps", "logs", "wait", "diff", "stop", "send", "show", "open", "setup",
+      "models", "doctor",
+    ]);
+    const { spinnerTipsOverride } = settingsOf(
+      buildOpenArgs("general", {}, "/opt/codedeck/plugin", []),
+    );
+
+    for (const tip of spinnerTipsOverride.tips as string[]) {
+      const named = tip.match(/codedeck ([a-z-]+)/)?.[1];
+      expect(named, tip).toBeDefined();
+      expect(commands, tip).toContain(named);
+    }
+  });
+
+  // companyAnnouncements was tried and taken back out. It renders our string,
+  // but Claude Code puts its own "Message from <organization>:" above it
+  // whenever the account has an org, which no setting suppresses, so on such an
+  // account the line reads as coming from the employer. Nothing was lost:
+  // Claude Code's own opening header already names the model, the effort and
+  // the agent, and the footer already says whether permissions are bypassed.
+  it("puts no text on the opening screen", () => {
+    const settings = settingsOf(buildOpenArgs("auditor", {}, "/opt/codedeck/plugin", []));
+
+    expect(settings.companyAnnouncements).toBeUndefined();
+  });
+
+  it("keeps only the status line when the theme is off", () => {
+    const args = buildOpenArgs("general", { theme: false }, "/opt/codedeck/plugin", []);
+
+    expect(settingsOf(args)).toEqual({
       statusLine: {
         type: "command",
         command: "bash '/opt/codedeck/plugin/statusline.sh'",
@@ -116,14 +204,20 @@ describe("open command argument builder", () => {
     ["a backtick", "/opt/a`id`b/plugin", "bash '/opt/a`id`b/plugin/statusline.sh'"],
     ["a quote", "/opt/it's/plugin", "bash '/opt/it'\\''s/plugin/statusline.sh'"],
   ])("keeps the status line runnable when the path holds %s", (_label, pluginDir, expected) => {
-    const args = buildOpenArgs("general", { theme: false }, pluginDir, []);
-    const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
-
-    expect(settings.statusLine.command).toBe(expected);
+    // Both branches build the same command, so the quoting is checked on the
+    // one that used to hand Claude a path it never resolved.
+    expect(settingsOf(buildOpenArgs("general", { theme: false }, pluginDir, [])).statusLine.command)
+      .toBe(expected);
+    expect(settingsOf(buildOpenArgs("general", {}, pluginDir, [])).statusLine.command)
+      .toBe(expected);
   });
 });
 
 describe("open command pure helpers", () => {
+  it("defaults a non-interactive open to the orchestrator role", async () => {
+    await expect(resolveRole(undefined, false)).resolves.toBe("orchestrator");
+  });
+
   it("parses the supported roles and rejects unknown roles", () => {
     expect(ROLES).toEqual(["general", "orchestrator", "reviewer", "auditor"]);
     expect(parseRole(undefined)).toBeUndefined();
@@ -136,8 +230,63 @@ describe("open command pure helpers", () => {
     const env = { PATH: "/bin", CLAUDE_CODE_CHILD_SESSION: "1" };
     const sanitized = sanitizeEnv(env);
 
-    expect(sanitized).toEqual({ PATH: "/bin" });
+    expect(sanitized).toEqual({ PATH: "/bin", MISE_QUIET: "1" });
     expect(env.CLAUDE_CODE_CHILD_SESSION).toBe("1");
+    // The caller's own object is never touched, whether a key is dropped or
+    // added: it is process.env, and this runs before the launch.
+    expect(env).not.toHaveProperty("MISE_QUIET");
+  });
+
+  it("puts the CodeDeck bin directory first without mutating the environment", () => {
+    const env = { PATH: `/usr/bin${path.delimiter}/bin`, HOME: "/tmp/home" };
+    const binDir = "/tmp/codedeck/bin";
+
+    expect(withCodedeckOnPath(env, binDir)).toEqual({
+      PATH: `${binDir}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+      HOME: "/tmp/home",
+    });
+    expect(env).toEqual({ PATH: `/usr/bin${path.delimiter}/bin`, HOME: "/tmp/home" });
+  });
+
+  it("uses only the CodeDeck bin directory when PATH is absent or empty", () => {
+    const binDir = "/tmp/codedeck/bin";
+
+    expect(withCodedeckOnPath({}, binDir)).toEqual({ PATH: binDir });
+    expect(withCodedeckOnPath({ PATH: "" }, binDir)).toEqual({ PATH: binDir });
+  });
+
+  it("does not duplicate a CodeDeck bin directory already at the front", () => {
+    const binDir = "/tmp/codedeck/bin";
+    const once = withCodedeckOnPath({ PATH: `/usr/bin${path.delimiter}/bin` }, binDir);
+
+    expect(withCodedeckOnPath(once, binDir)).toEqual(once);
+  });
+
+  it("writes an executable Claude-facing codedeck shim", () => {
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-shim-"));
+    process.env.RUN_AGENT_DIR = runAgentDir;
+
+    try {
+      const binDir = ensureCodedeckShim();
+
+      expect(binDir).toBe(path.join(runAgentDir, "bin"));
+      if (binDir === undefined) return;
+
+      const shim = path.join(binDir, "codedeck");
+      const stats = fs.statSync(shim);
+      const body = fs.readFileSync(shim, "utf8");
+
+      expect(stats.mode & 0o111).not.toBe(0);
+      // The shim is for this user's sessions, so group and other users get no access.
+      expect(stats.mode & 0o777).toBe(0o700);
+      expect(body.split("\n", 1)[0]).toBe("#!/usr/bin/env sh");
+      expect(body).toContain(process.execPath);
+    } finally {
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      fs.rmSync(runAgentDir, { recursive: true, force: true });
+    }
   });
 
   it("renders one banner string carrying the whole launch context", () => {
@@ -146,6 +295,63 @@ describe("open command pure helpers", () => {
     expect(typeof banner).toBe("string");
     expect(banner).toContain("reviewer · claude-opus-5 · xhigh");
     expect(banner).toContain("╔═╗");
+  });
+
+  // The id cannot be printed any earlier: it does not exist when the boot
+  // screen prints, and the launcher cannot read it off the session because
+  // stdout is inherited so the TUI can paint straight to the terminal.
+  it("offers the resume line the session ends with", () => {
+    expect(resumeHint("reviewer", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain(
+      "codedeck open reviewer --resume 92d88cce-bdbc-46db-8573-916afd32f6f7",
+    );
+  });
+
+  // The sign-off is the point of the exit, not the id, so a session that ended
+  // without one still gets it.
+  it("signs off with or without an id to offer", () => {
+    expect(renderExit("general", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain("╔╗ ╦ ╦╔═╗");
+    expect(renderExit("general", undefined)).toContain("╔╗ ╦ ╦╔═╗");
+    expect(renderExit("general", undefined)).not.toContain("--resume");
+  });
+
+  // Blanks stay blank so the mark keeps its silhouette while it resolves. Noise
+  // in the gaps would read as a rectangle of static rather than as letters
+  // arriving, and the last frame has to be the logo exactly.
+  it("resolves the logo out of noise from left to right", () => {
+    const noise = () => "ﾊ";
+
+    expect(bootFrame(0, noise)[0]).toBe("ﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊ");
+    expect(bootFrame(1, noise)).toEqual(LOGO);
+    expect(bootFrame(0.5, noise)[0]).toBe("╔═╗╔═╗╔╦╗╔═╗ﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊﾊ");
+    // Row two of the logo carries the only blanks, and they survive every frame.
+    expect(bootFrame(0, noise)[1]).toBe("ﾊ  ﾊ ﾊﾊﾊﾊﾊﾊ ﾊﾊﾊﾊﾊ ﾊ  ﾊﾊﾊ");
+  });
+
+  // Every frame is one row per logo line, so the cursor walk that redraws them
+  // stays in step with what was written.
+  it("keeps every frame the shape of the logo", () => {
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      const frame = bootFrame(progress, () => "ｦ");
+      expect(frame).toHaveLength(LOGO.length);
+      frame.forEach((line, i) => expect([...line]).toHaveLength([...LOGO[i]].length));
+    }
+  });
+
+  // A hook that never ran leaves nothing, and a session that otherwise worked
+  // should not end on a diagnostic about it.
+  it.each([undefined, "", "  ", "not a session id"])(
+    "says nothing when the hook left %o",
+    (left) => {
+      expect(resumeHint("general", left)).toBeUndefined();
+    },
+  );
+
+  // The mise shim prints the tool it resolved on every run, straight over the
+  // boot screen. Silencing it for this child is fair; silencing it for the
+  // user's whole environment is not, so an explicit value wins.
+  it("quiets the mise shim without overriding a setting of the user's own", () => {
+    expect(sanitizeEnv({}).MISE_QUIET).toBe("1");
+    expect(sanitizeEnv({ MISE_QUIET: "0" }).MISE_QUIET).toBe("0");
   });
 
   it("resolves a module-relative plugin directory", () => {

@@ -2,8 +2,9 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
-import { constants } from "node:os";
+import os, { constants } from "node:os";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
@@ -13,8 +14,9 @@ import {
   resolveRoleBinding,
   type RoleBinding,
 } from "../../config/config.js";
+import { getPaths } from "../../config/paths.js";
 import { isInteractiveTerminal } from "./setup.js";
-import { renderLogo } from "../ui.js";
+import { INDENT, LOGO, renderFarewell, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import {
@@ -39,7 +41,91 @@ export interface OpenFlags {
 
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_EFFORT = "xhigh";
+const DEFAULT_ROLE: Role = "orchestrator";
 const PLUGIN_NAME = "codedeck";
+const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
+
+/**
+ * "replace" drops Claude Code's own hundred-odd verbs instead of adding to
+ * them, so this list is the entire vocabulary and has to be long enough that a
+ * single session does not visibly cycle it.
+ *
+ * The verb is glyphs rather than a word because the spinner symbol itself
+ * cannot be reached. Its frames are module constants (`["·","✢","✳","✶","✻",
+ * "✽"]`, mirrored for the ping-pong) picked only by whether TERM is
+ * xterm-ghostty, and no setting touches them. The verb is the one part of that
+ * line CodeDeck owns, so the character is made there instead.
+ *
+ * Halfwidth katakana on purpose, mixed with digits. It is the one dense
+ * non-latin block that is single width, so a row of it cannot push the elapsed
+ * time and token count out of alignment the way fullwidth kana would, and the
+ * fonts that ship with a terminal carry it.
+ *
+ * Nothing is lost by dropping the words. The line still carries the elapsed
+ * seconds, the token count and the effort, which is the part anyone reads.
+ */
+const SPINNER_VERBS = [
+  "ﾊ7ｦ2ｲ",
+  "ｷ0ｼ9ﾏ",
+  "ﾃ4ﾅ8ﾆ",
+  "ｦ1ｱ5ｳ",
+  "ｵ9ｶ3ｷ",
+  "ｺ2ｻ7ｼ",
+  "ｾ8ｿ0ﾀ",
+  "ﾈ5ﾊ1ﾋ",
+  "ﾏ3ﾐ6ﾑ",
+  "ﾓ7ﾔ2ﾕ",
+  "ﾘ0ﾜ4ｦ",
+  "ｳ6ｴ9ｵ",
+  "ｶ1ｷ8ｹ",
+  "ｻ4ｼ0ｽ",
+  "ｿ2ﾀ5ﾂ",
+  "ﾅ9ﾆ3ﾇ",
+  "ﾋ6ﾎ1ﾏ",
+  "ﾑ8ﾒ4ﾓ",
+  "ﾕ0ﾗ7ﾘ",
+  "ｱ3ｳ5ｴ",
+  "ｹ7ｺ2ｻ",
+  "ｽ1ｾ9ｿ",
+  "ﾂ5ﾃ0ﾅ",
+  "ﾇ8ﾈ6ﾊ",
+];
+
+/**
+ * Shown under the spinner as "ULTRA: <tip>". Every one of these names a command
+ * this repository actually ships, because a tip that describes a flag nobody
+ * has is worse than no tip at all.
+ */
+const SPINNER_TIPS = [
+  "codedeck run --bg hands work to another harness so this session keeps its own context.",
+  "codedeck run --worktree gives each session its own checkout, so two of them cannot fight over a file.",
+  "codedeck ps lists the recent sessions with the harness and model each one ran on.",
+  "codedeck logs <id> prints what a background session actually reported.",
+  "codedeck wait <id> --json blocks until a session reaches a terminal state.",
+  "codedeck diff <id> shows what a worktree session changed, against its base commit.",
+  "codedeck stop <id> interrupts a session, then escalates to SIGTERM and SIGKILL.",
+  "codedeck send <id> continues a session with a new message instead of restarting it.",
+  "codedeck show <id> prints one session in full: status, worktree, usage, recent events.",
+  "codedeck open reviewer opens a session that can read and run but never edit.",
+  "codedeck setup binds each role to a harness and a model, one screen per role.",
+  "codedeck run --role auditor sends a one-off deep review to another harness.",
+];
+
+/**
+ * There is no startup text slot worth using, and the two that exist were tried.
+ *
+ * `companyAnnouncements` renders our string, but Claude Code puts its own dim
+ * "Message from <organization>:" above it whenever the account belongs to one,
+ * with no way to suppress that from settings. On an account with an org it
+ * therefore reads as a message from the employer, which is false.
+ *
+ * A SessionStart hook can print, but every hook message renders as
+ * "<hook> says: <text>", so it cannot draw a clean line either.
+ *
+ * Nothing is lost by leaving both alone. Claude Code's own opening header
+ * already names the model, the effort and the agent, and the footer already
+ * says whether permissions are bypassed.
+ */
 const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
@@ -49,26 +135,74 @@ const execFileAsync = promisify(execFile);
  * space, a `$`, a backtick or a quote would break the command or inject into
  * it. Single quotes take every one of those literally, and the only character
  * that can end them is a quote, which is why that one is spliced.
- *
- * plugin/settings.json quotes the same script with double quotes on purpose and
- * must keep doing so: it names the path through ${CLAUDE_PLUGIN_ROOT}, and
- * single quotes would stop the expansion instead of protecting it.
  */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function settingsArgument(pluginDir: string, flags: OpenFlags): string {
-  if (flags.theme !== false) return path.join(pluginDir, "settings.json");
+/**
+ * Gives Claude's child sessions a `codedeck` command even when this CLI came
+ * from a checkout or an npx process that never installed a global shim.
+ */
+export function ensureCodedeckShim(): string | undefined {
+  try {
+    const binDir = path.join(getPaths().base, "bin");
+    const entry = fileURLToPath(new URL("../index.js", import.meta.url));
+    const shim = path.join(binDir, "codedeck");
 
-  // Claude accepts an inline settings JSON value. Keep the status line while
-  // removing only the theme, without mutating the plugin's shared settings file.
-  return JSON.stringify({
-    statusLine: {
-      type: "command",
-      command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
-    },
-  });
+    fs.mkdirSync(binDir, { recursive: true });
+    // The shim leads PATH so a stale global install cannot take over from the
+    // CLI instance that is running this checkout.
+    fs.writeFileSync(
+      shim,
+      `#!/usr/bin/env sh\nexec ${shellQuote(process.execPath)} ${shellQuote(entry)} "$@"\n`,
+      { mode: 0o700 },
+    );
+    // Rewriting is deliberate because the Node binary or checkout can move
+    // after a previous launch, and writeFileSync preserves an existing mode.
+    fs.chmodSync(shim, 0o700);
+    return binDir;
+  } catch {
+    // A missing shim must not turn an otherwise valid Claude launch into a
+    // failure.
+  }
+}
+
+/**
+ * The settings are built here, at launch, rather than shipped as a file, and
+ * the reason is the status line.
+ *
+ * `${CLAUDE_PLUGIN_ROOT}` is expanded only for hooks declared in a plugin's
+ * hooks/hooks.json. It is never expanded for statusLine.command: the runner
+ * calls its executor with nine arguments where the plugin root sits in the
+ * fourteenth, so the check reads undefined and throws "This variable is only
+ * available in hooks defined in a plugin's hooks/hooks.json file". The runner
+ * swallows that, so the shipped settings.json produced no status line and no
+ * error, in any version. `open` knows the real directory, so it writes the
+ * resolved path instead of a placeholder nothing will substitute.
+ *
+ * Building it here also means one definition rather than two: the file that
+ * shipped alongside this code was never exercised by a launch, which is exactly
+ * how a broken command sat in it unnoticed.
+ */
+export function buildSettings(pluginDir: string, flags: OpenFlags): Record<string, unknown> {
+  const statusLine = {
+    type: "command",
+    command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
+  };
+
+  // --no-theme means "do not restyle my session", so it drops the whole look,
+  // renderer included, and not just the palette. The status line is the one
+  // thing it keeps, because that is what the flag has always promised.
+  if (flags.theme === false) return { statusLine };
+
+  return {
+    theme: THEME_REF,
+    tui: "fullscreen",
+    spinnerVerbs: { mode: "replace", verbs: SPINNER_VERBS },
+    spinnerTipsOverride: { excludeDefault: true, label: "ULTRA", tips: SPINNER_TIPS },
+    statusLine,
+  };
 }
 
 export function buildOpenArgs(
@@ -88,7 +222,7 @@ export function buildOpenArgs(
     "--append-system-prompt-file",
     path.join(pluginDir, "ultra.md"),
     "--settings",
-    settingsArgument(pluginDir, flags),
+    JSON.stringify(buildSettings(pluginDir, flags)),
     // `--agent` layers on top of Claude's own system prompt rather than
     // replacing it, and an agent file with no `tools:` key inherits the whole
     // toolset. So `general` carries its contract the same way the others do,
@@ -153,11 +287,161 @@ export function harnessMismatch(role: Role, binding: RoleBinding | undefined): s
 export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
   delete sanitized.CLAUDE_CODE_CHILD_SESSION;
+
+  // A mise shim announces the tool it resolved on every run. It costs 36ms,
+  // which nobody would notice, and one line of output, which lands on top of
+  // the boot screen. Only the line matters. A setting of the user's own is left
+  // alone, since silencing mise everywhere is not this command's call.
+  sanitized.MISE_QUIET ??= "1";
   return sanitized;
 }
 
+export function withCodedeckOnPath(env: NodeJS.ProcessEnv, binDir: string): NodeJS.ProcessEnv {
+  const currentPath = env.PATH;
+  const entries = currentPath ? currentPath.split(path.delimiter) : [];
+  if (entries[0] === binDir) return { ...env };
+
+  return {
+    ...env,
+    PATH: [binDir, ...entries].join(path.delimiter),
+  };
+}
+
+/**
+ * What to say once the session is over, so the id is there when it is wanted
+ * rather than buried in a picker.
+ *
+ * It cannot be said any earlier. The id does not exist when the boot screen
+ * prints, and the launcher cannot read it off the session either, because
+ * stdout is inherited by the terminal so that the TUI can paint straight to it.
+ * A SessionStart hook is the one thing that sees it, and it can only leave it
+ * in a file for afterwards.
+ */
+export function resumeHint(role: Role, id: string | undefined): string | undefined {
+  if (id === undefined || !/^[0-9a-fA-F-]{8,}$/.test(id)) return undefined;
+  return `${INDENT}resume: codedeck open ${role} --resume ${id}\n`;
+}
+
+/**
+ * The way out, on the primary screen the alternate one just handed back.
+ *
+ * Drawn even when there is no id to offer, because the sign-off is the point
+ * and a session that ended without one still ended.
+ */
+export function renderExit(role: Role, id: string | undefined): string {
+  const farewell = renderFarewell()
+    .split("\n")
+    .map((line) => (line.trim() === "" ? line : blood(line)))
+    .join("\n");
+  const hint = resumeHint(role, id);
+  return hint ? `${farewell}${muted(hint)}` : farewell;
+}
+
+/** Reads what the SessionStart hook left, and takes the file with it. */
+function takeSessionId(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8").trim() || undefined;
+  } catch {
+    // No file means the hook never ran: an older Claude Code, a session that
+    // died before startup, or a plugin the launch could not load. None of those
+    // are worth a diagnostic on the way out of a session that otherwise worked.
+  } finally {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {}
+  }
+}
+
+/**
+ * The boot screen, and it works because of the fullscreen renderer rather than
+ * in spite of it.
+ *
+ * Claude Code takes a moment to paint, and until it does the terminal shows
+ * whatever stood there. Since it opens on the alternate screen, this is drawn
+ * on the primary one, replaced the instant Claude takes over and restored,
+ * unseen, when the session ends. So it fills exactly the gap and cleans itself
+ * up, with nothing to tear down and no escape of ours left interleaved with
+ * Claude's output.
+ *
+ * Colour is written by hand here for the same reason the status line writes its
+ * own: this runs before Claude Code exists, so no theme is loaded yet.
+ */
+/**
+ * The logo resolving out of katakana noise, one frame at a time.
+ *
+ * Same alphabet as the spinner, so the launch and the session read as one
+ * thing. Blanks in the logo stay blank: the mark keeps its silhouette the whole
+ * way through and the noise fills only the strokes, which is what makes it look
+ * like the letters arriving rather than a rectangle of static.
+ *
+ * Pure, with the noise supplied by the caller, so a test can pin an exact frame
+ * instead of asserting around randomness.
+ */
+export function bootFrame(progress: number, noise: (column: number) => string): string[] {
+  const width = LOGO[0].length;
+  const settled = Math.round(width * Math.min(1, Math.max(0, progress)));
+
+  return LOGO.map((line) =>
+    [...line]
+      .map((glyph, column) => {
+        if (column < settled || glyph === " ") return glyph;
+        return noise(column);
+      })
+      .join(""),
+  );
+}
+
+const BOOT_STEPS = 18;
+const BOOT_STEP_MS = 40;
+const KATAKANA = [...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph));
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Plays the launch animation, then leaves the finished banner on screen.
+ *
+ * It runs BEFORE the spawn, and that ordering is the whole design. Once Claude
+ * Code is spawned the two processes share one terminal, and the moment it
+ * switches to the alternate screen anything written here lands inside its TUI.
+ * There is no layer to sit on top of, so the choice is before or corrupted.
+ * The cost is honest: this animation is time added to the launch, not time
+ * borrowed from Claude Code starting up.
+ *
+ * A pipe gets the still banner. Cursor movement assumes a terminal that is
+ * showing the last thing written, which a redirect into a file is not.
+ */
+async function playBoot(role: Role, model: string, effort: string): Promise<void> {
+  const out = process.stdout;
+  if (!out.isTTY) {
+    out.write(renderBanner(role, model, effort));
+    return;
+  }
+
+  const noise = () => KATAKANA[Math.floor(Math.random() * KATAKANA.length)];
+  out.write("\n");
+
+  for (let step = 0; step <= BOOT_STEPS; step++) {
+    if (step > 0) out.write(`\x1b[${LOGO.length}A`);
+    for (const line of bootFrame(step / BOOT_STEPS, noise)) {
+      out.write(`\r\x1b[2K${INDENT}${blood(line)}\n`);
+    }
+    await delay(BOOT_STEP_MS);
+  }
+
+  out.write(`${INDENT}${muted(`${role} · ${model} · ${effort}`)}\n`);
+  out.write(`${INDENT}${muted("booting…")}\n`);
+}
+
+const blood = (value: string) => `\x1b[38;2;225;29;72m${value}\x1b[0m`;
+const muted = (value: string) => `\x1b[38;2;163;139;143m${value}\x1b[0m`;
+
 export function renderBanner(role: Role, model: string, effort: string): string {
-  return `${renderLogo(`${role} · ${model} · ${effort}`)}\n`;
+  const logo = renderLogo()
+    .split("\n")
+    .map((line) => (line.trim() === "" ? line : blood(line)))
+    .join("\n");
+
+  return `${logo}${INDENT}${muted(`${role} · ${model} · ${effort}`)}\n${INDENT}${muted("booting…")}\n`;
 }
 
 function selectRole(): Promise<Role> {
@@ -187,8 +471,8 @@ function selectRole(): Promise<Role> {
     });
 
     const ask = () => {
-      rl.question(`Role [general] (${ROLES.join("/")}): `, (answer) => {
-        const role = parseRole(answer || "general");
+      rl.question(`Role [${DEFAULT_ROLE}] (${ROLES.join("/")}): `, (answer) => {
+        const role = parseRole(answer || DEFAULT_ROLE);
         if (role) {
           finish(role);
           return;
@@ -212,7 +496,7 @@ export function isNonInteractiveLaunch(passthrough: string[]): boolean {
   return passthrough.some((arg) => arg === "-p" || arg === "--print");
 }
 
-function resolveRole(input: string | undefined, interactive: boolean): Promise<Role> {
+export function resolveRole(input: string | undefined, interactive: boolean): Promise<Role> {
   if (input !== undefined) {
     const role = parseRole(input);
     if (!role) {
@@ -223,7 +507,7 @@ function resolveRole(input: string | undefined, interactive: boolean): Promise<R
     return Promise.resolve(role);
   }
 
-  if (!interactive || !isInteractiveTerminal()) return Promise.resolve("general");
+  if (!interactive || !isInteractiveTerminal()) return Promise.resolve(DEFAULT_ROLE);
   return selectRole();
 }
 
@@ -532,13 +816,24 @@ export function entitlementError(model: string, output: string): string | undefi
   return `Claude Code rejected model "${rejected}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
 }
 
-function launchClaude(claudeBin: string, model: string, args: string[], cwd: string): Promise<void> {
+function launchClaude(
+  claudeBin: string,
+  model: string,
+  args: string[],
+  cwd: string,
+  sessionFile: string,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const output = { value: "" };
+    const binDir = ensureCodedeckShim();
+    const childEnv =
+      binDir === undefined
+        ? sanitizeEnv(process.env)
+        : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
     const child = spawn(claudeBin, args, {
       cwd,
-      env: sanitizeEnv(process.env),
+      env: { ...childEnv, CODEDECK_SESSION_FILE: sessionFile },
       stdio: ["inherit", "inherit", "pipe"],
     });
 
@@ -574,13 +869,13 @@ function launchClaude(claudeBin: string, model: string, args: string[], cwd: str
 export function registerOpenCommand(program: Command): void {
   program
     .command("open [role]")
-    .description("Open a configured Claude Code session")
+    .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
     .option("--resume <session>", "resume a Claude Code session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
-    .option("--no-theme", "keep the CodeDeck status line without applying its theme")
+    .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
     .allowUnknownOption()
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
@@ -617,7 +912,17 @@ export function registerOpenCommand(program: Command): void {
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
-      process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
-      await launchClaude(claudeBin, model, args, cwd);
+      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
+      const effort = opts.effort ?? DEFAULT_EFFORT;
+
+      // --no-theme asks for no CodeDeck styling, and an animation is styling.
+      if (opts.theme === false) {
+        process.stdout.write(renderBanner(role, model, effort));
+      } else {
+        await playBoot(role, model, effort);
+      }
+
+      await launchClaude(claudeBin, model, args, cwd, sessionFile);
+      process.stdout.write(renderExit(role, takeSessionId(sessionFile)));
     });
 }

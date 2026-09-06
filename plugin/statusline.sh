@@ -2,6 +2,8 @@
 
 # Claude Code sends the status payload on stdin. Keep parsing in Node so this
 # plugin does not require jq or Python on the host.
+#
+# The JS below is single quoted, so it must not contain a single quote anywhere.
 set -u
 
 node --input-type=module -e '
@@ -15,6 +17,22 @@ try {
   process.exit(0);
 }
 
+/**
+ * Claude Code dims every status row before printing it, so the palette here is
+ * the bright end of the theme on purpose: a mid tone arrives on screen as grey.
+ * SGR survives, which is why these are raw escapes and not a library.
+ */
+const BLOOD = "\x1b[38;2;225;29;72m";
+const EMBER = "\x1b[38;2;251;146;60m";
+const TEXT = "\x1b[38;2;247;237;238m";
+const MUTED = "\x1b[38;2;163;139;143m";
+const GREEN = "\x1b[38;2;74;222;128m";
+const AMBER = "\x1b[38;2;251;191;36m";
+const RED = "\x1b[38;2;255;77;109m";
+const OFF = "\x1b[0m";
+
+const paint = (color, value) => color + value + OFF;
+
 const text = (value) => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -23,29 +41,42 @@ const text = (value) => {
 
 const firstText = (...values) => values.map(text).find(Boolean);
 
-const roleFrom = (value) => {
+/**
+ * A row is one line, so anything that could carry a newline is flattened before
+ * it reaches the terminal. Branch names and model ids both come from outside.
+ */
+const clean = (value) => value.replace(/[\t\r\n]/g, " ");
+
+const tail = (value) => {
   const candidate = text(value);
   if (!candidate) return undefined;
   const parts = candidate.split(/[·:]/).map((part) => part.trim()).filter(Boolean);
   return parts.at(-1) ?? candidate;
 };
 
-const role = roleFrom(
-  payload.agent?.name,
-  payload.agent?.role,
-  payload.role,
-  payload.session_role,
-) ?? roleFrom(
-  text(payload.session_name)?.match(/CodeDeck\s*·\s*(.+)$/i)?.[1],
-);
+/**
+ * `codedeck open` launches with -n "CodeDeck . <role>", so session_name is the
+ * one field that always carries the role. `agent.name` is serialised only when
+ * the session actually has an agent set, which makes it the fallback and not
+ * the source: reading it first left the label blank on ordinary sessions.
+ */
+const role =
+  tail(text(payload.session_name)?.match(/CodeDeck\s*[·:]\s*(.+)$/i)?.[1]) ??
+  tail(payload.agent?.name) ??
+  tail(payload.session_name);
+
 const model = firstText(payload.model?.display_name, payload.model?.id, payload.model);
 const cwd = firstText(payload.workspace?.current_dir, payload.cwd) ?? process.cwd();
 
-let branch = firstText(
-  payload.worktree?.branch,
-  payload.workspace?.git_worktree,
-  payload.branch,
-);
+/**
+ * `workspace.git_worktree` is NOT a branch. Claude Code fills it with the
+ * basename of .git/worktrees/<name>, and only when the session runs inside a
+ * linked worktree, so reading it as a branch printed the worktree name in every
+ * worktree and nothing anywhere else. `worktree.branch` is a real branch but
+ * exists only for worktrees Claude Code created itself, which leaves git as the
+ * answer for the ordinary case.
+ */
+let branch = text(payload.worktree?.branch);
 if (!branch) {
   try {
     branch = text(execFileSync("git", ["-C", cwd, "branch", "--show-current"], {
@@ -57,12 +88,50 @@ if (!branch) {
   }
 }
 
-const clean = (value) => value?.replace(/[\t\r\n]/g, " ");
+/**
+ * Context is reported as remaining, not used, because the number people act on
+ * is how much room is left before a compaction. Colour carries the same fact so
+ * the row reads at a glance without parsing the digits.
+ */
+const contextField = () => {
+  const remaining = payload.context_window?.remaining_percentage;
+  if (typeof remaining !== "number" || !Number.isFinite(remaining)) return undefined;
+  const value = Math.max(0, Math.min(100, Math.round(remaining)));
+  const color = value <= 15 ? RED : value <= 35 ? AMBER : GREEN;
+  return paint(MUTED, "ctx ") + paint(color, value + "%");
+};
+
+/**
+ * Under a cent the rounded figure is a flat $0.00 for most of a session, which
+ * reads as broken rather than as cheap, so the field waits until it can say
+ * something true.
+ */
+const COST_DISPLAY_THRESHOLD = 0.01;
+const COST_TEXT_THRESHOLD = 1;
+const COST_EMBER_THRESHOLD = 5;
+const COST_BLOOD_THRESHOLD = 10;
+
+const costField = () => {
+  const total = payload.cost?.total_cost_usd;
+  if (typeof total !== "number" || !Number.isFinite(total) || total < COST_DISPLAY_THRESHOLD) return undefined;
+  const color =
+    total < COST_TEXT_THRESHOLD ? MUTED :
+    total < COST_EMBER_THRESHOLD ? TEXT :
+    total < COST_BLOOD_THRESHOLD ? EMBER : BLOOD;
+  const amount = paint(color, "$" + total.toFixed(2));
+  return total >= COST_BLOOD_THRESHOLD
+    ? amount + paint(BLOOD, " ← omg thats a lot of $$")
+    : amount;
+};
+
 const fields = [
-  role && `role:${clean(role)}`,
-  model && `model:${clean(model)}`,
-  `branch:${clean(branch) ?? "(none)"}`,
+  role && paint(EMBER, clean(role)),
+  model && paint(TEXT, clean(model)),
+  branch && paint(BLOOD, clean(branch)),
+  contextField(),
+  costField(),
 ].filter(Boolean);
 
-process.stdout.write(fields.join(" · "));
-' 
+const label = paint(BLOOD, "▌RAGE");
+process.stdout.write(fields.length > 0 ? label + " " + fields.join(paint(MUTED, " · ")) : label);
+'

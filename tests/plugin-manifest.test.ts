@@ -1,7 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+import { buildSettings } from "../src/cli/commands/open.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const plugin = (...parts: string[]) => join(root, "plugin", ...parts);
@@ -18,6 +20,9 @@ const frontmatter = (path: string) => {
 const field = (source: string, name: string) =>
   source.match(new RegExp(`^${name}:\\s*(.+)$`, "m"))?.[1] ?? "";
 
+const agentBody = (path: string) =>
+  readText(path).replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+
 describe("CodeDeck plugin manifest contract", () => {
   it("pins the plugin identity and experimental theme directory", () => {
     const manifest = readJson(plugin(".claude-plugin", "plugin.json"));
@@ -29,18 +34,43 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(manifest.experimental?.themes).toBe("./themes");
   });
 
-  it("pins the namespaced theme reference and statusline path", () => {
-    const settings = readJson(plugin("settings.json"));
+  it("paints the keys the session spinner reads", () => {
     const theme = readJson(plugin("themes", "codedeck-ultra.json"));
 
-    expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
-    expect(settings.statusLine).toMatchObject({ type: "command" });
-    expect(settings.statusLine.command).toContain("statusline.sh");
     expect(theme.base).toBe("dark");
     expect(theme.overrides).toEqual(expect.objectContaining({
       promptBorder: expect.any(String),
       promptBorderShimmer: expect.any(String),
+      // The spinner takes `claude`/`claudeShimmer` normally but swaps to these
+      // two while a hook runs or a compaction is under way. Leaving them unset
+      // dropped the palette at exactly the moments the spinner is on screen
+      // longest.
+      claudeBlue_FOR_SYSTEM_SPINNER: expect.any(String),
+      claudeBlueShimmer_FOR_SYSTEM_SPINNER: expect.any(String),
+      // The mascot is the one thing on the opening screen that keeps its stock
+      // colour unless these two are set, and it is drawn from filled blocks, so
+      // it reads as a foreign object rather than as a detail.
+      clawd_body: expect.any(String),
+      clawd_background: expect.any(String),
     }));
+  });
+
+  // The sweep that animates every shimmering surface advances on a 50ms timer
+  // and is switched off only by prefersReducedMotion. Every one of these keys
+  // is a colour it sweeps toward, so an unset one animates in stock colours.
+  it("sets every colour the shimmer animation sweeps toward", () => {
+    const { overrides } = readJson(plugin("themes", "codedeck-ultra.json"));
+    const shimmering = Object.keys(overrides).filter((key) => key.endsWith("Shimmer"));
+
+    expect(shimmering.sort()).toEqual([
+      "autoAcceptShimmer",
+      "claudeShimmer",
+      "fastModeShimmer",
+      "inactiveShimmer",
+      "permissionShimmer",
+      "promptBorderShimmer",
+      "warningShimmer",
+    ]);
   });
 
   // The slug in the theme ref is the FILE BASENAME, not the theme's `name`
@@ -49,7 +79,7 @@ describe("CodeDeck plugin manifest contract", () => {
   // with no error anywhere, not even under --debug, so the ref is derived
   // from the filesystem here instead of being compared to a second literal.
   it("resolves the theme ref to a file that actually exists", () => {
-    const settings = readJson(plugin("settings.json"));
+    const settings = buildSettings("/opt/codedeck/plugin", {}, "general", "m", "xhigh");
     const [prefix, pluginName, slug] = String(settings.theme).split(":");
     const manifest = readJson(plugin(".claude-plugin", "plugin.json"));
 
@@ -61,6 +91,42 @@ describe("CodeDeck plugin manifest contract", () => {
       .map((f) => f.replace(/\.json$/, ""));
 
     expect(themeFiles).toContain(slug);
+  });
+
+  // The plugin used to ship a settings.json that `open` passed to --settings.
+  // Its status line never ran, because ${CLAUDE_PLUGIN_ROOT} is expanded only
+  // for hooks in hooks/hooks.json, and nothing exercised the file. The payload
+  // is built at launch now, and a second copy on disk would be free to drift
+  // back out of sync in the same silence.
+  it("ships no settings file for the launcher to fall back to", () => {
+    expect(existsSync(plugin("settings.json"))).toBe(false);
+  });
+
+  // ${CLAUDE_PLUGIN_ROOT} is expanded for hooks declared here and nowhere else,
+  // which is the whole reason the status line had to stop using it. A hook that
+  // spelled the path any other way would not find its own script.
+  it("names its hook script through the plugin root", () => {
+    const hooks = readJson(plugin("hooks", "hooks.json"));
+    const [entry] = hooks.hooks.SessionStart;
+
+    expect(entry.hooks[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(entry.hooks[0].command).toContain("session-id.sh");
+    expect(existsSync(plugin("hooks", "session-id.sh"))).toBe(true);
+  });
+
+  // The hook runs on the startup path someone is already waiting through, so it
+  // stays in the shell. Reaching for node here would cost more than the read.
+  it("captures the session id without spawning an interpreter", () => {
+    const script = readText(plugin("hooks", "session-id.sh"));
+    // Comments name the interpreters to say why they are not used, so the
+    // assertion reads what actually runs.
+    const code = script
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+
+    expect(code).toContain("CODEDECK_SESSION_FILE");
+    expect(code).not.toMatch(/\bnode\b|\bpython3?\b|\bjq\b/);
   });
 
   it("ships an agent file for every role", () => {
@@ -93,8 +159,20 @@ describe("CodeDeck plugin manifest contract", () => {
     // The reviewer is the single pass. Dispatching is what separates it from
     // the auditor, so the allowlist has to carry that and not just the prose.
     expect(tools("reviewer")).not.toMatch(/\b(Task|Agent)\b/);
-    expect(tools("orchestrator")).toMatch(/\bTask\b/);
+    expect(tools("orchestrator")).toBe("Bash");
+    expect(tools("orchestrator")).not.toMatch(/\b(Read|Grep|Glob|Task)\b/);
     expect(tools("auditor")).toMatch(/\bTask\b/);
+  });
+
+  it("requires --role on every dispatching role", () => {
+    const agents = readdirSync(plugin("agents")).filter((file) => file.endsWith(".md"));
+    for (const file of agents) {
+      const name = file.replace(/\.md$/, "");
+      const path = plugin("agents", `${name}.md`);
+      if (/\bTask\b/.test(field(frontmatter(path), "tools"))) {
+        expect(agentBody(path), name).toContain("codedeck run --role");
+      }
+    }
   });
 
   // ultra.md is appended to every role, so anything role-specific in it
@@ -110,13 +188,17 @@ describe("CodeDeck plugin manifest contract", () => {
 
   it("pins the orchestration and review boundaries", () => {
     const orchestrator = readText(plugin("agents", "orchestrator.md"));
+    const general = readText(plugin("agents", "general.md"));
     const reviewer = readText(plugin("agents", "reviewer.md"));
     const auditor = readText(plugin("agents", "auditor.md"));
     const statusline = readText(plugin("statusline.sh"));
 
-    expect(orchestrator).toContain("codedeck run --worktree");
-    expect(orchestrator).toContain("codedeck diff <id>");
+    expect(orchestrator).toContain('codedeck run --role <role> --worktree "<briefing>"');
+    expect(orchestrator).toContain('codedeck run --role general --worktree "<briefing>"');
+    expect(orchestrator).toContain("codedeck diff <id> --stat");
+    expect(orchestrator).not.toMatch(/codedeck diff <id>(?! --stat)/);
     expect(orchestrator).toContain("codedeck stop <id>");
+    expect(general).toContain('codedeck run --role reviewer --no-worktree "<briefing>"');
 
     // Both review roles owe the same third list. A shallow pass reported as a
     // complete one is the failure mode neither prompt may drop.

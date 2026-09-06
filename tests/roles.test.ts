@@ -29,6 +29,27 @@ describe("parseRole", () => {
     expect(parseRole(undefined)).toBeUndefined();
     expect(parseRole("implementer")).toBeUndefined();
   });
+
+  it.each([
+    ["gen", "general"],
+    ["orc", "orchestrator"],
+    ["rev", "reviewer"],
+    ["aud", "auditor"],
+  ])("resolves the %s prefix", (prefix, role) => {
+    expect(parseRole(prefix)).toBe(role);
+  });
+
+  it("trims and lowercases prefixes", () => {
+    expect(parseRole(" ORCH ")).toBe("orchestrator");
+  });
+
+  it.each(["", " ", "g", "ge"])("rejects a role input shorter than three characters: %j", (input) => {
+    expect(parseRole(input)).toBeUndefined();
+  });
+
+  it.each(["ord", "orchestrators"])("rejects a non-matching prefix: %s", (input) => {
+    expect(parseRole(input)).toBeUndefined();
+  });
 });
 
 describe("roleBody", () => {
