@@ -226,15 +226,17 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] `buildInlineConfig` output parses as JSON with `instructions` + `codedeck-<role>` agent
-- [ ] `buildArgs` emits `--agent/--model/--auto/--session` and rejects non-`provider/model` before spawn
-- [ ] `debug agent` pin test resolves `edit:false/write:false/read:false` per role map
-- [ ] Builders perform zero filesystem writes (cwd-independent purity test serves `OO-19`)
-- [ ] Gate check passes: `npm run build` + `npx vitest run tests/open-opencode.test.ts`
-- [ ] Test count: ≥9 tests (config shape, agent name, flags, auto opt-out, session, format reject, binary missing, catalog reject, no disk writes)
+- [x] `buildInlineConfig` output parses as JSON with `instructions` + `codedeck-<role>` agent
+- [x] `buildArgs` emits `--agent/--model/--auto/--session` and rejects non-`provider/model` before spawn
+- [x] Parsed-back inline JSON carries the exact `rolePermission` objects per role (unit half of the pin; the live `debug agent` half runs in T8 where the binary exists, since CI has no opencode)
+- [x] Builders perform zero filesystem writes (spy test serves `OO-19`)
+- [x] Gate check passes: `npm run build` + `npx vitest run tests/open-opencode.test.ts`
+- [x] Test count: 14 tests (shape, permissions ×4, no writes, args, no-auto, format ×4, binary ×2, preflight ×2)
 
 **Tests**: unit
 **Gate**: build
+
+**Status**: complete
 
 **Commit**: `feat(open): add opencode inline config and args builders`
 
@@ -269,7 +271,7 @@ T7 → T8 → T9
 
 ### T8: Live reviewer probe and record
 
-**What**: Add `scripts/probe-opencode-reviewer.sh` running non-interactive `opencode run --agent codedeck-reviewer` asking for file creation with `--auto`, asserting refusal and file absence; record the verdict in the spec assumptions table (`OO-17`).
+**What**: Add `scripts/probe-opencode-reviewer.sh` pinning `edit:false/write:false/read:false` per role via `opencode debug agent` with inline env fixture, then running non-interactive `opencode run --agent codedeck-reviewer` asking for file creation with `--auto`, asserting refusal and file absence; record the verdict in the spec assumptions table (`OO-17`).
 **Where**: `scripts/probe-opencode-reviewer.sh`
 **Depends on**: T7
 **Reuses**: Built `dist/` CLI builders for the inline env (or documented manual env)

@@ -178,7 +178,7 @@ O `reviewer` mantém `bash` nos dois lados, com o mesmo buraco de redirecionamen
 | ------- | -------------------- | ------ | ---------- |
 | `judgeModel` fixa `agent === "claude"` | `src/cli/commands/open.ts:835` | Preflight do opencode não funciona sem generalizar | `judgeModelFor(harness, ...)` no contrato (`OO-15`) |
 | Colisão de nome com agentes do usuário/projeto | `opencode --agent <nome>` | `--agent reviewer` poderia pegar o agente errado | Prefixo `codedeck-<role>`; inline tem precedência máxima mesmo assim |
-| Chaves de permission mudarem no opencode | launcher novo | Mapa silenciosamente frouxo | Teste que roda `opencode debug agent` com env fixture e pinna `edit:false/write:false/read:false` por role |
+| Chaves de permission mudarem no opencode | launcher novo | Mapa silenciosamente frouxo | Parse-back unit na suite + pin ao vivo via `opencode debug agent` no probe T8 (suite não exige binário, que o CI não tem) |
 | `open.ts` tem ~1100 linhas euinúmeros helpers entrelaçados | `src/cli/commands/open.ts` | Mover coisa errada quebra comportamento | Migração por movimento puro primeiro (mesma assinatura, suite verde), factory depois; `OO-03` trava |
 | Resume opencode precisa de id nativo | spec `OO-07` | `--resume` com id CodeDeck falha no TUI | Documentar que o id é o nativo; sem hook, sem captura, sem promessa |
 | Env de ~9KB (orchestrator + ultra, medido) | launcher opencode | Limite de env em shells exóticos | Medido: 8757 + 706 bytes, duas ordens abaixo de qualquer limite real; sem ação |
