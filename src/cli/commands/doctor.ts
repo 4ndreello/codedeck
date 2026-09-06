@@ -5,6 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { IpcClient, isDaemonRunning } from "../../daemon/ipc.js";
 import { getPaths } from "../../config/paths.js";
+import { loadConfig, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
+import { ROLES, type Role } from "../../core/roles.js";
+import type { AgentId } from "../../core/session.js";
 
 export interface PowerReadiness {
   serviceInstalled: boolean;
@@ -51,6 +54,34 @@ export function renderPowerSection(power: PowerReadiness): string {
   ].join("\n");
 }
 
+export interface RoleReadiness {
+  role: Role;
+  harness?: AgentId;
+  model?: string;
+  /** Where `codedeck run --role <role>` actually lands when nobody bound it. */
+  fallback: AgentId;
+}
+
+export function resolveRoleReadiness(config: RunAgentConfig): RoleReadiness[] {
+  const fallback = config.defaultAgent ?? "claude";
+  return ROLES.map((role) => ({ role, fallback, ...resolveRoleBinding(role, config) }));
+}
+
+/**
+ * An unbound role is a failure, not a blank. `run` degrades it to the default
+ * harness in silence, which is how an auditor bound to opencode ran on claude
+ * and nobody could see why: the bindings lived in a JSON file no command
+ * printed. Reading them costs nothing, so `doctor` reads them.
+ */
+export function renderRolesSection(rows: RoleReadiness[]): string {
+  return [
+    "Roles",
+    ...rows.map(({ role, harness, model, fallback }) =>
+      `  ${check(role, harness !== undefined, harness ? `${harness} / ${model}` : `unbound, runs on ${fallback}`)}`,
+    ),
+  ].join("\n");
+}
+
 function check(label: string, ok: boolean, detail?: string): string {
   const icon = ok ? "✓" : "✗";
   const msg = detail ? `${label.padEnd(20)} ${icon} ${detail}` : `${label.padEnd(20)} ${icon}`;
@@ -77,8 +108,10 @@ export function registerDoctorCommand(program: Command): void {
         process.exit(1);
       }
 
+      const roles = resolveRoleReadiness(loadConfig());
+
       if (opts.json) {
-        console.log(JSON.stringify({ ...result, power: resolvePowerInfo(result) }, null, 2));
+        console.log(JSON.stringify({ ...result, power: resolvePowerInfo(result), roles }, null, 2));
         return;
       }
 
@@ -130,6 +163,9 @@ export function registerDoctorCommand(program: Command): void {
       console.log("");
 
       console.log(renderPowerSection(resolvePowerInfo(result)));
+      console.log("");
+
+      console.log(renderRolesSection(roles));
       console.log("");
 
       const paths = getPaths();
