@@ -17,7 +17,7 @@ export function registerRunCommand(program: Command): void {
     .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
-    .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")}`)
+    .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
     .option("--sandbox <mode>", `codex sandbox: ${CODEX_SANDBOXES.join(" | ")} (default: workspace-write)`)
     .option("--dangerously-bypass-approvals-and-sandbox", "codex: bypass sandbox and approvals (sets sandbox to danger-full-access)")

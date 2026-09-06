@@ -21,6 +21,7 @@ import {
   registerOpenCommand,
   renderBanner,
   resumeHint,
+  resolveRole,
   resolvePluginDir,
   sanitizeEnv,
   scanOptions,
@@ -213,6 +214,10 @@ describe("open command argument builder", () => {
 });
 
 describe("open command pure helpers", () => {
+  it("defaults a non-interactive open to the orchestrator role", async () => {
+    await expect(resolveRole(undefined, false)).resolves.toBe("orchestrator");
+  });
+
   it("parses the supported roles and rejects unknown roles", () => {
     expect(ROLES).toEqual(["general", "orchestrator", "reviewer", "auditor"]);
     expect(parseRole(undefined)).toBeUndefined();

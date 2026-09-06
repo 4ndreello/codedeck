@@ -41,6 +41,7 @@ export interface OpenFlags {
 
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_EFFORT = "xhigh";
+const DEFAULT_ROLE: Role = "orchestrator";
 const PLUGIN_NAME = "codedeck";
 const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
 
@@ -470,8 +471,8 @@ function selectRole(): Promise<Role> {
     });
 
     const ask = () => {
-      rl.question(`Role [general] (${ROLES.join("/")}): `, (answer) => {
-        const role = parseRole(answer || "general");
+      rl.question(`Role [${DEFAULT_ROLE}] (${ROLES.join("/")}): `, (answer) => {
+        const role = parseRole(answer || DEFAULT_ROLE);
         if (role) {
           finish(role);
           return;
@@ -495,7 +496,7 @@ export function isNonInteractiveLaunch(passthrough: string[]): boolean {
   return passthrough.some((arg) => arg === "-p" || arg === "--print");
 }
 
-function resolveRole(input: string | undefined, interactive: boolean): Promise<Role> {
+export function resolveRole(input: string | undefined, interactive: boolean): Promise<Role> {
   if (input !== undefined) {
     const role = parseRole(input);
     if (!role) {
@@ -506,7 +507,7 @@ function resolveRole(input: string | undefined, interactive: boolean): Promise<R
     return Promise.resolve(role);
   }
 
-  if (!interactive || !isInteractiveTerminal()) return Promise.resolve("general");
+  if (!interactive || !isInteractiveTerminal()) return Promise.resolve(DEFAULT_ROLE);
   return selectRole();
 }
 
@@ -868,7 +869,7 @@ function launchClaude(
 export function registerOpenCommand(program: Command): void {
   program
     .command("open [role]")
-    .description("Open a configured Claude Code session")
+    .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
     .option("--resume <session>", "resume a Claude Code session")
