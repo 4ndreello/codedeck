@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { isActiveStatus, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
+import { getCliName } from "../cli-name.js";
 import { truncate, visibleWidth } from "../ui.js";
 
 function formatAge(date: string | Date): string {
@@ -325,7 +326,7 @@ export function registerPsCommand(program: Command): void {
       // Header and rows share the same fixed-width formatter.
       console.log(renderPsTable(sessions));
       if (hidden > 0) {
-        console.log(`+${hidden} older hidden — codedeck ps --all`);
+        console.log(`+${hidden} older hidden — ${getCliName()} ps --all`);
       }
     });
 }
