@@ -17,8 +17,11 @@ import { effectiveModel, resolveOpenModel, type OpenFlags } from "../../open/con
 import {
   buildArgs as buildOpencodeArgs,
   buildInlineConfig,
+  createEphemeralTuiDir,
+  ensureOpencodeTheme,
   OPENCODE_NOT_FOUND,
   preflight as preflightOpencode,
+  removeEphemeralTuiDir,
   resolveBinary as resolveOpencodeBinary,
 } from "../../open/launchers/opencode.js";
 import {
@@ -393,16 +396,30 @@ export function registerOpenCommand(program: Command): void {
           await playBoot(role, model, effort);
         }
 
+        // --no-theme leaves the user's own opencode theme alone. Otherwise the
+        // managed rage theme is ensured once and selected through an ephemeral
+        // config dir, so the user's tui.json is never rewritten.
+        const tuiDir = opts.theme === false || !ensureOpencodeTheme(pluginDir)
+          ? undefined
+          : createEphemeralTuiDir();
+        const closeOpencode = () => {
+          if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
+          finishOpenSession(role, sessionFile);
+        };
+
         await spawnHarness(
           opencodeBin,
           buildOpencodeArgs(role, { ...opts, model: boundModel }, invocation.passthrough),
           {
             cwd,
-            envExtra: { OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role) },
+            envExtra: {
+              OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role),
+              ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
+            },
             sessionFile,
             model,
             notFoundMessage: OPENCODE_NOT_FOUND,
-            onClose: () => finishOpenSession(role, sessionFile),
+            onClose: closeOpencode,
           },
         );
         return;
