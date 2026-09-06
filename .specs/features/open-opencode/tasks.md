@@ -114,12 +114,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] `open.ts` delegates, behavior identical
-- [ ] Gate check passes: `npx vitest run tests/open-args.test.ts`
-- [ ] Test count: existing suite green, zero expectation changes
+- [x] `open.ts` delegates, behavior identical
+- [x] Gate check passes: `npm run build` + `npx vitest run tests/open-args.test.ts` + `npx vitest run tests/open-contract.test.ts`
+- [x] Test count: existing suite green (71), zero expectation changes
 
 **Tests**: unit (existing `tests/open-args.test.ts`, untouched)
 **Gate**: quick
+
+**Status**: complete
 
 **Commit**: `refactor(open): extract runtime module from open command`
 
