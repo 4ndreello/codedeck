@@ -257,13 +257,15 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] Opencode-bound role dispatches to opencode launcher; claude path byte-identical
-- [ ] `--worktree` + opencode warns and continues; `--no-theme` + opencode opens stock
-- [ ] Gate check passes: `npm run build` + `npx vitest run tests/open-args.test.ts` + `npx vitest run tests/open-opencode.test.ts`
-- [ ] Test count: ≥5 new dispatch tests, existing suites green
+- [x] Opencode-bound role dispatches to opencode launcher; claude path byte-identical
+- [x] `--worktree` + opencode warns and continues; `--no-theme` + opencode opens stock
+- [x] Gate check passes: `npm run build` + all three open suites green (104)
+- [x] Test count: 5 new dispatch tests; one pinned mismatch expectation updated with user approval (opencode now dispatches per OO-04)
 
 **Tests**: unit
 **Gate**: build
+
+**Status**: complete
 
 **Commit**: `feat(open): dispatch open by role binding`
 

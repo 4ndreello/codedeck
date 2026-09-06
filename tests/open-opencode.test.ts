@@ -14,6 +14,7 @@ import {
   resolveBinary,
   rolePermission,
 } from "../src/open/launchers/opencode.js";
+import { launcherFor } from "../src/cli/commands/open.js";
 import * as models from "../src/core/models.js";
 import { detectBinary } from "../src/drivers/helpers.js";
 import { resolvePluginDir } from "../src/core/roles.js";
@@ -139,6 +140,28 @@ describe("resolveBinary", () => {
     mockedDetect.mockResolvedValueOnce({ installed: true, path: "/bin/opencode" });
 
     await expect(resolveBinary()).resolves.toBe("/bin/opencode");
+  });
+});
+
+describe("launcherFor", () => {
+  it("opens claude for a claude binding", () => {
+    expect(launcherFor("general", { harness: "claude", model: "m" })).toBe("claude");
+  });
+
+  it("opens claude when nobody bound the role", () => {
+    expect(launcherFor("general", undefined)).toBe("claude");
+  });
+
+  it("opens opencode for an opencode binding", () => {
+    expect(launcherFor("reviewer", { harness: "opencode", model: "prov/m" })).toBe("opencode");
+  });
+
+  it("throws instead of rounding codex down to the wrong session", () => {
+    expect(() => launcherFor("reviewer", { harness: "codex", model: "m" })).toThrow(/codex/);
+  });
+
+  it("throws instead of rounding omp down to the wrong session", () => {
+    expect(() => launcherFor("reviewer", { harness: "omp", model: "m" })).toThrow(/omp/);
   });
 });
 

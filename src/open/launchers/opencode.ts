@@ -82,7 +82,7 @@ export function buildArgs(
   ];
 }
 
-const OPENCODE_NOT_FOUND =
+export const OPENCODE_NOT_FOUND =
   "Opencode was not found on PATH. Install opencode and ensure `opencode` is available.";
 
 /**

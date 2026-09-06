@@ -7,14 +7,20 @@ import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 import {
   loadConfig,
-  resolveModel,
   resolveRoleBinding,
   type RoleBinding,
 } from "../../config/config.js";
 import { isInteractiveTerminal } from "./setup.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
-import { effectiveModel, type OpenFlags } from "../../open/contract.js";
+import { effectiveModel, resolveOpenModel, type OpenFlags } from "../../open/contract.js";
+import {
+  buildArgs as buildOpencodeArgs,
+  buildInlineConfig,
+  OPENCODE_NOT_FOUND,
+  preflight as preflightOpencode,
+  resolveBinary as resolveOpencodeBinary,
+} from "../../open/launchers/opencode.js";
 import {
   assertSupport,
   buildOpenArgs,
@@ -99,22 +105,37 @@ export const SPINNER_VERB_WIDTH = 12;
 
 
 /**
- * Why an agent bound to another harness cannot be opened, or nothing.
- *
- * `open` launches Claude Code and only Claude Code: the plugin, the theme and
- * the status line are all its features, so there is no version of this that
- * honours the configuration. Launching claude anyway would open a session under
- * a name whose configuration it does not follow, which is the failure this
- * repository's own system prompt calls rounding failure to success.
+ * Why an agent bound to a harness without a launcher cannot be opened, or
+ * nothing. `open` launches claude and opencode sessions; anything else has no
+ * launcher, so refusing beats opening a session under a name whose
+ * configuration it does not follow.
  *
  * The model is deliberately not part of the check. An explicit --model changes
- * which claude runs, never whether claude is the right harness.
+ * which binary runs, never whether it is the right harness.
  */
 export function harnessMismatch(role: Role, binding: RoleBinding | undefined): string | undefined {
-  if (!binding || binding.harness === "claude") return undefined;
+  if (!binding || binding.harness === "claude" || binding.harness === "opencode") {
+    return undefined;
+  }
   return (
-    `Agent "${role}" runs on ${binding.harness}, and codedeck open only launches Claude Code. ` +
-    `Use \`codedeck run --role ${role} "<prompt>"\`, or move it to claude with \`codedeck setup\`.`
+    `Agent "${role}" runs on ${binding.harness}, and codedeck open only launches claude and opencode sessions. ` +
+    `Use \`codedeck run --role ${role} "<prompt>"\`, or move it with \`codedeck setup\`.`
+  );
+}
+
+export type OpenHarness = "claude" | "opencode";
+
+/**
+ * The one dispatch decision: the binding owns the harness, and an unbound
+ * role opens claude like it always did. Anything else throws instead of
+ * rounding down to the wrong session.
+ */
+export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenHarness {
+  const harness = binding?.harness ?? "claude";
+  if (harness === "claude" || harness === "opencode") return harness;
+  const mismatch = harnessMismatch(role, binding);
+  throw new Error(
+    mismatch ?? `Agent "${role}" runs on ${harness}, which codedeck open does not launch.`,
   );
 }
 
@@ -334,25 +355,67 @@ export function registerOpenCommand(program: Command): void {
       const config = loadConfig();
 
       const binding = resolveRoleBinding(role, config);
-      const mismatch = harnessMismatch(role, binding);
-      if (mismatch) throw new Error(mismatch);
+      const launcher = launcherFor(role, binding);
 
-      const resolved = opts.model ?? binding?.model ?? resolveModel("claude", undefined, config) ?? DEFAULT_MODEL;
+      const passthroughModel = effectiveModel(invocation.passthrough);
+      const { model: boundModel, fromConfig } = resolveOpenModel(
+        role,
+        { model: opts.model, passthroughModel },
+        config,
+      );
+
+      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
+
+      if (launcher === "opencode") {
+        // Dispatch needs a binding, and a binding always carries a model, so
+        // this is unreachable through the CLI. It stays because buildArgs
+        // takes a string and a TypeError is not a diagnostic.
+        if (boundModel === undefined) {
+          throw new Error(
+            `Agent "${role}" has no model bound. Run \`codedeck setup\` to bind one.`,
+          );
+        }
+        if (opts.worktree) {
+          console.error(
+            "Warning: --worktree has no effect on opencode (no native worktree); continuing without it.",
+          );
+        }
+        const model = passthroughModel ?? boundModel;
+        await preflightOpencode(model, fromConfig);
+        const opencodeBin = await resolveOpencodeBinary();
+        // Effort has no opencode flag; the banner names the fallback.
+        const effort = opts.effort ?? "default";
+
+        // --no-theme asks for no CodeDeck styling, and an animation is styling.
+        if (opts.theme === false) {
+          process.stdout.write(renderBanner(role, model, effort));
+        } else {
+          await playBoot(role, model, effort);
+        }
+
+        await spawnHarness(
+          opencodeBin,
+          buildOpencodeArgs(role, { ...opts, model: boundModel }, invocation.passthrough),
+          {
+            cwd,
+            envExtra: { OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role) },
+            sessionFile,
+            model,
+            notFoundMessage: OPENCODE_NOT_FOUND,
+            onClose: () => finishOpenSession(role, sessionFile),
+          },
+        );
+        return;
+      }
+
+      const resolved = boundModel ?? DEFAULT_MODEL;
       const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough);
-      const model = effectiveModel(invocation.passthrough) ?? resolved;
-
-      // It came from config only when nobody typed a model just now, neither by
-      // flag nor by passthrough, and the config actually had one.
-      const fromConfig =
-        opts.model === undefined &&
-        effectiveModel(invocation.passthrough) === undefined &&
-        (binding?.model !== undefined || resolveModel("claude", undefined, config) !== undefined);
+      const model = passthroughModel ?? resolved;
 
       await preflightModel(model, fromConfig);
       const claudeBin = await resolveBinary();
       await assertSupport(claudeBin, cwd);
 
-      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
       const effort = opts.effort ?? DEFAULT_EFFORT;
 
       // --no-theme asks for no CodeDeck styling, and an animation is styling.
