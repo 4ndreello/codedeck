@@ -398,6 +398,108 @@ function takeSessionId(file: string): string | undefined {
   }
 }
 
+const SIGINT_ESCALATION_COUNT = 3;
+const SIGINT_KILL_GRACE_MS = 1000;
+
+interface SignalHost {
+  on(event: "SIGINT", listener: () => void): unknown;
+  removeListener(event: "SIGINT", listener: () => void): unknown;
+}
+
+type KillableChild = Pick<ChildProcess, "kill">;
+
+export interface SigintGuard {
+  childClosed(): void;
+  dispose(): void;
+}
+
+/**
+ * Keeps the parent alive while Claude leaves the terminal and CodeDeck writes
+ * the resume hint.
+ *
+ * Claude inherits stdin and stays in the parent's foreground process group
+ * (`detached: false`), so a tty sends Ctrl+C to both processes. This listener
+ * absorbs only the parent's copy. Claude still receives the first Ctrl+C and
+ * can exit normally. A flood eventually escalates the child itself so a stuck
+ * session cannot prevent the hint from being written.
+ */
+export function installSigintGuard(
+  getChild: () => KillableChild | undefined,
+  signalHost: SignalHost = process,
+): SigintGuard {
+  let signals = 0;
+  let escalationStarted = false;
+  let childClosed = false;
+  let disposed = false;
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearKillTimer = () => {
+    if (killTimer === undefined) return;
+    clearTimeout(killTimer);
+    killTimer = undefined;
+  };
+
+  const send = (signal: NodeJS.Signals) => {
+    const child = getChild();
+    if (!child) return;
+    try {
+      child.kill(signal);
+    } catch {}
+  };
+
+  const onSigint = () => {
+    if (disposed || childClosed || escalationStarted) return;
+    signals += 1;
+    if (signals < SIGINT_ESCALATION_COUNT || !getChild()) return;
+
+    escalationStarted = true;
+    send("SIGTERM");
+    killTimer = setTimeout(() => {
+      killTimer = undefined;
+      if (disposed || childClosed) return;
+      send("SIGKILL");
+    }, SIGINT_KILL_GRACE_MS);
+  };
+
+  signalHost.on("SIGINT", onSigint);
+
+  return {
+    childClosed() {
+      childClosed = true;
+      clearKillTimer();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      clearKillTimer();
+      signalHost.removeListener("SIGINT", onSigint);
+    },
+  };
+}
+
+function writeStdoutSync(text: string): void {
+  try {
+    const bytes = Buffer.from(text);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const written = fs.writeSync(1, bytes, offset, bytes.length - offset);
+      if (written <= 0) break;
+      offset += written;
+    }
+  } catch {}
+}
+
+/** Takes the session id and writes the farewell while the SIGINT guard is live. */
+export function finishOpenSession(
+  role: Role,
+  sessionFile: string,
+  write: (text: string) => void = writeStdoutSync,
+): void {
+  try {
+    write(renderExit(role, takeSessionId(sessionFile)));
+  } catch {}
+}
+
 /**
  * The boot screen, and it works because of the fullscreen renderer rather than
  * in spite of it.
@@ -870,6 +972,7 @@ function launchClaude(
   args: string[],
   cwd: string,
   sessionFile: string,
+  onClose: () => void,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -879,37 +982,63 @@ function launchClaude(
       binDir === undefined
         ? sanitizeEnv(process.env)
         : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
-    const child = spawn(claudeBin, args, {
-      cwd,
-      env: { ...childEnv, CODEDECK_SESSION_FILE: sessionFile },
-      stdio: ["inherit", "inherit", "pipe"],
-    });
+    let child: ChildProcess | undefined;
+    const sigintGuard = installSigintGuard(() => child);
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      sigintGuard.childClosed();
+      sigintGuard.dispose();
+      reject(error);
+    };
+
+    try {
+      child = spawn(claudeBin, args, {
+        cwd,
+        env: { ...childEnv, CODEDECK_SESSION_FILE: sessionFile },
+        // Keep Claude in the foreground process group so the terminal sends
+        // the first Ctrl+C to it as well as to this parent guard.
+        detached: false,
+        stdio: ["inherit", "inherit", "pipe"],
+      });
+    } catch (error) {
+      fail(error);
+      return;
+    }
 
     relayStderr(child, output);
 
     child.once("error", (error) => {
       if (settled) return;
-      settled = true;
       const details = errorDetails(error);
       if (details.code === "ENOENT") {
-        reject(new Error(CLAUDE_NOT_FOUND));
+        fail(new Error(CLAUDE_NOT_FOUND));
       } else {
-        reject(error);
+        fail(error);
       }
     });
 
     child.once("close", (code, signal) => {
       if (settled) return;
       settled = true;
+      sigintGuard.childClosed();
 
       const entitlement = entitlementError(model, output.value);
       if (entitlement) {
+        sigintGuard.dispose();
         reject(new Error(entitlement));
         return;
       }
 
       process.exitCode = exitCodeFor(code, signal);
-      resolve();
+      try {
+        onClose();
+        sigintGuard.dispose();
+        resolve();
+      } catch (error) {
+        sigintGuard.dispose();
+        reject(error);
+      }
     });
   });
 }
@@ -970,7 +1099,13 @@ export function registerOpenCommand(program: Command): void {
         await playBoot(role, model, effort);
       }
 
-      await launchClaude(claudeBin, model, args, cwd, sessionFile);
-      process.stdout.write(renderExit(role, takeSessionId(sessionFile)));
+      await launchClaude(
+        claudeBin,
+        model,
+        args,
+        cwd,
+        sessionFile,
+        () => finishOpenSession(role, sessionFile),
+      );
     });
 }

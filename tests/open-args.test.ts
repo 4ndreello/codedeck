@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { Command } from "commander";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { HarnessModels } from "../src/core/models.js";
 import { LOGO } from "../src/cli/ui.js";
@@ -14,7 +14,9 @@ import {
   effectiveModel,
   entitlementError,
   exitCodeFor,
+  finishOpenSession,
   harnessMismatch,
+  installSigintGuard,
   isNonInteractiveLaunch,
   judgeModel,
   parseRole,
@@ -313,6 +315,76 @@ describe("open command pure helpers", () => {
     expect(renderExit("general", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain("╔╗ ╦ ╦╔═╗");
     expect(renderExit("general", undefined)).toContain("╔╗ ╦ ╦╔═╗");
     expect(renderExit("general", undefined)).not.toContain("--resume");
+  });
+
+  // A real tty signal test would need to own the foreground process group. The
+  // teardown writer runs synchronously here, so invoking the installed handler
+  // from it checks the same ordering without sending a process-wide signal.
+  it("keeps the resume line while SIGINT arrives during teardown", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-test-"));
+    const sessionFile = path.join(tempDir, "session");
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    fs.writeFileSync(sessionFile, sessionId);
+
+    let onSigint: (() => void) | undefined;
+    const removed: Array<() => void> = [];
+    const signalHost = {
+      on: (_event: "SIGINT", listener: () => void) => {
+        onSigint = listener;
+      },
+      removeListener: (_event: "SIGINT", listener: () => void) => {
+        removed.push(listener);
+      },
+    };
+    const child = { kill: vi.fn(() => true) };
+    const guard = installSigintGuard(() => child, signalHost);
+    let output = "";
+
+    try {
+      finishOpenSession("reviewer", sessionFile, (text) => {
+        onSigint?.();
+        output += text;
+      });
+
+      expect(output).toContain(`codedeck open reviewer --resume ${sessionId}`);
+      expect(removed).toEqual([]);
+    } finally {
+      guard.dispose();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    expect(removed).toHaveLength(1);
+  });
+
+  it("escalates a flooded SIGINT and stops after the child closes", () => {
+    vi.useFakeTimers();
+    let onSigint: (() => void) | undefined;
+    const signalHost = {
+      on: (_event: "SIGINT", listener: () => void) => {
+        onSigint = listener;
+      },
+      removeListener: vi.fn(),
+    };
+    const child = { kill: vi.fn(() => true) };
+    const guard = installSigintGuard(() => child, signalHost);
+
+    try {
+      onSigint?.();
+      onSigint?.();
+      expect(child.kill).not.toHaveBeenCalled();
+      onSigint?.();
+
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+      vi.runOnlyPendingTimers();
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+
+      guard.childClosed();
+      onSigint?.();
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    } finally {
+      guard.dispose();
+      vi.useRealTimers();
+    }
   });
 
   // Blanks stay blank so the mark keeps its silhouette while it resolves. Noise
