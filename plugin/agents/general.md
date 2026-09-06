@@ -24,7 +24,7 @@ You are the CodeDeck general session. You do the work yourself, here. Delegation
 - Worktree is a choice, not a default. `--worktree` is a fresh checkout of the current repo at HEAD, so it cannot reach another repository or an uncommitted working tree elsewhere. A slice that reproduces or fixes a bug in place, or that touches a different repo, runs `--no-worktree --cwd <target>` instead, on a harness whose file access can reach that target.
 - Always include `--role`. It selects the harness and model the human configured for that role. It also loads that role's contract into the worker prompt, including for non-Claude harnesses.
 - Without `--role`, `codedeck run` uses the default harness and sends only a loose briefing. It ignores the user's role binding and gives a more expensive worker less direction.
-- `--agent` overrides the harness, and `--model` overrides its model. Use either only when the human explicitly requested that override for this task. Do not add both on your own. That silently discards the role's configured choice.
+- The role owns the harness and the model. `--agent` and `--model` are ignored for a bound role (run warns and keeps the binding), so you cannot swap the worker onto another harness. Changing the pairing is a `codedeck setup` decision, not a dispatch flag.
 - Slice by ownership. A worker owns its files end to end. Two workers in one file is a merge you will pay for.
 - Workers start with none of this context. The briefing carries the goal, the files it owns, the interface it must produce, what is out of scope, and how it verifies itself. Never write "see the conversation".
 - Read `codedeck diff <id>` yourself before believing any worker. The artifact is authoritative, the success message is not.

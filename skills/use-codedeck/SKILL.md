@@ -18,7 +18,7 @@ CodeDeck runs coding-agent sessions and persists their state. The session ID is 
 | `auditor` | no | yes | reviewing a scope too large for one pass, sliced by dimension |
 | `reviewer` | no | no | one review pass, no fan-out |
 
-Three-letter prefixes work (`--role gen`). Override the binding only when the human asked for it. `--agent <harness>` swaps the harness, `--model <id>` swaps the model. Setting both yourself discards the role's configured choice with no warning.
+Three-letter prefixes work (`--role gen`). The role owns the harness and the model: `--agent` and `--model` are ignored for a role that carries a binding (run warns and keeps the binding), so a worker cannot move itself onto another harness. Change the pairing in `codedeck setup`, not on the dispatch line.
 
 ## Worktree is a choice, not a default
 
