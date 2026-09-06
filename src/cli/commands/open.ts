@@ -46,32 +46,39 @@ const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
  * "replace" drops Claude Code's own hundred-odd verbs instead of adding to
  * them, so this list is the entire vocabulary and has to be long enough that a
  * single session does not visibly cycle it.
+ *
+ * The block motifs are here because the spinner glyph itself cannot be reached.
+ * Its frames are module constants (`["·","✢","✳","✶","✻","✽"]`, mirrored for
+ * the ping-pong) picked only by whether TERM is xterm-ghostty, and no setting
+ * touches them. The verb is the one part of that line CodeDeck owns, so it is
+ * where the blocks go. They are all U+2580..U+259F, which every terminal font
+ * that draws a progress bar already has.
  */
 const SPINNER_VERBS = [
-  "Overclocking",
-  "Redlining",
-  "Warping",
-  "Turbocharging",
-  "Supercharging",
-  "Blazing",
-  "Rocketing",
-  "Thundering",
-  "Cranking",
-  "Surging",
-  "Roaring",
-  "Sprinting",
-  "Igniting",
-  "Accelerating",
-  "Screaming",
-  "Hammering",
-  "Launching",
-  "Boosting",
-  "Charging",
-  "Ripping",
-  "Barreling",
-  "Steamrolling",
-  "Going ultra",
-  "Rolling hot",
+  "▛▀ Overclocking",
+  "▙▄ Redlining",
+  "▚▞ Warping",
+  "██ Turbocharging",
+  "▓▒ Supercharging",
+  "▞▚ Blazing",
+  "▛▜ Rocketing",
+  "▄█ Thundering",
+  "░▒ Cranking",
+  "▐█ Surging",
+  "█▌ Roaring",
+  "▟▙ Sprinting",
+  "▀▄ Igniting",
+  "▒▓ Accelerating",
+  "▜▛ Screaming",
+  "▙▟ Hammering",
+  "█▀ Launching",
+  "▄▀ Boosting",
+  "▌▐ Charging",
+  "▞▞ Ripping",
+  "▚▚ Barreling",
+  "▓█ Steamrolling",
+  "███ Going ultra",
+  "░░ Rolling hot",
 ];
 
 /**
@@ -95,20 +102,20 @@ const SPINNER_TIPS = [
 ];
 
 /**
- * The one slot Claude Code offers for text of our own at startup. Everything
- * else that paints the opening screen is internal: there is no banner, welcome
- * or startup-message key, and the component that draws the ASCII art runs only
- * in the onboarding and trial flows, never in an established session.
+ * There is no startup text slot worth using, and the two that exist were tried.
  *
- * Deliberately plain text. It reaches the terminal through an Ink <Text> node
- * that also owns wrapping, and whether raw SGR survives that was not measured,
- * so the identity is carried by the glyphs and the theme rather than by escapes
- * that might arrive as literal garbage.
+ * `companyAnnouncements` renders our string, but Claude Code puts its own dim
+ * "Message from <organization>:" above it whenever the account belongs to one,
+ * with no way to suppress that from settings. On an account with an org it
+ * therefore reads as a message from the employer, which is false.
+ *
+ * A SessionStart hook can print, but every hook message renders as
+ * "<hook> says: <text>", so it cannot draw a clean line either.
+ *
+ * Nothing is lost by leaving both alone. Claude Code's own opening header
+ * already names the model, the effort and the agent, and the footer already
+ * says whether permissions are bypassed.
  */
-function announcement(role: Role, model: string, effort: string, bypass: boolean): string {
-  const facts = [role, model, effort, bypass ? "permissions bypassed" : "permissions on"];
-  return `▌ CODEDECK ULTRA\n▌ ${facts.join(" · ")}`;
-}
 const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
@@ -140,13 +147,7 @@ function shellQuote(value: string): string {
  * shipped alongside this code was never exercised by a launch, which is exactly
  * how a broken command sat in it unnoticed.
  */
-export function buildSettings(
-  pluginDir: string,
-  flags: OpenFlags,
-  role: Role,
-  model: string,
-  effort: string,
-): Record<string, unknown> {
+export function buildSettings(pluginDir: string, flags: OpenFlags): Record<string, unknown> {
   const statusLine = {
     type: "command",
     command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
@@ -162,7 +163,6 @@ export function buildSettings(
     tui: "fullscreen",
     spinnerVerbs: { mode: "replace", verbs: SPINNER_VERBS },
     spinnerTipsOverride: { excludeDefault: true, label: "ULTRA", tips: SPINNER_TIPS },
-    companyAnnouncements: [announcement(role, model, effort, flags.bypass !== false)],
     statusLine,
   };
 }
@@ -173,24 +173,18 @@ export function buildOpenArgs(
   pluginDir: string,
   passthrough: string[],
 ): string[] {
-  const model = flags.model ?? DEFAULT_MODEL;
-  const effort = flags.effort ?? DEFAULT_EFFORT;
-  // The announcement names the model that actually wins, which is the one the
-  // passthrough may have overridden, not the one CodeDeck resolved.
-  const announced = effectiveModel(passthrough) ?? model;
-
   const args = [
     "--model",
-    model,
+    flags.model ?? DEFAULT_MODEL,
     "--effort",
-    effort,
+    flags.effort ?? DEFAULT_EFFORT,
     ...(flags.bypass !== false ? ["--dangerously-skip-permissions"] : []),
     "--plugin-dir",
     pluginDir,
     "--append-system-prompt-file",
     path.join(pluginDir, "ultra.md"),
     "--settings",
-    JSON.stringify(buildSettings(pluginDir, flags, role, announced, effort)),
+    JSON.stringify(buildSettings(pluginDir, flags)),
     // `--agent` layers on top of Claude's own system prompt rather than
     // replacing it, and an agent file with no `tools:` key inherits the whole
     // toolset. So `general` carries its contract the same way the others do,

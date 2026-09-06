@@ -132,6 +132,20 @@ describe("open command argument builder", () => {
     for (const verb of spinnerVerbs.verbs) expect(verb.trim()).toBe(verb);
   });
 
+  // The spinner glyph is a module constant chosen by TERM alone, so the verb is
+  // the only part of that line CodeDeck can paint. The blocks stay inside
+  // U+2580..U+259F, which is the range terminal fonts ship for progress bars:
+  // reaching outside it is how a spinner turns into tofu on someone else's box.
+  it("keeps the spinner blocks inside the range terminal fonts actually have", () => {
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
+
+    for (const verb of spinnerVerbs.verbs) {
+      const [blocks, ...words] = verb.split(" ");
+      expect(words.join(" "), verb).toMatch(/^[A-Za-z][A-Za-z ]*$/);
+      expect(blocks, verb).toMatch(/^[▀-▟]+$/);
+    }
+  });
+
   // Every tip is read as a command someone will type, so a tip naming a command
   // this CLI does not ship is worse than no tip.
   it("only advertises commands the CLI actually ships", () => {
@@ -150,42 +164,16 @@ describe("open command argument builder", () => {
     }
   });
 
-  // The announcement is the only text CodeDeck gets to put on the opening
-  // screen, and under the fullscreen renderer it is the only one that survives:
-  // the alternate screen wipes whatever was printed before the launch.
-  it("announces the role, model, effort and permission state", () => {
-    const settings = settingsOf(
-      buildOpenArgs("auditor", { model: "claude-sonnet" }, "/opt/codedeck/plugin", []),
-    );
+  // companyAnnouncements was tried and taken back out. It renders our string,
+  // but Claude Code puts its own "Message from <organization>:" above it
+  // whenever the account has an org, which no setting suppresses, so on such an
+  // account the line reads as coming from the employer. Nothing was lost:
+  // Claude Code's own opening header already names the model, the effort and
+  // the agent, and the footer already says whether permissions are bypassed.
+  it("puts no text on the opening screen", () => {
+    const settings = settingsOf(buildOpenArgs("auditor", {}, "/opt/codedeck/plugin", []));
 
-    expect(settings.companyAnnouncements).toHaveLength(1);
-    expect(settings.companyAnnouncements[0]).toContain("CODEDECK ULTRA");
-    expect(settings.companyAnnouncements[0]).toContain(
-      "auditor · claude-sonnet · xhigh · permissions bypassed",
-    );
-  });
-
-  it("says so in the announcement when the bypass is off", () => {
-    const settings = settingsOf(
-      buildOpenArgs("general", { bypass: false }, "/opt/codedeck/plugin", []),
-    );
-
-    expect(settings.companyAnnouncements[0]).toContain("permissions on");
-  });
-
-  // Claude honours the last --model on the line, and the passthrough is
-  // appended last, so announcing the resolved one would name a model the
-  // session is not running.
-  it("announces the model the passthrough overrode to", () => {
-    const settings = settingsOf(
-      buildOpenArgs("general", { model: "claude-sonnet" }, "/opt/codedeck/plugin", [
-        "--model",
-        "claude-opus-4-8",
-      ]),
-    );
-
-    expect(settings.companyAnnouncements[0]).toContain("claude-opus-4-8");
-    expect(settings.companyAnnouncements[0]).not.toContain("claude-sonnet");
+    expect(settings.companyAnnouncements).toBeUndefined();
   });
 
   it("keeps only the status line when the theme is off", () => {

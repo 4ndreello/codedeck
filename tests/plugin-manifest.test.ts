@@ -44,7 +44,30 @@ describe("CodeDeck plugin manifest contract", () => {
       // longest.
       claudeBlue_FOR_SYSTEM_SPINNER: expect.any(String),
       claudeBlueShimmer_FOR_SYSTEM_SPINNER: expect.any(String),
+      // The mascot is the one thing on the opening screen that keeps its stock
+      // colour unless these two are set, and it is drawn from filled blocks, so
+      // it reads as a foreign object rather than as a detail.
+      clawd_body: expect.any(String),
+      clawd_background: expect.any(String),
     }));
+  });
+
+  // The sweep that animates every shimmering surface advances on a 50ms timer
+  // and is switched off only by prefersReducedMotion. Every one of these keys
+  // is a colour it sweeps toward, so an unset one animates in stock colours.
+  it("sets every colour the shimmer animation sweeps toward", () => {
+    const { overrides } = readJson(plugin("themes", "codedeck-ultra.json"));
+    const shimmering = Object.keys(overrides).filter((key) => key.endsWith("Shimmer"));
+
+    expect(shimmering.sort()).toEqual([
+      "autoAcceptShimmer",
+      "claudeShimmer",
+      "fastModeShimmer",
+      "inactiveShimmer",
+      "permissionShimmer",
+      "promptBorderShimmer",
+      "warningShimmer",
+    ]);
   });
 
   // The slug in the theme ref is the FILE BASENAME, not the theme's `name`
