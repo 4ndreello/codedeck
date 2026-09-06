@@ -572,7 +572,7 @@ describe("open command pure helpers", () => {
 // Under a pty (CI, `script`, most runners) stdout is a TTY, so a terminal check
 // alone lets the role picker and the model wizard block a `-p` launch forever.
 // This is the flag that says the launch answers once and exits.
-// `open` launches Claude Code and nothing else. Opening it for an agent bound
+// `open` launches claude and opencode sessions. Opening it for an agent bound
 // elsewhere would run a session under a name whose configuration it ignores.
 describe("an agent bound to another harness", () => {
   it("refuses, naming the harness and the way out", () => {
@@ -582,15 +582,16 @@ describe("an agent bound to another harness", () => {
     expect(message).toContain("codedeck run --role reviewer");
   });
 
-  it("allows an agent bound to claude, and one nobody bound at all", () => {
+  it("allows an agent bound to claude or opencode, and one nobody bound at all", () => {
     expect(harnessMismatch("general", { harness: "claude", model: "claude-opus-5" })).toBeUndefined();
+    expect(harnessMismatch("general", { harness: "opencode", model: "prov/m" })).toBeUndefined();
     expect(harnessMismatch("general", undefined)).toBeUndefined();
   });
 
-  // An explicit --model changes which claude runs, never whether claude is the
+  // An explicit --model changes which binary runs, never whether it is the
   // right harness, so it is no escape from the refusal.
-  it("refuses every non-claude harness", () => {
-    for (const harness of ["codex", "opencode", "omp"] as const) {
+  it("refuses every harness without a launcher", () => {
+    for (const harness of ["codex", "omp"] as const) {
       expect(harnessMismatch("auditor", { harness, model: "whatever" })).toContain(harness);
     }
   });

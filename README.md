@@ -95,13 +95,15 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 ## Open
 
-`codedeck open` launches Claude Code already configured: the CodeDeck plugin, an appended system prompt, Opus 4.8 at `xhigh` effort, and permissions bypassed. Nothing is written to `~/.claude/`; the plugin is loaded for that session only, from the installed package.
+`codedeck open` launches a session on the harness bound to the role in `codedeck setup`: Claude Code with the CodeDeck plugin, an appended system prompt, Opus 4.8 at `xhigh` effort, and permissions bypassed; or the opencode TUI with the role contract injected, `--auto` on, and a stock look. Nothing is written to `~/.claude/` or `~/.config/opencode`; everything loads for that session only.
 
 ```bash
 npx codedeck open              # asks which role, defaults to general
 npx codedeck open reviewer     # straight into a role
-npx codedeck open -- --add-dir ../other-repo   # anything after -- goes to claude verbatim
+npx codedeck open -- --add-dir ../other-repo   # anything after -- goes to the harness verbatim
 ```
+
+On opencode the model must be `provider/model`, `--resume` resumes a native session id, and `--worktree` warns and continues without isolating. There is no opencode theme yet: `--no-theme` is accepted and changes nothing.
 
 Four roles. Each is an agent file in the plugin, and the restriction is a tool allowlist rather than an instruction:
 
