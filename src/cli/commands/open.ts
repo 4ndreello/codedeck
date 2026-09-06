@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import * as readline from "node:readline";
-import { constants } from "node:os";
+import os, { constants } from "node:os";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
@@ -256,7 +256,43 @@ export function harnessMismatch(role: Role, binding: RoleBinding | undefined): s
 export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const sanitized = { ...env };
   delete sanitized.CLAUDE_CODE_CHILD_SESSION;
+
+  // A mise shim announces the tool it resolved on every run. It costs 36ms,
+  // which nobody would notice, and one line of output, which lands on top of
+  // the boot screen. Only the line matters. A setting of the user's own is left
+  // alone, since silencing mise everywhere is not this command's call.
+  sanitized.MISE_QUIET ??= "1";
   return sanitized;
+}
+
+/**
+ * What to say once the session is over, so the id is there when it is wanted
+ * rather than buried in a picker.
+ *
+ * It cannot be said any earlier. The id does not exist when the boot screen
+ * prints, and the launcher cannot read it off the session either, because
+ * stdout is inherited by the terminal so that the TUI can paint straight to it.
+ * A SessionStart hook is the one thing that sees it, and it can only leave it
+ * in a file for afterwards.
+ */
+export function resumeHint(role: Role, id: string | undefined): string | undefined {
+  if (id === undefined || !/^[0-9a-fA-F-]{8,}$/.test(id)) return undefined;
+  return `\n${INDENT}resume: codedeck open ${role} --resume ${id}\n`;
+}
+
+/** Reads what the SessionStart hook left, and takes the file with it. */
+function takeSessionId(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8").trim() || undefined;
+  } catch {
+    // No file means the hook never ran: an older Claude Code, a session that
+    // died before startup, or a plugin the launch could not load. None of those
+    // are worth a diagnostic on the way out of a session that otherwise worked.
+  } finally {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {}
+  }
 }
 
 /**
@@ -657,13 +693,19 @@ export function entitlementError(model: string, output: string): string | undefi
   return `Claude Code rejected model "${rejected}" because this account is not entitled to it. Check the Claude plan or model access for the account.`;
 }
 
-function launchClaude(claudeBin: string, model: string, args: string[], cwd: string): Promise<void> {
+function launchClaude(
+  claudeBin: string,
+  model: string,
+  args: string[],
+  cwd: string,
+  sessionFile: string,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const output = { value: "" };
     const child = spawn(claudeBin, args, {
       cwd,
-      env: sanitizeEnv(process.env),
+      env: { ...sanitizeEnv(process.env), CODEDECK_SESSION_FILE: sessionFile },
       stdio: ["inherit", "inherit", "pipe"],
     });
 
@@ -742,7 +784,11 @@ export function registerOpenCommand(program: Command): void {
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
+      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
       process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
-      await launchClaude(claudeBin, model, args, cwd);
+      await launchClaude(claudeBin, model, args, cwd, sessionFile);
+
+      const hint = resumeHint(role, takeSessionId(sessionFile));
+      if (hint) process.stdout.write(hint);
     });
 }

@@ -15,6 +15,7 @@ import {
   parseRole,
   registerOpenCommand,
   renderBanner,
+  resumeHint,
   resolvePluginDir,
   sanitizeEnv,
   scanOptions,
@@ -217,8 +218,11 @@ describe("open command pure helpers", () => {
     const env = { PATH: "/bin", CLAUDE_CODE_CHILD_SESSION: "1" };
     const sanitized = sanitizeEnv(env);
 
-    expect(sanitized).toEqual({ PATH: "/bin" });
+    expect(sanitized).toEqual({ PATH: "/bin", MISE_QUIET: "1" });
     expect(env.CLAUDE_CODE_CHILD_SESSION).toBe("1");
+    // The caller's own object is never touched, whether a key is dropped or
+    // added: it is process.env, and this runs before the launch.
+    expect(env).not.toHaveProperty("MISE_QUIET");
   });
 
   it("renders one banner string carrying the whole launch context", () => {
@@ -227,6 +231,32 @@ describe("open command pure helpers", () => {
     expect(typeof banner).toBe("string");
     expect(banner).toContain("reviewer · claude-opus-5 · xhigh");
     expect(banner).toContain("╔═╗");
+  });
+
+  // The id cannot be printed any earlier: it does not exist when the boot
+  // screen prints, and the launcher cannot read it off the session because
+  // stdout is inherited so the TUI can paint straight to the terminal.
+  it("offers the resume line the session ends with", () => {
+    expect(resumeHint("reviewer", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain(
+      "codedeck open reviewer --resume 92d88cce-bdbc-46db-8573-916afd32f6f7",
+    );
+  });
+
+  // A hook that never ran leaves nothing, and a session that otherwise worked
+  // should not end on a diagnostic about it.
+  it.each([undefined, "", "  ", "not a session id"])(
+    "says nothing when the hook left %o",
+    (left) => {
+      expect(resumeHint("general", left)).toBeUndefined();
+    },
+  );
+
+  // The mise shim prints the tool it resolved on every run, straight over the
+  // boot screen. Silencing it for this child is fair; silencing it for the
+  // user's whole environment is not, so an explicit value wins.
+  it("quiets the mise shim without overriding a setting of the user's own", () => {
+    expect(sanitizeEnv({}).MISE_QUIET).toBe("1");
+    expect(sanitizeEnv({ MISE_QUIET: "0" }).MISE_QUIET).toBe("0");
   });
 
   it("resolves a module-relative plugin directory", () => {

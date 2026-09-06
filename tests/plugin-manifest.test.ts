@@ -99,6 +99,33 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(existsSync(plugin("settings.json"))).toBe(false);
   });
 
+  // ${CLAUDE_PLUGIN_ROOT} is expanded for hooks declared here and nowhere else,
+  // which is the whole reason the status line had to stop using it. A hook that
+  // spelled the path any other way would not find its own script.
+  it("names its hook script through the plugin root", () => {
+    const hooks = readJson(plugin("hooks", "hooks.json"));
+    const [entry] = hooks.hooks.SessionStart;
+
+    expect(entry.hooks[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(entry.hooks[0].command).toContain("session-id.sh");
+    expect(existsSync(plugin("hooks", "session-id.sh"))).toBe(true);
+  });
+
+  // The hook runs on the startup path someone is already waiting through, so it
+  // stays in the shell. Reaching for node here would cost more than the read.
+  it("captures the session id without spawning an interpreter", () => {
+    const script = readText(plugin("hooks", "session-id.sh"));
+    // Comments name the interpreters to say why they are not used, so the
+    // assertion reads what actually runs.
+    const code = script
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+
+    expect(code).toContain("CODEDECK_SESSION_FILE");
+    expect(code).not.toMatch(/\bnode\b|\bpython3?\b|\bjq\b/);
+  });
+
   it("ships an agent file for every role", () => {
     const agents = readdirSync(plugin("agents"))
       .filter((f) => f.endsWith(".md"))
