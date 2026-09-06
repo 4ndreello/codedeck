@@ -14,7 +14,7 @@ import {
   type RoleBinding,
 } from "../../config/config.js";
 import { isInteractiveTerminal } from "./setup.js";
-import { renderLogo } from "../ui.js";
+import { INDENT, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import {
@@ -259,8 +259,30 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return sanitized;
 }
 
+/**
+ * The boot screen, and it works because of the fullscreen renderer rather than
+ * in spite of it.
+ *
+ * Claude Code takes a moment to paint, and until it does the terminal shows
+ * whatever stood there. Since it opens on the alternate screen, this is drawn
+ * on the primary one, replaced the instant Claude takes over and restored,
+ * unseen, when the session ends. So it fills exactly the gap and cleans itself
+ * up, with nothing to tear down and no escape of ours left interleaved with
+ * Claude's output.
+ *
+ * Colour is written by hand here for the same reason the status line writes its
+ * own: this runs before Claude Code exists, so no theme is loaded yet.
+ */
 export function renderBanner(role: Role, model: string, effort: string): string {
-  return `${renderLogo(`${role} · ${model} · ${effort}`)}\n`;
+  const blood = (value: string) => `\x1b[38;2;225;29;72m${value}\x1b[0m`;
+  const muted = (value: string) => `\x1b[38;2;163;139;143m${value}\x1b[0m`;
+
+  const logo = renderLogo()
+    .split("\n")
+    .map((line) => (line.trim() === "" ? line : blood(line)))
+    .join("\n");
+
+  return `${logo}${INDENT}${muted(`${role} · ${model} · ${effort}`)}\n${INDENT}${muted("booting…")}\n`;
 }
 
 function selectRole(): Promise<Role> {
@@ -720,13 +742,7 @@ export function registerOpenCommand(program: Command): void {
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
-      // The fullscreen renderer opens on the alternate screen, which wipes
-      // whatever stood before the launch. So under the CodeDeck look the
-      // identity moves inside the session as a startup announcement, and this
-      // banner is left to the branch that keeps the classic renderer.
-      if (opts.theme === false) {
-        process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
-      }
+      process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
       await launchClaude(claudeBin, model, args, cwd);
     });
 }
