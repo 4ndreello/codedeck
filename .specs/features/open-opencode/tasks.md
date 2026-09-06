@@ -417,6 +417,51 @@ No dependency points to a later phase.
 
 ---
 
+## Fix iteration 1 (Verifier FAIL → gaps)
+
+### F1: Pin dispatch and edge behavior with action tests
+
+**What**: New `tests/open-action.test.ts` driving the real commander action with boundary spies (daemon, spawn, preflight, binary); call-args pin for the opencode catalog and top-level key pin for the inline contract in `tests/open-opencode.test.ts`.
+**Where**: `tests/open-action.test.ts`
+**Builds on**: T7 (fix task, no diagram edge)
+**Requirement**: OO-10, OO-11, OO-12, OO-13, OO-16, OO-18, OO-20, OO-22, OO-23
+
+**Done when**:
+
+- [x] Daemon-before-spawn order asserted via invocation order
+- [x] `onClose` wiring invokes the farewell with the session file
+- [x] Worktree warn asserted with spawn still called; `--no-theme` accepted; broken contract never spawns
+- [x] Outside-git start and dead-cwd throw covered
+- [x] Gate: `npm run build` + all open suites green
+
+**Tests**: unit
+**Gate**: build
+
+**Status**: complete
+
+**Commit**: `test(open): pin dispatch and edge behavior with action tests`
+
+### F2: Probe artifact and OO-03 exemption
+
+**What**: Commit `probe-2026-09-06.txt` transcript, reference it from the assumptions row, exempt OO-04 dispatch expectations from OO-03.
+**Where**: `.specs/features/open-opencode/probe-2026-09-06.txt`
+**Builds on**: T8 (fix task, no diagram edge)
+**Requirement**: OO-03, OO-14, OO-17
+
+**Done when**:
+
+- [x] Transcript committed and referenced
+- [x] OO-03 text exempts the dispatch expectations OO-04 requires changed
+
+**Tests**: none (docs layer, build gate only)
+**Gate**: build
+
+**Status**: complete
+
+**Commit**: `test(open): pin dispatch and edge behavior with action tests`
+
+---
+
 ## Task Verification Standards
 
 Every task MUST follow the `Done when` + `Tests` + `Gate` fields defined in the **Task Breakdown** template above. Each `Done when` entry must be specific, testable (binary pass/fail), and reference the gate check command from the `Gate Check Commands` section. Include the expected test count to prevent silent deletions.

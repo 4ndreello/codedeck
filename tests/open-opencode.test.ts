@@ -73,6 +73,7 @@ describe("buildInlineConfig", () => {
     expect(agent.prompt).toContain("CodeDeck reviewer");
     expect(agent.prompt).not.toContain("tools:");
     expect(agent.permission).toEqual(rolePermission("reviewer"));
+    expect(Object.keys(parsed).sort()).toEqual(["agent", "instructions"]);
   });
 
   it("embeds each role's own permission map", () => {
@@ -172,6 +173,14 @@ describe("preflight", () => {
 
     await expect(preflight("prov/m", false)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("unavailable"));
+  });
+
+  it("consults the opencode catalog, not another harness", async () => {
+    const discover = vi.spyOn(models, "getCachedOrDiscoverModels").mockResolvedValueOnce([]);
+
+    await preflight("prov/m", false);
+
+    expect(discover).toHaveBeenCalledWith(expect.anything(), { agent: "opencode" });
   });
 
   it("rejects a model the opencode catalog does not list", async () => {
