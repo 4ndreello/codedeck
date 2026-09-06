@@ -142,12 +142,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] `judgeModel` keeps signature and behavior (adapter over `judgeModelIn` with claude catalog)
-- [ ] Gate check passes: `npm run build` + `npx vitest run tests/open-args.test.ts` + `npx vitest run tests/open-contract.test.ts`
-- [ ] Test count: ≥4 new tests (unknown catalog, empty catalog, reject with suggestion, config recovery hint)
+- [x] `judgeModel` keeps signature and behavior (adapter over `judgeModelIn` with claude catalog)
+- [x] Gate check passes: `npm run build` + `npx vitest run tests/open-args.test.ts` + `npx vitest run tests/open-contract.test.ts`
+- [x] Test count: 5 new tests (ok, unknown catalog, empty catalog, reject with suggestion and recovery, harness noun)
 
 **Tests**: unit
 **Gate**: build
+
+**Status**: complete
 
 **Commit**: `refactor(open): split pure catalog verdict from harness fetch`
 

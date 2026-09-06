@@ -15,15 +15,15 @@ import {
 import { isInteractiveTerminal } from "./setup.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { detectBinary } from "../../drivers/helpers.js";
-import {
-  findClosestModel,
-  getCachedOrDiscoverModels,
-  modelNames,
-  type HarnessModels,
-} from "../../core/models.js";
+import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
-import { effectiveModel } from "../../open/contract.js";
+import {
+  catalogWarning,
+  effectiveModel,
+  judgeModelIn,
+  type ModelVerdict,
+} from "../../open/contract.js";
 import {
   SPINNER_TIPS,
   SPINNER_VERBS,
@@ -394,52 +394,23 @@ function getInvocation(command: Command, roleArg: string | undefined): OpenInvoc
 }
 
 
-/**
- * What the catalog can say about a model. Reachable is not the same as allowed:
- * the catalog lists what Claude Code knows about, never what this account may
- * use, so an entitlement problem only surfaces at launch (see launchClaude).
- */
-const catalogWarning = (model: string, state: string): string =>
-  `Warning: Claude model catalog is ${state}; continuing with "${model}".`;
-
-export type ModelVerdict =
-  | { kind: "ok" }
-  | { kind: "unknown-catalog"; warning: string }
-  | { kind: "rejected"; error: string };
+export type { ModelVerdict } from "../../open/contract.js";
 
 /**
- * Pure so all three outcomes are testable without touching the disk cache or
- * spawning a harness.
+ * The claude half of the split: find this harness's catalog, judge it with
+ * the shared pure verdict. Kept while the suite pins this shape.
  */
 export function judgeModel(
   model: string,
   catalogs: HarnessModels[] | undefined,
   fromConfig: boolean,
 ): ModelVerdict {
-  const keepGoing = (reason: string): ModelVerdict => ({
-    kind: "unknown-catalog",
-    warning: catalogWarning(model, `unavailable${reason}`),
-  });
-
-  const catalog = catalogs?.find((item) => item.agent === "claude");
-  if (!catalog || !catalog.available || catalog.error) {
-    return keepGoing(catalog?.error ? ` (${catalog.error})` : "");
-  }
-
-  const candidates = modelNames(catalog);
-  if (candidates.length === 0) {
-    return { kind: "unknown-catalog", warning: catalogWarning(model, "empty") };
-  }
-
-  if (candidates.includes(model)) return { kind: "ok" };
-
-  const suggestion = findClosestModel(model, candidates);
-  const hint = suggestion ? ` Did you mean "${suggestion}"?` : " No close model was found.";
-  // A model can leave the catalog on its own, with nobody having typed it
-  // wrong, and `needsModelSetup` never asks again, so the way out has to be
-  // spelled out.
-  const recovery = fromConfig ? " Run `codedeck setup` to pick another." : "";
-  return { kind: "rejected", error: `Model "${model}" is not in the Claude catalog.${hint}${recovery}` };
+  return judgeModelIn(
+    catalogs?.find((item) => item.agent === "claude"),
+    model,
+    fromConfig,
+    "Claude",
+  );
 }
 
 async function preflightModel(model: string, fromConfig: boolean): Promise<void> {
@@ -450,7 +421,7 @@ async function preflightModel(model: string, fromConfig: boolean): Promise<void>
     // A catalog that cannot be reached is not evidence against the model, so
     // this warns and lets the launch decide.
     const details = errorDetails(error);
-    console.warn(catalogWarning(model, `unavailable (${details.text})`));
+    console.warn(catalogWarning("Claude", model, `unavailable (${details.text})`));
     return;
   }
 

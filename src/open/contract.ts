@@ -1,10 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveModel, resolveRoleBinding, type RunAgentConfig } from "../config/config.js";
+import { findClosestModel, modelNames, type HarnessModels } from "../core/models.js";
 import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
 
 export const DEFAULT_OPEN_MODEL = "claude-opus-4-8";
+
+export type ModelVerdict =
+  | { kind: "ok" }
+  | { kind: "unknown-catalog"; warning: string }
+  | { kind: "rejected"; error: string };
 
 export interface OpenModelInput {
   model?: string;
@@ -75,4 +81,48 @@ export function effectiveModel(passthrough: string[]): string | undefined {
     if (token.startsWith(MODEL_PREFIX)) return token.slice(MODEL_PREFIX.length);
     if (i > 0 && passthrough[i - 1] === "--model") return token;
   }
+}
+
+/**
+ * What the catalog can say about a model. Reachable is not the same as allowed:
+ * the catalog lists what a harness knows about, never what this account may
+ * use, so an entitlement problem only surfaces at launch.
+ */
+export const catalogWarning = (harnessName: string, model: string, state: string): string =>
+  `Warning: ${harnessName} model catalog is ${state}; continuing with "${model}".`;
+
+/**
+ * Pure so all three outcomes are testable without touching the disk cache or
+ * spawning a harness. Takes the already-filtered catalog: finding it is the
+ * launcher's job, judging it is identical everywhere.
+ */
+export function judgeModelIn(
+  catalog: HarnessModels | undefined,
+  model: string,
+  fromConfig: boolean,
+  harnessName: string,
+): ModelVerdict {
+  const keepGoing = (reason: string): ModelVerdict => ({
+    kind: "unknown-catalog",
+    warning: catalogWarning(harnessName, model, `unavailable${reason}`),
+  });
+
+  if (!catalog || !catalog.available || catalog.error) {
+    return keepGoing(catalog?.error ? ` (${catalog.error})` : "");
+  }
+
+  const candidates = modelNames(catalog);
+  if (candidates.length === 0) {
+    return { kind: "unknown-catalog", warning: catalogWarning(harnessName, model, "empty") };
+  }
+
+  if (candidates.includes(model)) return { kind: "ok" };
+
+  const suggestion = findClosestModel(model, candidates);
+  const hint = suggestion ? ` Did you mean "${suggestion}"?` : " No close model was found.";
+  // A model can leave the catalog on its own, with nobody having typed it
+  // wrong, and `needsModelSetup` never asks again, so the way out has to be
+  // spelled out.
+  const recovery = fromConfig ? " Run `codedeck setup` to pick another." : "";
+  return { kind: "rejected", error: `Model "${model}" is not in the ${harnessName} catalog.${hint}${recovery}` };
 }

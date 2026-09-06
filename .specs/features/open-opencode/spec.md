@@ -145,12 +145,12 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OO-07 | `--resume` vira `--session` | P1 Opencode | Pending |
 | OO-08 | Passthrough após `--` verbatim | P1 Opencode | Pending |
 | OO-09 | Binário ausente falha com instrução | P1 Opencode | Pending |
-| OO-10 | Preflight de modelo no catálogo opencode | P1 Opencode | Pending |
+| OO-10 | Preflight de modelo no catálogo opencode | P1 Opencode | Implementing |
 | OO-11 | Farewell ao fechar, sem limpeza | P1 Opencode | Implementing |
 | OO-12 | Daemon garantido antes do spawn | P1 Opencode | Implementing |
 | OO-13 | `--no-theme` aceito, TUI stock | P2 UI | Pending |
 | OO-14 | Sonda de restrição do reviewer | P2 Prova | Pending |
-| OO-15 | Rejeição de modelo com veredito por harness | P1 Opencode | Pending |
+| OO-15 | Rejeição de modelo com veredito por harness | P1 Opencode | Implementing |
 | OO-16 | TUI stock sem tema nem statusline no MVP | P2 UI | Pending |
 | OO-17 | Resultado da sonda registrado antes da equivalência | P2 Prova | Pending |
 | OO-18 | Montagem do inline aborta antes do spawn | Edge | Implementing |
