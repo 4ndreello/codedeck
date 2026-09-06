@@ -157,10 +157,10 @@ T7 → T8 → T9
 
 ### T4: Extract claude launcher
 
-**What**: Create `src/open/launchers/claude.ts` with `buildOpenArgs`, `buildSettings`, `entitlementError` moved verbatim plus `resolveClaudeBinary` renamed to `resolveBinary` and `assertSystemPromptFlagSupported` renamed to `assertSupport`; `open.ts` delegates.
+**What**: Create `src/open/launchers/claude.ts` with `buildOpenArgs`, `buildSettings`, `entitlementError`, `preflightModel` and the `judgeModel` adapter moved verbatim plus `resolveClaudeBinary` renamed to `resolveBinary` and `assertSystemPromptFlagSupported` renamed to `assertSupport`; `OpenFlags` moves to contract; `open.ts` delegates.
 **Where**: `src/open/launchers/claude.ts`
 **Depends on**: T1
-**Reuses**: Current `open.ts:234-286` plus resolve/assert/entitlement bodies
+**Reuses**: Current `buildSettings`/`buildOpenArgs`/judge-adapter/preflight/resolve/assert/entitlement bodies
 **Requirement**: OO-01
 
 **Tools**:
@@ -170,12 +170,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] Args and settings byte-identical for all suite cases
-- [ ] Gate check passes: `npx vitest run tests/open-args.test.ts`
-- [ ] Test count: existing suite green, zero expectation changes
+- [x] Args and settings byte-identical for all suite cases
+- [x] Gate check passes: `npm run build` + `npx vitest run tests/open-args.test.ts` + `npx vitest run tests/open-contract.test.ts`
+- [x] Test count: existing suites green (85), zero expectation changes
 
-**Tests**: unit (existing suite, untouched)
+**Tests**: unit (existing suites, untouched)
 **Gate**: quick
+
+**Status**: complete
 
 **Commit**: `refactor(open): extract claude launcher`
 

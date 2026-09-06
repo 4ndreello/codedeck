@@ -5,12 +5,19 @@ import { findClosestModel, modelNames, type HarnessModels } from "../core/models
 import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
 
-export const DEFAULT_OPEN_MODEL = "claude-opus-4-8";
-
 export type ModelVerdict =
   | { kind: "ok" }
   | { kind: "unknown-catalog"; warning: string }
   | { kind: "rejected"; error: string };
+
+export interface OpenFlags {
+  model?: string;
+  effort?: string;
+  resume?: string;
+  worktree?: boolean;
+  bypass?: boolean;
+  theme?: boolean;
+}
 
 export interface OpenModelInput {
   model?: string;

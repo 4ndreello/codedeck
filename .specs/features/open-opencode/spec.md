@@ -136,7 +136,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 | Requirement ID | Requisito | Story | Status |
 | -------------- | --------- | ----- | ------ |
-| OO-01 | Args do Claude preservados na factory | P1 Factory | Pending |
+| OO-01 | Args do Claude preservados na factory | P1 Factory | Implementing |
 | OO-02 | Módulo de contrato sem dependência de harness | P1 Factory | Implementing |
 | OO-03 | Suíte open-args verde sem mudar expectativa | P1 Factory | Implementing |
 | OO-04 | Fim do harnessMismatch para roles no opencode | P1 Factory | Pending |
