@@ -106,10 +106,22 @@ const contextField = () => {
  * reads as broken rather than as cheap, so the field waits until it can say
  * something true.
  */
+const COST_DISPLAY_THRESHOLD = 0.01;
+const COST_TEXT_THRESHOLD = 1;
+const COST_EMBER_THRESHOLD = 5;
+const COST_BLOOD_THRESHOLD = 10;
+
 const costField = () => {
   const total = payload.cost?.total_cost_usd;
-  if (typeof total !== "number" || !Number.isFinite(total) || total < 0.01) return undefined;
-  return paint(MUTED, "$" + total.toFixed(2));
+  if (typeof total !== "number" || !Number.isFinite(total) || total < COST_DISPLAY_THRESHOLD) return undefined;
+  const color =
+    total < COST_TEXT_THRESHOLD ? MUTED :
+    total < COST_EMBER_THRESHOLD ? TEXT :
+    total < COST_BLOOD_THRESHOLD ? EMBER : BLOOD;
+  const amount = paint(color, "$" + total.toFixed(2));
+  return total >= COST_BLOOD_THRESHOLD
+    ? amount + paint(BLOOD, " ← omg thats a lot of $$")
+    : amount;
 };
 
 const fields = [
