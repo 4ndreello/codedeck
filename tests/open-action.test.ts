@@ -104,6 +104,50 @@ describe("opencode dispatch", () => {
 
     expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
   });
+
+  it("selects the managed theme through an ephemeral dir unless --no-theme", async () => {
+    vi.spyOn(runtime, "playBoot").mockResolvedValue(undefined);
+    vi.spyOn(opencodeLauncher, "ensureOpencodeTheme").mockReturnValue(true);
+    vi.spyOn(opencodeLauncher, "createEphemeralTuiDir").mockReturnValue("/tmp/fake-tui");
+    const remove = vi.spyOn(opencodeLauncher, "removeEphemeralTuiDir").mockImplementation(() => {});
+
+    await runOpen(["reviewer"]);
+
+    const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    const envExtra = opts.envExtra as Record<string, string>;
+    expect(envExtra.OPENCODE_CONFIG_CONTENT).toContain("codedeck-reviewer");
+    expect(envExtra.OPENCODE_CONFIG_DIR).toBe("/tmp/fake-tui");
+    expect(typeof opts.onClose).toBe("function");
+
+    opts.onClose();
+    expect(remove).toHaveBeenCalledWith("/tmp/fake-tui");
+    expect(runtime.finishOpenSession).toHaveBeenCalled();
+  });
+
+  it("leaves the user theme alone with --no-theme", async () => {
+    const ensure = vi.spyOn(opencodeLauncher, "ensureOpencodeTheme");
+    const create = vi.spyOn(opencodeLauncher, "createEphemeralTuiDir");
+
+    await runOpen(["reviewer", "--no-theme"]);
+
+    const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(ensure).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(opts.envExtra as Record<string, string>).not.toHaveProperty("OPENCODE_CONFIG_DIR");
+  });
+
+  it("launches unthemed when the theme cannot be ensured", async () => {
+    vi.spyOn(runtime, "playBoot").mockResolvedValue(undefined);
+    vi.spyOn(opencodeLauncher, "ensureOpencodeTheme").mockReturnValue(false);
+    const create = vi.spyOn(opencodeLauncher, "createEphemeralTuiDir");
+
+    await runOpen(["reviewer"]);
+
+    const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(create).not.toHaveBeenCalled();
+    expect(opts.envExtra as Record<string, string>).not.toHaveProperty("OPENCODE_CONFIG_DIR");
+    expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("currentWorkingDirectory", () => {

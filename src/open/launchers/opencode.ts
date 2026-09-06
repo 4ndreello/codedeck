@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { getCachedOrDiscoverModels } from "../../core/models.js";
@@ -84,6 +87,82 @@ export function buildArgs(
 
 export const OPENCODE_NOT_FOUND =
   "Opencode was not found on PATH. Install opencode and ensure `opencode` is available.";
+
+/**
+ * The opencode half of the CodeDeck look. The name answers to the theme file
+ * basename: `codedeck-rage.json` selected as `codedeck-rage`, the same rule
+ * the Claude side pins for its own slug.
+ */
+export const OPENCODE_THEME_NAME = "codedeck-rage";
+const OPENCODE_THEME_FILE = `${OPENCODE_THEME_NAME}.json`;
+
+/**
+ * Where opencode discovers custom theme files. Project directories come
+ * first at runtime, but a launch must not write into the user's checkout,
+ * so the managed copy lives here, next to the user's own themes.
+ */
+export function userThemesDir(
+  home: string = os.homedir(),
+  xdgConfigHome: string | undefined = process.env.XDG_CONFIG_HOME,
+): string {
+  const configHome = xdgConfigHome && xdgConfigHome.length > 0
+    ? xdgConfigHome
+    : path.join(home, ".config");
+  return path.join(configHome, "opencode", "themes");
+}
+
+/** The per-session TUI selection, as an ephemeral config dir understands it. */
+export function buildTuiConfig(): string {
+  return JSON.stringify({
+    $schema: "https://opencode.ai/tui.json",
+    theme: OPENCODE_THEME_NAME,
+  });
+}
+
+/**
+ * Installs the managed theme file when it is missing or stale. Returns
+ * whether the theme can be selected: a read-only home or a broken plugin
+ * directory falls back to the user's own theme instead of failing the launch.
+ */
+export function ensureOpencodeTheme(
+  pluginDir: string,
+  themesDir: string = userThemesDir(),
+): boolean {
+  try {
+    const wanted = fs.readFileSync(path.join(pluginDir, "themes", OPENCODE_THEME_FILE), "utf8");
+    const target = path.join(themesDir, OPENCODE_THEME_FILE);
+    let current: string | undefined;
+    try {
+      current = fs.readFileSync(target, "utf8");
+    } catch {
+      current = undefined;
+    }
+    if (current !== wanted) {
+      fs.mkdirSync(themesDir, { recursive: true });
+      fs.writeFileSync(target, wanted);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A config dir holding only the TUI selection. The main contract still
+ * travels through OPENCODE_CONFIG_CONTENT, which merges with every config
+ * dir, so this stays a one-file directory with nothing to drift.
+ */
+export function createEphemeralTuiDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-opencode-"));
+  fs.writeFileSync(path.join(dir, "tui.json"), buildTuiConfig());
+  return dir;
+}
+
+export function removeEphemeralTuiDir(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {}
+}
 
 /**
  * Returns the resolved path rather than a boolean so everything downstream

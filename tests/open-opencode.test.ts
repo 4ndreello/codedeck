@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi, afterEach } from "vitest";
 
 vi.mock("../src/drivers/helpers.js", async (importOriginal) => {
@@ -10,9 +12,15 @@ import {
   agentName,
   buildArgs,
   buildInlineConfig,
+  buildTuiConfig,
+  createEphemeralTuiDir,
+  ensureOpencodeTheme,
+  OPENCODE_THEME_NAME,
   preflight,
+  removeEphemeralTuiDir,
   resolveBinary,
   rolePermission,
+  userThemesDir,
 } from "../src/open/launchers/opencode.js";
 import { launcherFor } from "../src/cli/commands/open.js";
 import * as models from "../src/core/models.js";
@@ -127,6 +135,123 @@ describe("buildArgs", () => {
     for (const bad of ["baremodel", "has space/x", "/leading", "trailing/"]) {
       expect(() => buildArgs("general", { model: bad }, [])).toThrow(/must be provider\/model/);
     }
+  });
+});
+
+describe("opencode theme", () => {
+  // Partial theme files are silently dropped by the TUI: a four-key file
+  // selected fine but painted nothing, while the full set painted. The list
+  // below is the whole contract the theme file owes.
+  const requiredKeys = [
+    "primary", "secondary", "accent",
+    "error", "warning", "success", "info",
+    "text", "textMuted",
+    "background", "backgroundPanel", "backgroundElement",
+    "border", "borderActive", "borderSubtle",
+    "diffAdded", "diffRemoved", "diffContext", "diffHunkHeader",
+    "diffHighlightAdded", "diffHighlightRemoved",
+    "diffAddedBg", "diffRemovedBg", "diffContextBg",
+    "diffLineNumber", "diffAddedLineNumberBg", "diffRemovedLineNumberBg",
+    "markdownText", "markdownHeading", "markdownLink", "markdownLinkText",
+    "markdownCode", "markdownBlockQuote", "markdownEmph", "markdownStrong",
+    "markdownHorizontalRule", "markdownListItem", "markdownCodeBlock",
+    "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable",
+    "syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator",
+    "syntaxPunctuation",
+  ];
+
+  it("selects the managed theme and nothing else", () => {
+    expect(OPENCODE_THEME_NAME).toBe("codedeck-rage");
+    expect(JSON.parse(buildTuiConfig())).toEqual({
+      $schema: "https://opencode.ai/tui.json",
+      theme: "codedeck-rage",
+    });
+  });
+
+  it("ships a complete theme file whose references resolve", () => {
+    const file = path.join(pluginDir, "themes", `${OPENCODE_THEME_NAME}.json`);
+    const doc = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      defs: Record<string, string>;
+      theme: Record<string, { dark: string; light: string }>;
+    };
+
+    for (const key of requiredKeys) {
+      expect(doc.theme[key], key).toEqual({
+        dark: expect.any(String),
+        light: expect.any(String),
+      });
+    }
+    const hex = /^#[0-9a-fA-F]{6}$/;
+    for (const [key, variants] of Object.entries(doc.theme)) {
+      for (const mode of ["dark", "light"] as const) {
+        const value = variants[mode];
+        expect(
+          value === "none" || hex.test(value) || value in doc.defs,
+          `${key}.${mode}`,
+        ).toBe(true);
+      }
+    }
+    for (const value of Object.values(doc.defs)) expect(value).toMatch(hex);
+  });
+
+  it("resolves the user themes dir from XDG or home", () => {
+    expect(userThemesDir("/home/u", "/xdg")).toBe("/xdg/opencode/themes");
+    expect(userThemesDir("/home/u", "")).toBe(path.join("/home/u", ".config", "opencode", "themes"));
+    vi.stubEnv("XDG_CONFIG_HOME", "");
+    expect(userThemesDir("/home/u")).toBe(
+      path.join("/home/u", ".config", "opencode", "themes"),
+    );
+  });
+
+  it("installs the theme when missing and leaves an identical one alone", () => {
+    const themesDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-theme-"));
+    try {
+      expect(ensureOpencodeTheme(pluginDir, themesDir)).toBe(true);
+      const target = path.join(themesDir, `${OPENCODE_THEME_NAME}.json`);
+      expect(fs.readFileSync(target, "utf8")).toBe(
+        fs.readFileSync(path.join(pluginDir, "themes", `${OPENCODE_THEME_NAME}.json`), "utf8"),
+      );
+
+      const write = vi.spyOn(fs, "writeFileSync");
+      try {
+        expect(ensureOpencodeTheme(pluginDir, themesDir)).toBe(true);
+        expect(write).not.toHaveBeenCalled();
+      } finally {
+        write.mockRestore();
+      }
+    } finally {
+      fs.rmSync(themesDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes a stale copy and never throws", () => {
+    const themesDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-theme-"));
+    try {
+      const target = path.join(themesDir, `${OPENCODE_THEME_NAME}.json`);
+      fs.writeFileSync(target, "stale");
+      expect(ensureOpencodeTheme(pluginDir, themesDir)).toBe(true);
+      expect(fs.readFileSync(target, "utf8")).not.toBe("stale");
+
+      expect(ensureOpencodeTheme("/no/such/plugin", themesDir)).toBe(false);
+      expect(ensureOpencodeTheme(pluginDir, path.join(themesDir, "x"))).toBe(true);
+    } finally {
+      fs.rmSync(themesDir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates and removes an ephemeral dir holding only the selection", () => {
+    const dir = createEphemeralTuiDir();
+    try {
+      expect(dir.startsWith(os.tmpdir())).toBe(true);
+      expect(fs.readdirSync(dir)).toEqual(["tui.json"]);
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "tui.json"), "utf8"))).toEqual(
+        JSON.parse(buildTuiConfig()),
+      );
+    } finally {
+      removeEphemeralTuiDir(dir);
+    }
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(() => removeEphemeralTuiDir(dir)).not.toThrow();
   });
 });
 
