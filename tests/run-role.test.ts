@@ -120,24 +120,28 @@ describe("the harness and model a role is bound to", () => {
     });
   });
 
-  // The bound model belongs to the bound harness. Keeping it here would hand
-  // claude an id only codex lists.
-  it("drops the bound model when a flag moves the role to another harness", async () => {
+  // A worker used to force the run onto its own harness by appending --agent.
+  // A bound role now owns the harness, so the flag is ignored with a warning.
+  it("ignores --agent for a bound role, keeping the binding", async () => {
     writeConfig(bound);
 
     expect(await created(["do the thing", "--role", "reviewer", "--agent", "claude"])).toEqual({
-      agent: "claude",
-      model: "claude-configured",
+      agent: "codex",
+      model: "gpt-5.6-luna",
     });
+    expect(errors.join("\n")).toMatch(/--agent .*ignored/);
   });
 
-  it("lets an explicit model win over the bound one", async () => {
+  // The model belongs to the harness, so a bound role owns that half too:
+  // --model cannot swap it either.
+  it("ignores --model for a bound role, keeping the binding", async () => {
     writeConfig(bound);
 
     expect(await created(["do the thing", "--role", "reviewer", "--model", "gpt-6"])).toEqual({
       agent: "codex",
-      model: "gpt-6",
+      model: "gpt-5.6-luna",
     });
+    expect(errors.join("\n")).toMatch(/--model .*ignored/);
   });
 
   // Skipping an agent in setup leaves it unbound, and an unbound role is not an

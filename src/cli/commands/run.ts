@@ -15,8 +15,8 @@ export function registerRunCommand(program: Command): void {
     .command("run")
     .description("Start a new agent session (creates a CodeDeck session, not a raw harness call)")
     .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
-    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (default: claude or config.defaultAgent)")
-    .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5, anthropic/claude-sonnet)")
+    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (ignored for a role with a binding; default: claude or config.defaultAgent)")
+    .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5; ignored for a role with a binding)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
     .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
@@ -41,14 +41,31 @@ Resume with: ${getCliName()} send <id> "continue"
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const cfg = loadConfig();
-      // A role carries both halves, so naming one is enough to pick a harness
-      // and a model. Explicit flags still win over it.
+      // A bound role owns both halves. The worker dispatches the role and the
+      // role decides the harness and model; --agent/--model cannot override a
+      // bound role. They used to, which let every worker force the run onto its
+      // own harness and silently discard the role's configured choice. Without a
+      // binding (no role, or a role nobody bound) the flags still choose.
       const binding = resolveRoleBinding(parseRole(opts.role), cfg);
-      const agent = (opts.agent || binding?.harness || cfg.defaultAgent || "claude") as AgentId;
-      // The bound model belongs to the bound harness. `--agent codex --role
-      // reviewer` with reviewer on claude must not hand codex a claude id.
-      const bound = binding && binding.harness === agent ? binding.model : undefined;
-      const model = resolveModel(agent, opts.model ?? bound, cfg);
+      let agent: AgentId;
+      let model: string | undefined;
+      if (binding) {
+        agent = binding.harness;
+        model = binding.model;
+        if (opts.agent && opts.agent !== binding.harness) {
+          console.error(
+            `Warning: --agent ${opts.agent} ignored; role "${opts.role}" is bound to ${binding.harness}. Change it with ${getCliName()} setup.`,
+          );
+        }
+        if (opts.model && opts.model !== binding.model) {
+          console.error(
+            `Warning: --model ${opts.model} ignored; role "${opts.role}" is bound to ${binding.model} on ${binding.harness}.`,
+          );
+        }
+      } else {
+        agent = (opts.agent || cfg.defaultAgent || "claude") as AgentId;
+        model = resolveModel(agent, opts.model, cfg);
+      }
 
       // `open` hands the role to Claude as `--agent`, which no other harness
       // has. Here it becomes a prompt prefix instead, so a codex or opencode
