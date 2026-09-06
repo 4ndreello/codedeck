@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import os, { constants } from "node:os";
 import path from "node:path";
@@ -388,7 +389,7 @@ export async function playBoot(role: Role, model: string, effort: string): Promi
     return;
   }
 
-  const noise = () => KATAKANA[Math.floor(Math.random() * KATAKANA.length)];
+  const noise = () => KATAKANA[randomInt(KATAKANA.length)];
   out.write("\n");
 
   for (let step = 0; step <= BOOT_STEPS; step++) {
