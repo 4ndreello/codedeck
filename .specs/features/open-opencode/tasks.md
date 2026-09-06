@@ -314,12 +314,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] README shows binding-driven selection, `--auto` parity, `provider/model` format, stock TUI scope
-- [ ] Traceability statuses updated in the same commit
-- [ ] Gate check passes: `npm run build`
+- [x] README shows binding-driven selection, `--auto` parity, `provider/model` format, stock TUI scope
+- [x] Traceability statuses updated in the same commit
+- [x] Gate check passes: `npm run build`
 
 **Tests**: none (docs layer, build gate only)
 **Gate**: build
+
+**Status**: complete
 
 **Commit**: `docs(open): document opencode launcher`
 

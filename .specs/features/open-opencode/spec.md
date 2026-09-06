@@ -152,7 +152,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 | OO-14 | Sonda de restrição do reviewer | P2 Prova | Implementing |
 | OO-15 | Rejeição de modelo com veredito por harness | P1 Opencode | Implementing |
 | OO-16 | TUI stock sem tema nem statusline no MVP | P2 UI | Implementing |
-| OO-17 | Resultado da sonda registrado antes da equivalência | P2 Prova | Pending |
+| OO-17 | Resultado da sonda registrado antes da equivalência | P2 Prova | Implementing |
 | OO-18 | Montagem do inline aborta antes do spawn | Edge | Implementing |
 | OO-19 | Env próprio por processo, sem compartilhamento | Edge | Implementing |
 | OO-20 | `--worktree` no opencode avisa e segue | Edge | Implementing |
