@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatPsJson, psEmptyMessage, renderPsTable, resolvePsWidth } from "../src/cli/commands/ps.js";
+import {
+  fitPsRowCount,
+  formatPsJson,
+  formatPsOverflowNote,
+  parsePsLimit,
+  planPsLayout,
+  psEmptyMessage,
+  psMoreCount,
+  renderPsTable,
+  resolvePsWidth,
+} from "../src/cli/commands/ps.js";
 import { visibleWidth } from "../src/cli/ui.js";
 
 function findMissingPid(): number {
@@ -26,6 +36,10 @@ function session(overrides: Record<string, unknown> = {}) {
     lastEvent: "tool: Bash",
     ...overrides,
   };
+}
+
+function sessions(...ids: string[]) {
+  return ids.map((id) => session({ id }));
 }
 
 describe("ps table liveness", () => {
@@ -128,6 +142,101 @@ describe("ps output contract", () => {
     const parsed: unknown = JSON.parse(formatPsJson([session()]));
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
+  });
+});
+
+describe("ps fit-to-screen layout", () => {
+  it("subtracts the reserved lines from a TTY height", () => {
+    expect(fitPsRowCount(24)).toBe(20);
+  });
+
+  it("keeps the newest displayed session as the last TTY row", () => {
+    const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
+      isTTY: true,
+      rows: 24,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+  });
+
+  it("keeps non-TTY rows newest-first without height truncation", () => {
+    const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
+      isTTY: false,
+      rows: 4,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  it("reverses --all on a TTY without an overflow note or height limit", () => {
+    const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
+      all: true,
+      isTTY: true,
+      rows: 4,
+      hiddenOlderCount: 12,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+    expect(layout.moreCount).toBe(12);
+    expect(layout.showOverflowNote).toBe(false);
+  });
+
+  it("lets --limit override the TTY height limit", () => {
+    const layout = planPsLayout(sessions("newest", "middle", "oldest", "older"), {
+      isTTY: true,
+      rows: 6,
+      limit: 3,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+    expect(layout.displayedCount).toBe(3);
+  });
+
+  it("counts rows hidden by the display limit and the daemon window", () => {
+    expect(psMoreCount(100, 8, 42)).toBe(134);
+
+    const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
+      isTTY: true,
+      rows: 6,
+      limit: 2,
+      hiddenOlderCount: 4,
+    });
+
+    expect(layout.moreCount).toBe(5);
+    expect(layout.showOverflowNote).toBe(true);
+    expect(formatPsOverflowNote(layout.moreCount, "codedeck")).toBe(
+      "+5 older hidden — codedeck ps --all",
+    );
+  });
+
+  it("keeps one row when the terminal is smaller than the reserved space", () => {
+    expect(fitPsRowCount(3)).toBe(1);
+
+    const layout = planPsLayout(sessions("newest", "oldest"), {
+      isTTY: true,
+      rows: 3,
+    });
+
+    expect(layout.sessions).toHaveLength(1);
+    expect(layout.sessions[0].id).toBe("newest");
+  });
+
+  it.each([undefined, 0])("does not height-truncate when rows is %s", (rows) => {
+    expect(fitPsRowCount(rows)).toBeUndefined();
+
+    const layout = planPsLayout(sessions("newest", "oldest"), {
+      isTTY: true,
+      rows,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "newest"]);
+  });
+
+  it("accepts only positive integer limits", () => {
+    expect(parsePsLimit("3")).toBe(3);
+    for (const value of ["0", "-1", "1.5", "nope"]) {
+      expect(() => parsePsLimit(value)).toThrow("--limit must be a positive integer");
+    }
   });
 });
 

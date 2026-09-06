@@ -1,4 +1,4 @@
-import type { Command } from "commander";
+import { InvalidArgumentError, type Command } from "commander";
 import { isActiveStatus, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
 import { getCliName } from "../cli-name.js";
@@ -34,6 +34,88 @@ type PsSession = {
 const LAST_EVENT_WIDTH = 15;
 
 const SEP = "  ";
+
+const PS_FETCH_LIMIT = 100;
+export const PS_RESERVED_LINES = 4;
+
+type PsLayoutOptions = {
+  all?: boolean;
+  hiddenOlderCount?: number;
+  isTTY: boolean;
+  limit?: number;
+  rows?: number;
+};
+
+export type PsLayout<T> = {
+  sessions: T[];
+  displayedCount: number;
+  moreCount: number;
+  showOverflowNote: boolean;
+};
+
+export function fitPsRowCount(rows?: number): number | undefined {
+  if (rows == null || !Number.isFinite(rows) || rows <= 0) return undefined;
+  return Math.max(1, Math.floor(rows) - PS_RESERVED_LINES);
+}
+
+export function psMoreCount(
+  fetchedCount: number,
+  displayedCount: number,
+  hiddenOlderCount: number,
+): number {
+  return fetchedCount - displayedCount + hiddenOlderCount;
+}
+
+export function planPsLayout<T>(
+  sessions: readonly T[],
+  options: PsLayoutOptions,
+): PsLayout<T> {
+  const all = options.all === true;
+  if (
+    options.limit != null &&
+    (!Number.isInteger(options.limit) || options.limit <= 0)
+  ) {
+    throw new Error("--limit must be a positive integer");
+  }
+
+  const explicitLimit =
+    options.limit == null ? undefined : Math.min(options.limit, PS_FETCH_LIMIT);
+  const heightLimit =
+    explicitLimit == null && options.isTTY && !all
+      ? fitPsRowCount(options.rows)
+      : undefined;
+  const displayLimit = explicitLimit ?? heightLimit;
+  const displayed =
+    displayLimit == null ? [...sessions] : sessions.slice(0, displayLimit);
+  const ordered = options.isTTY ? [...displayed].reverse() : displayed;
+  const moreCount = psMoreCount(
+    sessions.length,
+    displayed.length,
+    options.hiddenOlderCount ?? 0,
+  );
+
+  return {
+    sessions: ordered,
+    displayedCount: displayed.length,
+    moreCount,
+    showOverflowNote: !all && moreCount > 0,
+  };
+}
+
+export function formatPsOverflowNote(moreCount: number, cliName: string): string {
+  return `+${moreCount} older hidden — ${cliName} ps --all`;
+}
+
+export function parsePsLimit(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new InvalidArgumentError("--limit must be a positive integer");
+  }
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
+    throw new InvalidArgumentError("--limit must be a positive integer");
+  }
+  return limit;
+}
 
 function padToWidth(s: string, w: number): string {
   const v = visibleWidth(s);
@@ -299,6 +381,7 @@ export function registerPsCommand(program: Command): void {
     .description("List recent sessions (daemon-owned, not harness IDs)")
     .option("--all", "include all sessions including completed/failed (default: recent)")
     .option("--json", "output JSON instead of table")
+    .option("--limit <n>", "limit displayed sessions", parsePsLimit)
     .action(async (opts: any) => {
       const client = new IpcClient();
       try { await client.ensureDaemonStarted(); } catch {}
@@ -310,11 +393,19 @@ export function registerPsCommand(program: Command): void {
         process.exit(1);
       }
 
-      const sessions = result.sessions || [];
+      const sessions = (result.sessions || []) as PsSession[];
       const hidden = typeof result.hidden === "number" ? result.hidden : 0;
+      const stdout = process.stdout as { isTTY?: boolean; rows?: number };
+      const layout = planPsLayout(sessions, {
+        all: !!opts.all,
+        hiddenOlderCount: hidden,
+        isTTY: opts.json ? false : !!stdout.isTTY,
+        limit: opts.limit,
+        rows: stdout.rows,
+      });
 
       if (opts.json) {
-        console.log(formatPsJson(sessions));
+        console.log(formatPsJson(layout.sessions));
         return;
       }
 
@@ -324,9 +415,11 @@ export function registerPsCommand(program: Command): void {
       }
 
       // Header and rows share the same fixed-width formatter.
-      console.log(renderPsTable(sessions));
-      if (hidden > 0) {
-        console.log(`+${hidden} older hidden — ${getCliName()} ps --all`);
-      }
+      const overflowNote = layout.showOverflowNote
+        ? formatPsOverflowNote(layout.moreCount, getCliName())
+        : undefined;
+      if (stdout.isTTY && overflowNote) console.log(overflowNote);
+      console.log(renderPsTable(layout.sessions));
+      if (!stdout.isTTY && overflowNote) console.log(overflowNote);
     });
 }
