@@ -40,6 +40,75 @@ export interface OpenFlags {
 const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_EFFORT = "xhigh";
 const PLUGIN_NAME = "codedeck";
+const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
+
+/**
+ * "replace" drops Claude Code's own hundred-odd verbs instead of adding to
+ * them, so this list is the entire vocabulary and has to be long enough that a
+ * single session does not visibly cycle it.
+ */
+const SPINNER_VERBS = [
+  "Overclocking",
+  "Redlining",
+  "Warping",
+  "Turbocharging",
+  "Supercharging",
+  "Blazing",
+  "Rocketing",
+  "Thundering",
+  "Cranking",
+  "Surging",
+  "Roaring",
+  "Sprinting",
+  "Igniting",
+  "Accelerating",
+  "Screaming",
+  "Hammering",
+  "Launching",
+  "Boosting",
+  "Charging",
+  "Ripping",
+  "Barreling",
+  "Steamrolling",
+  "Going ultra",
+  "Rolling hot",
+];
+
+/**
+ * Shown under the spinner as "ULTRA: <tip>". Every one of these names a command
+ * this repository actually ships, because a tip that describes a flag nobody
+ * has is worse than no tip at all.
+ */
+const SPINNER_TIPS = [
+  "codedeck run --bg hands work to another harness so this session keeps its own context.",
+  "codedeck run --worktree gives each session its own checkout, so two of them cannot fight over a file.",
+  "codedeck ps lists the recent sessions with the harness and model each one ran on.",
+  "codedeck logs <id> prints what a background session actually reported.",
+  "codedeck wait <id> --json blocks until a session reaches a terminal state.",
+  "codedeck diff <id> shows what a worktree session changed, against its base commit.",
+  "codedeck stop <id> interrupts a session, then escalates to SIGTERM and SIGKILL.",
+  "codedeck send <id> continues a session with a new message instead of restarting it.",
+  "codedeck show <id> prints one session in full: status, worktree, usage, recent events.",
+  "codedeck open reviewer opens a session that can read and run but never edit.",
+  "codedeck setup binds each role to a harness and a model, one screen per role.",
+  "codedeck run --role auditor sends a one-off deep review to another harness.",
+];
+
+/**
+ * The one slot Claude Code offers for text of our own at startup. Everything
+ * else that paints the opening screen is internal: there is no banner, welcome
+ * or startup-message key, and the component that draws the ASCII art runs only
+ * in the onboarding and trial flows, never in an established session.
+ *
+ * Deliberately plain text. It reaches the terminal through an Ink <Text> node
+ * that also owns wrapping, and whether raw SGR survives that was not measured,
+ * so the identity is carried by the glyphs and the theme rather than by escapes
+ * that might arrive as literal garbage.
+ */
+function announcement(role: Role, model: string, effort: string, bypass: boolean): string {
+  const facts = [role, model, effort, bypass ? "permissions bypassed" : "permissions on"];
+  return `▌ CODEDECK ULTRA\n▌ ${facts.join(" · ")}`;
+}
 const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
@@ -49,26 +118,53 @@ const execFileAsync = promisify(execFile);
  * space, a `$`, a backtick or a quote would break the command or inject into
  * it. Single quotes take every one of those literally, and the only character
  * that can end them is a quote, which is why that one is spliced.
- *
- * plugin/settings.json quotes the same script with double quotes on purpose and
- * must keep doing so: it names the path through ${CLAUDE_PLUGIN_ROOT}, and
- * single quotes would stop the expansion instead of protecting it.
  */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function settingsArgument(pluginDir: string, flags: OpenFlags): string {
-  if (flags.theme !== false) return path.join(pluginDir, "settings.json");
+/**
+ * The settings are built here, at launch, rather than shipped as a file, and
+ * the reason is the status line.
+ *
+ * `${CLAUDE_PLUGIN_ROOT}` is expanded only for hooks declared in a plugin's
+ * hooks/hooks.json. It is never expanded for statusLine.command: the runner
+ * calls its executor with nine arguments where the plugin root sits in the
+ * fourteenth, so the check reads undefined and throws "This variable is only
+ * available in hooks defined in a plugin's hooks/hooks.json file". The runner
+ * swallows that, so the shipped settings.json produced no status line and no
+ * error, in any version. `open` knows the real directory, so it writes the
+ * resolved path instead of a placeholder nothing will substitute.
+ *
+ * Building it here also means one definition rather than two: the file that
+ * shipped alongside this code was never exercised by a launch, which is exactly
+ * how a broken command sat in it unnoticed.
+ */
+export function buildSettings(
+  pluginDir: string,
+  flags: OpenFlags,
+  role: Role,
+  model: string,
+  effort: string,
+): Record<string, unknown> {
+  const statusLine = {
+    type: "command",
+    command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
+  };
 
-  // Claude accepts an inline settings JSON value. Keep the status line while
-  // removing only the theme, without mutating the plugin's shared settings file.
-  return JSON.stringify({
-    statusLine: {
-      type: "command",
-      command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
-    },
-  });
+  // --no-theme means "do not restyle my session", so it drops the whole look,
+  // renderer included, and not just the palette. The status line is the one
+  // thing it keeps, because that is what the flag has always promised.
+  if (flags.theme === false) return { statusLine };
+
+  return {
+    theme: THEME_REF,
+    tui: "fullscreen",
+    spinnerVerbs: { mode: "replace", verbs: SPINNER_VERBS },
+    spinnerTipsOverride: { excludeDefault: true, label: "ULTRA", tips: SPINNER_TIPS },
+    companyAnnouncements: [announcement(role, model, effort, flags.bypass !== false)],
+    statusLine,
+  };
 }
 
 export function buildOpenArgs(
@@ -77,18 +173,24 @@ export function buildOpenArgs(
   pluginDir: string,
   passthrough: string[],
 ): string[] {
+  const model = flags.model ?? DEFAULT_MODEL;
+  const effort = flags.effort ?? DEFAULT_EFFORT;
+  // The announcement names the model that actually wins, which is the one the
+  // passthrough may have overridden, not the one CodeDeck resolved.
+  const announced = effectiveModel(passthrough) ?? model;
+
   const args = [
     "--model",
-    flags.model ?? DEFAULT_MODEL,
+    model,
     "--effort",
-    flags.effort ?? DEFAULT_EFFORT,
+    effort,
     ...(flags.bypass !== false ? ["--dangerously-skip-permissions"] : []),
     "--plugin-dir",
     pluginDir,
     "--append-system-prompt-file",
     path.join(pluginDir, "ultra.md"),
     "--settings",
-    settingsArgument(pluginDir, flags),
+    JSON.stringify(buildSettings(pluginDir, flags, role, announced, effort)),
     // `--agent` layers on top of Claude's own system prompt rather than
     // replacing it, and an agent file with no `tools:` key inherits the whole
     // toolset. So `general` carries its contract the same way the others do,
@@ -580,7 +682,7 @@ export function registerOpenCommand(program: Command): void {
     .option("--resume <session>", "resume a Claude Code session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
-    .option("--no-theme", "keep the CodeDeck status line without applying its theme")
+    .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
     .allowUnknownOption()
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
@@ -617,7 +719,13 @@ export function registerOpenCommand(program: Command): void {
       const claudeBin = await resolveClaudeBinary();
       await assertSystemPromptFlagSupported(claudeBin, cwd);
 
-      process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
+      // The fullscreen renderer opens on the alternate screen, which wipes
+      // whatever stood before the launch. So under the CodeDeck look the
+      // identity moves inside the session as a startup announcement, and this
+      // banner is left to the branch that keeps the classic renderer.
+      if (opts.theme === false) {
+        process.stdout.write(renderBanner(role, model, opts.effort ?? DEFAULT_EFFORT));
+      }
       await launchClaude(claudeBin, model, args, cwd);
     });
 }

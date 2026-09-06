@@ -20,11 +20,16 @@ import {
   scanOptions,
 } from "../src/cli/commands/open.js";
 
+/** The launcher passes settings inline, so every assertion reads them back. */
+const settingsOf = (args: string[]) =>
+  JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}") as Record<string, any>;
+
 describe("open command argument builder", () => {
   it("uses the CodeDeck defaults and plugin contract", () => {
     const args = buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", []);
+    const settingsIndex = args.indexOf("--settings");
 
-    expect(args).toEqual([
+    expect(args.filter((_, i) => i !== settingsIndex + 1)).toEqual([
       "--model",
       "claude-opus-4-8",
       "--effort",
@@ -35,7 +40,6 @@ describe("open command argument builder", () => {
       "--append-system-prompt-file",
       "/opt/codedeck/plugin/ultra.md",
       "--settings",
-      "/opt/codedeck/plugin/settings.json",
       "--agent",
       "codedeck:orchestrator",
       "-n",
@@ -68,8 +72,9 @@ describe("open command argument builder", () => {
       "/opt/codedeck/plugin",
       ["--model", "claude-opus-4-8", "--add-dir", "other tree"],
     );
+    const settingsIndex = args.indexOf("--settings");
 
-    expect(args).toEqual([
+    expect(args.filter((_, i) => i !== settingsIndex + 1)).toEqual([
       "--model",
       "claude-sonnet",
       "--effort",
@@ -79,7 +84,6 @@ describe("open command argument builder", () => {
       "--append-system-prompt-file",
       "/opt/codedeck/plugin/ultra.md",
       "--settings",
-      "/opt/codedeck/plugin/settings.json",
       "--agent",
       "codedeck:reviewer",
       "-n",
@@ -94,12 +98,100 @@ describe("open command argument builder", () => {
     ]);
   });
 
-  it("keeps statusLine while removing theme settings", () => {
-    const args = buildOpenArgs("general", { theme: false }, "/opt/codedeck/plugin", []);
-    const settingsIndex = args.indexOf("--settings");
-    const settings = JSON.parse(args[settingsIndex + 1] ?? "{}");
+  // ${CLAUDE_PLUGIN_ROOT} is expanded only for hooks declared in a plugin's
+  // hooks/hooks.json. In statusLine.command it throws inside the runner, which
+  // swallows it: no status line, no error, not even under --debug. The command
+  // has to name a path that needs no expansion.
+  it("resolves the statusline path instead of leaving a plugin-root placeholder", () => {
+    const settings = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
 
-    expect(settings).toEqual({
+    expect(settings.statusLine).toEqual({
+      type: "command",
+      command: "bash '/opt/codedeck/plugin/statusline.sh'",
+    });
+    expect(JSON.stringify(settings)).not.toContain("CLAUDE_PLUGIN_ROOT");
+  });
+
+  it("declares the whole CodeDeck look", () => {
+    const settings = settingsOf(buildOpenArgs("reviewer", {}, "/opt/codedeck/plugin", []));
+
+    expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
+    expect(settings.tui).toBe("fullscreen");
+    expect(settings.spinnerVerbs.mode).toBe("replace");
+    expect(settings.spinnerVerbs.verbs.length).toBeGreaterThan(8);
+    expect(settings.spinnerTipsOverride).toMatchObject({ excludeDefault: true, label: "ULTRA" });
+    expect(settings.spinnerTipsOverride.tips.length).toBeGreaterThan(0);
+  });
+
+  // "replace" drops Claude Code's own verbs, so an empty or one-entry list
+  // would leave the spinner saying the same word for a whole session.
+  it("carries enough spinner verbs to replace the built-in ones", () => {
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
+
+    expect(new Set(spinnerVerbs.verbs).size).toBe(spinnerVerbs.verbs.length);
+    for (const verb of spinnerVerbs.verbs) expect(verb.trim()).toBe(verb);
+  });
+
+  // Every tip is read as a command someone will type, so a tip naming a command
+  // this CLI does not ship is worse than no tip.
+  it("only advertises commands the CLI actually ships", () => {
+    const commands = new Set([
+      "run", "ps", "logs", "wait", "diff", "stop", "send", "show", "open", "setup",
+      "models", "doctor",
+    ]);
+    const { spinnerTipsOverride } = settingsOf(
+      buildOpenArgs("general", {}, "/opt/codedeck/plugin", []),
+    );
+
+    for (const tip of spinnerTipsOverride.tips as string[]) {
+      const named = tip.match(/codedeck ([a-z-]+)/)?.[1];
+      expect(named, tip).toBeDefined();
+      expect(commands, tip).toContain(named);
+    }
+  });
+
+  // The announcement is the only text CodeDeck gets to put on the opening
+  // screen, and under the fullscreen renderer it is the only one that survives:
+  // the alternate screen wipes whatever was printed before the launch.
+  it("announces the role, model, effort and permission state", () => {
+    const settings = settingsOf(
+      buildOpenArgs("auditor", { model: "claude-sonnet" }, "/opt/codedeck/plugin", []),
+    );
+
+    expect(settings.companyAnnouncements).toHaveLength(1);
+    expect(settings.companyAnnouncements[0]).toContain("CODEDECK ULTRA");
+    expect(settings.companyAnnouncements[0]).toContain(
+      "auditor · claude-sonnet · xhigh · permissions bypassed",
+    );
+  });
+
+  it("says so in the announcement when the bypass is off", () => {
+    const settings = settingsOf(
+      buildOpenArgs("general", { bypass: false }, "/opt/codedeck/plugin", []),
+    );
+
+    expect(settings.companyAnnouncements[0]).toContain("permissions on");
+  });
+
+  // Claude honours the last --model on the line, and the passthrough is
+  // appended last, so announcing the resolved one would name a model the
+  // session is not running.
+  it("announces the model the passthrough overrode to", () => {
+    const settings = settingsOf(
+      buildOpenArgs("general", { model: "claude-sonnet" }, "/opt/codedeck/plugin", [
+        "--model",
+        "claude-opus-4-8",
+      ]),
+    );
+
+    expect(settings.companyAnnouncements[0]).toContain("claude-opus-4-8");
+    expect(settings.companyAnnouncements[0]).not.toContain("claude-sonnet");
+  });
+
+  it("keeps only the status line when the theme is off", () => {
+    const args = buildOpenArgs("general", { theme: false }, "/opt/codedeck/plugin", []);
+
+    expect(settingsOf(args)).toEqual({
       statusLine: {
         type: "command",
         command: "bash '/opt/codedeck/plugin/statusline.sh'",
@@ -116,10 +208,12 @@ describe("open command argument builder", () => {
     ["a backtick", "/opt/a`id`b/plugin", "bash '/opt/a`id`b/plugin/statusline.sh'"],
     ["a quote", "/opt/it's/plugin", "bash '/opt/it'\\''s/plugin/statusline.sh'"],
   ])("keeps the status line runnable when the path holds %s", (_label, pluginDir, expected) => {
-    const args = buildOpenArgs("general", { theme: false }, pluginDir, []);
-    const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}");
-
-    expect(settings.statusLine.command).toBe(expected);
+    // Both branches build the same command, so the quoting is checked on the
+    // one that used to hand Claude a path it never resolved.
+    expect(settingsOf(buildOpenArgs("general", { theme: false }, pluginDir, [])).statusLine.command)
+      .toBe(expected);
+    expect(settingsOf(buildOpenArgs("general", {}, pluginDir, [])).statusLine.command)
+      .toBe(expected);
   });
 });
 

@@ -1,7 +1,9 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+import { buildSettings } from "../src/cli/commands/open.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const plugin = (...parts: string[]) => join(root, "plugin", ...parts);
@@ -29,17 +31,19 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(manifest.experimental?.themes).toBe("./themes");
   });
 
-  it("pins the namespaced theme reference and statusline path", () => {
-    const settings = readJson(plugin("settings.json"));
+  it("paints the keys the session spinner reads", () => {
     const theme = readJson(plugin("themes", "codedeck-ultra.json"));
 
-    expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
-    expect(settings.statusLine).toMatchObject({ type: "command" });
-    expect(settings.statusLine.command).toContain("statusline.sh");
     expect(theme.base).toBe("dark");
     expect(theme.overrides).toEqual(expect.objectContaining({
       promptBorder: expect.any(String),
       promptBorderShimmer: expect.any(String),
+      // The spinner takes `claude`/`claudeShimmer` normally but swaps to these
+      // two while a hook runs or a compaction is under way. Leaving them unset
+      // dropped the palette at exactly the moments the spinner is on screen
+      // longest.
+      claudeBlue_FOR_SYSTEM_SPINNER: expect.any(String),
+      claudeBlueShimmer_FOR_SYSTEM_SPINNER: expect.any(String),
     }));
   });
 
@@ -49,7 +53,7 @@ describe("CodeDeck plugin manifest contract", () => {
   // with no error anywhere, not even under --debug, so the ref is derived
   // from the filesystem here instead of being compared to a second literal.
   it("resolves the theme ref to a file that actually exists", () => {
-    const settings = readJson(plugin("settings.json"));
+    const settings = buildSettings("/opt/codedeck/plugin", {}, "general", "m", "xhigh");
     const [prefix, pluginName, slug] = String(settings.theme).split(":");
     const manifest = readJson(plugin(".claude-plugin", "plugin.json"));
 
@@ -61,6 +65,15 @@ describe("CodeDeck plugin manifest contract", () => {
       .map((f) => f.replace(/\.json$/, ""));
 
     expect(themeFiles).toContain(slug);
+  });
+
+  // The plugin used to ship a settings.json that `open` passed to --settings.
+  // Its status line never ran, because ${CLAUDE_PLUGIN_ROOT} is expanded only
+  // for hooks in hooks/hooks.json, and nothing exercised the file. The payload
+  // is built at launch now, and a second copy on disk would be free to drift
+  // back out of sync in the same silence.
+  it("ships no settings file for the launcher to fall back to", () => {
+    expect(existsSync(plugin("settings.json"))).toBe(false);
   });
 
   it("ships an agent file for every role", () => {

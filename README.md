@@ -122,7 +122,15 @@ Two things worth knowing before you edit an agent file. `--agent` layers on top 
 npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 ```
 
-`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops the colours, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+
+### What the session looks like
+
+`open` hands Claude Code a settings payload built at launch, not a file on disk. It carries five things: the `codedeck-ultra` theme, the fullscreen renderer, a spinner vocabulary of its own, CodeDeck's tips in place of the built-in ones, and a startup line naming the role, the model, the effort and whether permissions are bypassed. The status line under the prompt reads `▌ULTRA <role> · <model> · <branch> · ctx <remaining> · $<cost>`, dropping any field the session cannot answer.
+
+The payload is generated rather than shipped because of `${CLAUDE_PLUGIN_ROOT}`. Claude Code expands it only for hooks declared in a plugin's `hooks/hooks.json`, never for `statusLine.command`, and the failure is silent: no status line, no error, not even under `--debug`. `open` knows the real plugin directory, so it writes the resolved path.
+
+`--no-theme` is the way out of all of it. It keeps the status line and hands back the stock renderer, palette, spinner and tips.
 
 A launch carrying `-p`/`--print` answers once and exits, so it never asks anything. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
 

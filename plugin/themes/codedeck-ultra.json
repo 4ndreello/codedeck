@@ -4,6 +4,9 @@
   "overrides": {
     "claude": "#8BE9FD",
     "claudeShimmer": "#C4F1FF",
+    "claudeBlue_FOR_SYSTEM_SPINNER": "#22D3EE",
+    "claudeBlueShimmer_FOR_SYSTEM_SPINNER": "#A5F3FC",
+    "autoAcceptShimmer": "#6EE7B7",
     "text": "#F8FAFC",
     "inverseText": "#0B1020",
     "inactive": "#94A3B8",
