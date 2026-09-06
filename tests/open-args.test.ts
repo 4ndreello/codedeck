@@ -278,6 +278,8 @@ describe("open command pure helpers", () => {
       const body = fs.readFileSync(shim, "utf8");
 
       expect(stats.mode & 0o111).not.toBe(0);
+      // The shim is for this user's sessions, so group and other users get no access.
+      expect(stats.mode & 0o777).toBe(0o700);
       expect(body.split("\n", 1)[0]).toBe("#!/usr/bin/env sh");
       expect(body).toContain(process.execPath);
     } finally {

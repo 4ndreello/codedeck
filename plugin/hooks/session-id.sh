@@ -15,9 +15,9 @@
 set -u
 
 target=${CODEDECK_SESSION_FILE:-}
-[ -n "$target" ] || exit 0
+[[ -n "$target" ]] || exit 0
 
 id=$(grep -oE '"session_id":"[0-9a-fA-F-]+"' | head -1 | cut -d'"' -f4)
-[ -n "$id" ] || exit 0
+[[ -n "$id" ]] || exit 0
 
 printf '%s' "$id" > "$target"

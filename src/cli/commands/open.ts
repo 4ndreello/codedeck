@@ -156,11 +156,11 @@ export function ensureCodedeckShim(): string | undefined {
     fs.writeFileSync(
       shim,
       `#!/usr/bin/env sh\nexec ${shellQuote(process.execPath)} ${shellQuote(entry)} "$@"\n`,
-      { mode: 0o755 },
+      { mode: 0o700 },
     );
     // Rewriting is deliberate because the Node binary or checkout can move
     // after a previous launch, and writeFileSync preserves an existing mode.
-    fs.chmodSync(shim, 0o755);
+    fs.chmodSync(shim, 0o700);
     return binDir;
   } catch {
     // A missing shim must not turn an otherwise valid Claude launch into a
