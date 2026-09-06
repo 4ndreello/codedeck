@@ -4,6 +4,7 @@ import { resolveModel, resolveRoleBinding, type RunAgentConfig } from "../config
 import { findClosestModel, modelNames, type HarnessModels } from "../core/models.js";
 import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
+import { getCliName } from "../cli/cli-name.js";
 
 export type ModelVerdict =
   | { kind: "ok" }
@@ -130,6 +131,6 @@ export function judgeModelIn(
   // A model can leave the catalog on its own, with nobody having typed it
   // wrong, and `needsModelSetup` never asks again, so the way out has to be
   // spelled out.
-  const recovery = fromConfig ? " Run `codedeck setup` to pick another." : "";
+  const recovery = fromConfig ? ` Run \`${getCliName()} setup\` to pick another.` : "";
   return { kind: "rejected", error: `Model "${model}" is not in the ${harnessName} catalog.${hint}${recovery}` };
 }

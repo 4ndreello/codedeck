@@ -8,6 +8,7 @@ import type { AgentId } from "../../core/session.js";
 import { itemKey, type PickerItem, type Screen, type ScreenResult } from "../picker-state.js";
 import { runScreens } from "../picker.js";
 import { colors, readDimensions, type Dimensions } from "../ui.js";
+import { getCliName } from "../cli-name.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { ROLES, type Role } from "../../core/roles.js";
 import {
@@ -299,7 +300,7 @@ export function registerSetupCommand(program: Command): void {
       // The message lives here rather than in the wizard, because `open` calls
       // the same function and has to stay quiet when it cannot prompt.
       if (!isInteractiveTerminal()) {
-        console.error("codedeck setup needs a terminal on both stdin and stdout.");
+        console.error(`${getCliName()} setup needs a terminal on both stdin and stdout.`);
         process.exitCode = 1;
         return;
       }

@@ -5,6 +5,7 @@ import os, { constants } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPaths } from "../config/paths.js";
+import { getCliName } from "../cli/cli-name.js";
 import { INDENT, LOGO, renderFarewell, renderLogo } from "../cli/ui.js";
 import type { Role } from "../core/roles.js";
 
@@ -99,20 +100,23 @@ export const SPINNER_VERBS = [
  * this repository actually ships, because a tip that describes a flag nobody
  * has is worse than no tip at all.
  */
-export const SPINNER_TIPS = [
-  "codedeck run --bg hands work to another harness so this session keeps its own context.",
-  "codedeck run --worktree gives each session its own checkout, so two of them cannot fight over a file.",
-  "codedeck ps lists the recent sessions with the harness and model each one ran on.",
-  "codedeck logs <id> prints what a background session actually reported.",
-  "codedeck wait <id> --json blocks until a session reaches a terminal state.",
-  "codedeck diff <id> shows what a worktree session changed, against its base commit.",
-  "codedeck stop <id> interrupts a session, then escalates to SIGTERM and SIGKILL.",
-  "codedeck send <id> continues a session with a new message instead of restarting it.",
-  "codedeck show <id> prints one session in full: status, worktree, usage, recent events.",
-  "codedeck open reviewer opens a session that can read and run but never edit.",
-  "codedeck setup binds each role to a harness and a model, one screen per role.",
-  "codedeck run --role auditor sends a one-off deep review to another harness.",
-];
+export function spinnerTips(): string[] {
+  const cli = getCliName();
+  return [
+    `${cli} run --bg hands work to another harness so this session keeps its own context.`,
+    `${cli} run --worktree gives each session its own checkout, so two of them cannot fight over a file.`,
+    `${cli} ps lists the recent sessions with the harness and model each one ran on.`,
+    `${cli} logs <id> prints what a background session actually reported.`,
+    `${cli} wait <id> --json blocks until a session reaches a terminal state.`,
+    `${cli} diff <id> shows what a worktree session changed, against its base commit.`,
+    `${cli} stop <id> interrupts a session, then escalates to SIGTERM and SIGKILL.`,
+    `${cli} send <id> continues a session with a new message instead of restarting it.`,
+    `${cli} show <id> prints one session in full: status, worktree, usage, recent events.`,
+    `${cli} open reviewer opens a session that can read and run but never edit.`,
+    `${cli} setup binds each role to a harness and a model, one screen per role.`,
+    `${cli} run --role auditor sends a one-off deep review to another harness.`,
+  ];
+}
 
 /**
  * statusLine.command is handed to a shell, so an install directory carrying a
@@ -128,23 +132,35 @@ export function shellQuote(value: string): string {
  * Gives Claude's child sessions a `codedeck` command even when this CLI came
  * from a checkout or an npx process that never installed a global shim.
  */
+function writeShim(file: string, entry: string, cliName?: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // Rewriting is deliberate because the Node binary or checkout can move
+  // after a previous launch, and writeFileSync preserves an existing mode.
+  // The alias shim carries its own name so it prints right even when the
+  // parent environment did not propagate CODEDECK_CLI_NAME.
+  const rename = cliName !== undefined ? `export CODEDECK_CLI_NAME=${shellQuote(cliName)}\n` : "";
+  fs.writeFileSync(
+    file,
+    `#!/usr/bin/env sh\n${rename}exec ${shellQuote(process.execPath)} ${shellQuote(entry)} "$@"\n`,
+    { mode: 0o700 },
+  );
+  fs.chmodSync(file, 0o700);
+}
+
 export function ensureCodedeckShim(): string | undefined {
   try {
     const binDir = path.join(getPaths().base, "bin");
-    const entry = fileURLToPath(new URL("../index.js", import.meta.url));
-    const shim = path.join(binDir, "codedeck");
+    const entry = fileURLToPath(new URL("../cli/index.js", import.meta.url));
 
-    fs.mkdirSync(binDir, { recursive: true });
     // The shim leads PATH so a stale global install cannot take over from the
     // CLI instance that is running this checkout.
-    fs.writeFileSync(
-      shim,
-      `#!/usr/bin/env sh\nexec ${shellQuote(process.execPath)} ${shellQuote(entry)} "$@"\n`,
-      { mode: 0o700 },
-    );
-    // Rewriting is deliberate because the Node binary or checkout can move
-    // after a previous launch, and writeFileSync preserves an existing mode.
-    fs.chmodSync(shim, 0o700);
+    writeShim(path.join(binDir, "codedeck"), entry);
+    // A renamed alias (CODEDECK_CLI_NAME) gets its own shim so workers type
+    // the same name they were launched with.
+    const alias = getCliName();
+    if (alias !== "codedeck" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(alias)) {
+      writeShim(path.join(binDir, alias), entry, alias);
+    }
     return binDir;
   } catch {
     // A missing shim must not turn an otherwise valid Claude launch into a
@@ -187,7 +203,7 @@ export function withCodedeckOnPath(env: NodeJS.ProcessEnv, binDir: string): Node
  */
 export function resumeHint(role: Role, id: string | undefined): string | undefined {
   if (id === undefined || !/^[0-9a-fA-F-]{8,}$/.test(id)) return undefined;
-  return `${INDENT}resume: codedeck open ${role} --resume ${id}\n`;
+  return `${INDENT}resume: ${getCliName()} open ${role} --resume ${id}\n`;
 }
 
 /**

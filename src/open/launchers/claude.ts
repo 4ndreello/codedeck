@@ -10,7 +10,7 @@ import {
   errorDetails,
   sanitizeEnv,
   shellQuote,
-  SPINNER_TIPS,
+  spinnerTips,
   SPINNER_VERBS,
 } from "../runtime.js";
 
@@ -70,7 +70,7 @@ export function buildSettings(pluginDir: string, flags: OpenFlags): Record<strin
     theme: THEME_REF,
     tui: "fullscreen",
     spinnerVerbs: { mode: "replace", verbs: SPINNER_VERBS },
-    spinnerTipsOverride: { excludeDefault: true, label: "ULTRA", tips: SPINNER_TIPS },
+    spinnerTipsOverride: { excludeDefault: true, label: "ULTRA", tips: spinnerTips() },
     statusLine,
   };
 }
