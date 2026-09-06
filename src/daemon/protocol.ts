@@ -2,6 +2,7 @@ import type { AgentId, Session } from "../core/session.js";
 import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
 import type { HarnessModels } from "../core/models.js";
+import type { Claim } from "../store/claims.js";
 
 export type RequestMethod =
   | "session.create"
@@ -12,6 +13,9 @@ export type RequestMethod =
   | "session.logs"
   | "session.diff"
   | "session.subscribe"
+  | "claims.add"
+  | "claims.query"
+  | "claims.release"
   | "daemon.status"
   | "daemon.stop"
   | "doctor"
@@ -72,6 +76,21 @@ export interface SubscribeSessionRequest {
   params: { id: string };
 }
 
+export interface AddClaimRequest {
+  method: "claims.add";
+  params: { sessionId: string; pathGlob: string; reason: string };
+}
+
+export interface QueryClaimsRequest {
+  method: "claims.query";
+  params: { sessionId: string; path?: string };
+}
+
+export interface ReleaseClaimRequest {
+  method: "claims.release";
+  params: { sessionId: string; claimId: number };
+}
+
 export interface DaemonStatusRequest {
   method: "daemon.status";
   params: Record<string, never>;
@@ -95,6 +114,9 @@ export type RequestParams =
   | LogsSessionRequest
   | DiffSessionRequest
   | SubscribeSessionRequest
+  | AddClaimRequest
+  | QueryClaimsRequest
+  | ReleaseClaimRequest
   | DaemonStatusRequest
   | ListModelsRequest;
 
@@ -120,6 +142,18 @@ export interface SessionCreateResult {
 
 export interface SessionListResult {
   sessions: Session[];
+}
+
+export interface ClaimAddResult {
+  claim: Claim;
+}
+
+export interface ClaimQueryResult {
+  claims: Claim[];
+}
+
+export interface ClaimReleaseResult {
+  claim: Claim;
 }
 
 export interface DoctorResult {

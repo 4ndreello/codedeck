@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { Database, getDatabase } from "../store/database.js";
 import { SessionStore } from "../store/sessions.js";
 import { EventStore } from "../store/events.js";
+import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
@@ -20,7 +21,7 @@ import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } fr
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
-import { classifyFailure, type FailureInfo } from "../core/errors.js";
+import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
@@ -38,6 +39,7 @@ class Daemon {
   private db: Database;
   private sessions: SessionStore;
   private events: EventStore;
+  private claims: ClaimsStore;
   private registry = getRegistry();
   private server?: net.Server;
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
@@ -73,6 +75,7 @@ class Daemon {
     const handle = this.db.getHandle();
     this.sessions = new SessionStore(handle);
     this.events = new EventStore(handle);
+    this.claims = new ClaimsStore(handle);
   }
 
   async start(): Promise<void> {
@@ -603,6 +606,51 @@ class Daemon {
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
         const diff = await getDiff({ cwd: s.cwd, worktree: s.worktree, baseCommit: s.baseCommit, repository: s.repository });
         send({ result: diff });
+        break;
+      }
+
+      case "claims.add": {
+        const p = params as { sessionId: string; pathGlob: string; reason: string };
+        try {
+          const claim = this.claims.add(p.sessionId, p.pathGlob, p.reason);
+          send({ result: { claim } });
+        } catch (error) {
+          if (error instanceof RunAgentError) {
+            send({ error: { code: error.code, message: error.message, details: error.details } });
+            return;
+          }
+          throw error;
+        }
+        break;
+      }
+
+      case "claims.query": {
+        const p = params as { sessionId: string; path?: string };
+        try {
+          const claims = this.claims.query(p.sessionId, p.path);
+          send({ result: { claims } });
+        } catch (error) {
+          if (error instanceof RunAgentError) {
+            send({ error: { code: error.code, message: error.message, details: error.details } });
+            return;
+          }
+          throw error;
+        }
+        break;
+      }
+
+      case "claims.release": {
+        const p = params as { sessionId: string; claimId: number };
+        try {
+          const claim = this.claims.release(p.sessionId, p.claimId);
+          send({ result: { claim } });
+        } catch (error) {
+          if (error instanceof RunAgentError) {
+            send({ error: { code: error.code, message: error.message, details: error.details } });
+            return;
+          }
+          throw error;
+        }
         break;
       }
 
