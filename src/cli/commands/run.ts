@@ -8,6 +8,7 @@ import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
 import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
+import { getCliInvocation, getCliName } from "../cli-name.js";
 
 export function registerRunCommand(program: Command): void {
   program
@@ -29,13 +30,13 @@ export function registerRunCommand(program: Command): void {
     .option("--json", "output JSON instead of human-readable text")
     .addHelpText("after", `
 Examples:
-  $ npx codedeck run "implement authentication" --agent claude
-  $ npx codedeck run "fix the tests" --agent codex --model gpt-5 --bg
-  $ npx codedeck run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
-  $ npx codedeck run "refactor module" --agent opencode --worktree --name refactor
-  $ npx codedeck run "investigate bug" --agent omp --cwd ./my-project --json
+  $ ${getCliInvocation()} run "implement authentication" --agent claude
+  $ ${getCliInvocation()} run "fix the tests" --agent codex --model gpt-5 --bg
+  $ ${getCliInvocation()} run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
+  $ ${getCliInvocation()} run "refactor module" --agent opencode --worktree --name refactor
+  $ ${getCliInvocation()} run "investigate bug" --agent omp --cwd ./my-project --json
 Power: a poweroff/reboot marks running sessions interrupted (exit 3).
-Resume with: codedeck send <id> "continue"
+Resume with: ${getCliName()} send <id> "continue"
 `)
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
@@ -173,7 +174,7 @@ Resume with: codedeck send <id> "continue"
 
       if (background) {
         // Just show id and exit
-        if (!opts.json) console.log(`\nUse: npx codedeck logs ${session.id} --follow`);
+        if (!opts.json) console.log(`\nUse: ${getCliInvocation()} logs ${session.id} --follow`);
         process.exit(0);
       }
 
@@ -249,8 +250,8 @@ Resume with: codedeck send <id> "continue"
       process.on("SIGINT", () => {
         if (!opts.json) {
           console.log(`\nDetached from ${session.id}. Session continues in background.`);
-          console.log(`Run: npx codedeck logs ${session.id} --follow  to reattach`);
-          console.log(`     npx codedeck stop ${session.id}     to stop`);
+          console.log(`Run: ${getCliInvocation()} logs ${session.id} --follow  to reattach`);
+          console.log(`     ${getCliInvocation()} stop ${session.id}     to stop`);
         }
         unsubscribe();
         process.exit(0);

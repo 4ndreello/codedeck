@@ -193,8 +193,8 @@ describe("CodeDeck plugin manifest contract", () => {
     const auditor = readText(plugin("agents", "auditor.md"));
     const statusline = readText(plugin("statusline.sh"));
 
-    expect(orchestrator).toContain('codedeck run --role <role> --worktree "<briefing>"');
-    expect(orchestrator).toContain('codedeck run --role general --worktree "<briefing>"');
+    expect(orchestrator).toContain('codedeck run --role <role> "<briefing>" --bg --json');
+    expect(orchestrator).toContain("Always dispatch in the background.");
     expect(orchestrator).toContain("codedeck diff <id> --stat");
     expect(orchestrator).not.toMatch(/codedeck diff <id>(?! --stat)/);
     expect(orchestrator).toContain("codedeck stop <id>");

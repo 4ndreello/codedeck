@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
+import { getCliInvocation } from "../cli-name.js";
 import { exitCodeForOutcome } from "../../core/errors.js";
 import type { Session } from "../../core/session.js";
 import { waitForSession, type SessionWaitClient } from "../wait.js";
@@ -26,8 +27,8 @@ export function registerWaitCommand(program: Command): void {
     .option("--json", "output the final session as JSON")
     .addHelpText("after", `
 Examples:
-  $ npx codedeck wait a83f
-  $ npx codedeck wait a83f --json
+  $ ${getCliInvocation()} wait a83f
+  $ ${getCliInvocation()} wait a83f --json
 `)
     .action(async (id: string, opts: WaitCommandOptions) => {
       const client = new IpcClient();

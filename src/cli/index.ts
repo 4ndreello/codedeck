@@ -16,6 +16,7 @@ import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerModelsCommand } from "./commands/models.js";
 import { registerOpenCommand } from "./commands/open.js";
 import { registerSetupCommand } from "./commands/setup.js";
+import { getCliInvocation, getCliName } from "./cli-name.js";
 
 function getVersion(): string {
   try {
@@ -29,8 +30,13 @@ function getVersion(): string {
 
 const program = new Command();
 
+// CODEDECK_CLI_NAME renames the tool (for example a `codedeck-dev`
+// alias), so the help below shows that name instead of `npx codedeck`.
+const cliName = getCliName();
+const cli = getCliInvocation();
+
 program
-  .name("codedeck")
+  .name(cliName)
   .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
   .version(getVersion())
   .helpOption("-h, --help", "display help for command")
@@ -38,29 +44,29 @@ program
   .showSuggestionAfterError(true)
   .addHelpText("after", `
 Examples:
-  $ npx codedeck run "implement authentication" --agent claude --worktree
-  $ npx codedeck run "fix the tests" --agent codex --bg
-  $ npx codedeck wait a83f
-  $ npx codedeck ps
-  $ npx codedeck ps --json
-  $ npx codedeck show a83f
-  $ npx codedeck logs a83f --follow
-  $ npx codedeck logs a83f --json
-  $ npx codedeck send a83f "add tests"
-  $ npx codedeck stop a83f
-  $ npx codedeck diff a83f --stat
-  $ npx codedeck doctor
-  $ npx codedeck models
-  $ npx codedeck models codex
-  $ npx codedeck models --search sonnet
+  $ ${cli} run "implement authentication" --agent claude --worktree
+  $ ${cli} run "fix the tests" --agent codex --bg
+  $ ${cli} wait a83f
+  $ ${cli} ps
+  $ ${cli} ps --json
+  $ ${cli} show a83f
+  $ ${cli} logs a83f --follow
+  $ ${cli} logs a83f --json
+  $ ${cli} send a83f "add tests"
+  $ ${cli} stop a83f
+  $ ${cli} diff a83f --stat
+  $ ${cli} doctor
+  $ ${cli} models
+  $ ${cli} models codex
+  $ ${cli} models --search sonnet
 
 Recommended flow:
-  $ npx codedeck run "task"                 # blocks and follows logs
-  $ npx codedeck run "task" --bg --json     # starts in background
-  $ npx codedeck wait <id>                  # waits without ps/show loop
-  $ npx codedeck logs <id> --follow         # inspect progress
+  $ ${cli} run "task"                 # blocks and follows logs
+  $ ${cli} run "task" --bg --json     # starts in background
+  $ ${cli} wait <id>                  # waits without ps/show loop
+  $ ${cli} logs <id> --follow         # inspect progress
 
-Run 'npx codedeck <command> --help' for command-specific options.
+Run '${cli} <command> --help' for command-specific options.
 Docs: https://github.com/4ndreello/run-agent
 `);
 
