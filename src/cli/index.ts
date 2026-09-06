@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { registerRunCommand } from "./commands/run.js";
 import { registerPsCommand } from "./commands/ps.js";
+import { registerClaimsCommand } from "./commands/claims.js";
 import { registerShowCommand } from "./commands/show.js";
 import { registerLogsCommand } from "./commands/logs.js";
 import { registerWaitCommand } from "./commands/wait.js";
@@ -72,6 +73,7 @@ Docs: https://github.com/4ndreello/run-agent
 
 registerRunCommand(program);
 registerPsCommand(program);
+registerClaimsCommand(program);
 registerShowCommand(program);
 registerLogsCommand(program);
 registerWaitCommand(program);
