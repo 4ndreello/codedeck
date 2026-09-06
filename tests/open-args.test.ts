@@ -27,6 +27,7 @@ import {
   scanOptions,
   ensureCodedeckShim,
   withCodedeckOnPath,
+  SPINNER_VERB_WIDTH,
 } from "../src/cli/commands/open.js";
 
 /** The launcher passes settings inline, so every assertion reads them back. */
@@ -127,7 +128,7 @@ describe("open command argument builder", () => {
     expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
     expect(settings.tui).toBe("fullscreen");
     expect(settings.spinnerVerbs.mode).toBe("replace");
-    expect(settings.spinnerVerbs.verbs.length).toBeGreaterThan(8);
+    expect(settings.spinnerVerbs.verbs).toHaveLength(64);
     expect(settings.spinnerTipsOverride).toMatchObject({ excludeDefault: true, label: "ULTRA" });
     expect(settings.spinnerTipsOverride.tips.length).toBeGreaterThan(0);
   });
@@ -145,12 +146,12 @@ describe("open command argument builder", () => {
   // the only part of that line CodeDeck can paint. Halfwidth katakana and
   // digits only: fullwidth kana is two columns wide, and a verb that measures
   // wider than it counts pushes the elapsed time and token count out of line.
-  it("keeps every spinner verb single width", () => {
+  it("keeps every spinner verb at the fixed width", () => {
     const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, "/opt/codedeck/plugin", []));
 
     for (const verb of spinnerVerbs.verbs) {
       expect(verb, verb).toMatch(/^[ｦ-ﾝ0-9]+$/);
-      expect([...verb].length, verb).toBeLessThanOrEqual(8);
+      expect([...verb].length, verb).toBe(SPINNER_VERB_WIDTH);
     }
   });
 

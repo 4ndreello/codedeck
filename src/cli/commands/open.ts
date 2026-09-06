@@ -46,6 +46,12 @@ const PLUGIN_NAME = "codedeck";
 const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
 
 /**
+ * Width of each replacement verb in terminal columns. Keeping this fixed
+ * leaves Claude's elapsed-time and token-count fields aligned.
+ */
+export const SPINNER_VERB_WIDTH = 12;
+
+/**
  * "replace" drops Claude Code's own hundred-odd verbs instead of adding to
  * them, so this list is the entire vocabulary and has to be long enough that a
  * single session does not visibly cycle it.
@@ -65,30 +71,70 @@ const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
  * seconds, the token count and the effort, which is the part anyone reads.
  */
 const SPINNER_VERBS = [
-  "ﾊ7ｦ2ｲ",
-  "ｷ0ｼ9ﾏ",
-  "ﾃ4ﾅ8ﾆ",
-  "ｦ1ｱ5ｳ",
-  "ｵ9ｶ3ｷ",
-  "ｺ2ｻ7ｼ",
-  "ｾ8ｿ0ﾀ",
-  "ﾈ5ﾊ1ﾋ",
-  "ﾏ3ﾐ6ﾑ",
-  "ﾓ7ﾔ2ﾕ",
-  "ﾘ0ﾜ4ｦ",
-  "ｳ6ｴ9ｵ",
-  "ｶ1ｷ8ｹ",
-  "ｻ4ｼ0ｽ",
-  "ｿ2ﾀ5ﾂ",
-  "ﾅ9ﾆ3ﾇ",
-  "ﾋ6ﾎ1ﾏ",
-  "ﾑ8ﾒ4ﾓ",
-  "ﾕ0ﾗ7ﾘ",
-  "ｱ3ｳ5ｴ",
-  "ｹ7ｺ2ｻ",
-  "ｽ1ｾ9ｿ",
-  "ﾂ5ﾃ0ﾅ",
-  "ﾇ8ﾈ6ﾊ",
+  "ﾊ7ｦ2ｲ9ｷ4ｼ1ﾏ8",
+  "ｷ0ｼ9ﾏ3ﾃ6ﾕ1ﾎ8",
+  "ﾃ4ﾅ8ﾆ2ｾ7ﾜ0ﾂ5",
+  "ｦ1ｱ5ｳ8ﾚ2ｻ6ｸ0",
+  "ｵ9ｶ3ｷ7ﾇ1ﾖ5ﾍ8",
+  "ｺ2ｻ7ｼ4ﾈ0ﾓ6ﾀ9",
+  "ｾ8ｿ0ﾀ3ﾊ6ﾘ2ｳ5",
+  "ﾈ5ﾊ1ﾋ4ｿ8ﾔ0ﾃ6",
+  "ﾏ3ﾐ6ﾑ9ｽ1ﾌ5ﾗ8",
+  "ﾓ7ﾔ2ﾕ5ｶ9ﾄ3ﾚ6",
+  "ﾘ0ﾜ4ｦ8ﾆ2ｿ7ﾒ5",
+  "ｳ6ｴ9ｵ2ﾀ5ﾊ8ﾙ1",
+  "ｶ1ｷ8ｹ3ﾇ7ﾌ0ﾖ5",
+  "ｻ4ｼ0ｽ6ﾍ2ﾗ9ﾆ1",
+  "ｿ2ﾀ5ﾂ8ﾏ4ｱ7ﾚ0",
+  "ﾅ9ﾆ3ﾇ6ﾋ1ﾖ8ｴ4",
+  "ﾋ6ﾎ1ﾏ5ﾕ8ｿ2ｷ9",
+  "ﾑ8ﾒ4ﾓ7ｱ0ﾂ6ﾘ1",
+  "ﾕ0ﾗ7ﾘ2ｳ5ﾐ9ﾀ3",
+  "ｱ3ｳ5ｴ8ｶ1ﾖ6ﾎ0",
+  "ｹ7ｺ2ｻ9ﾃ4ﾒ8ﾜ1",
+  "ｽ1ｾ9ｿ3ﾊ6ｷ0ﾔ5",
+  "ﾂ5ﾃ0ﾅ4ﾍ8ﾑ2ｦ7",
+  "ﾇ8ﾈ6ﾊ2ﾐ5ｶ9ﾘ3",
+  "ｦｧｨｩｪｫ1ｰｬｭｮ2",
+  "ｬｭｮｯｰｱ3ｲｳｴｵ4",
+  "ｯｰｱｲｳ5ｴｵｶｷｸ6",
+  "ｰｶｷｸｹｺ7ｻｼｽｾ8",
+  "ｻｼｽｾｿ9ﾀﾁﾂﾃﾄ0",
+  "ﾀﾁﾂﾃﾄ1ﾅﾆﾇﾈﾉ2",
+  "ﾅﾆﾇﾈﾉ3ﾊﾋﾌﾍﾎ4",
+  "ﾊﾋﾌﾍﾎ5ﾏﾐﾑﾒﾓ6",
+  "ﾏﾐﾑﾒﾓ7ﾔﾕﾖﾗﾘ8",
+  "ﾔﾕﾖﾗﾘ9ﾙﾚﾛﾜﾝ0",
+  "ﾙﾚﾛﾜﾝ1ｦｧｨｩｪ2",
+  "ｦｧｨｩｪ3ｫｬｭｮｯ4",
+  "ｱ9ﾝ8ｲ7ﾝ6ｳ5ﾝ4",
+  "ｶ8ﾝ7ｷ6ﾝ5ｸ4ﾝ3",
+  "ｻ7ﾝ6ｼ5ﾝ4ｽ3ﾝ2",
+  "ﾀ6ﾝ5ﾁ4ﾝ3ﾂ2ﾝ1",
+  "ﾅ5ﾝ4ﾆ3ﾝ2ﾇ1ﾝ0",
+  "ﾊ4ﾝ3ﾋ2ﾝ1ﾌ0ﾝ9",
+  "ﾏ3ﾝ2ﾐ1ﾝ0ﾑ9ﾝ8",
+  "ﾔ2ﾝ1ﾕ0ﾝ9ﾖ8ﾝ7",
+  "ﾙ1ﾝ0ﾚ9ﾝ8ﾛ7ﾝ6",
+  "ｱｲ2ｳｴ3ｵｶ4ｷｸ5",
+  "ｹｺ6ｻｼ7ｽｾ8ｿﾀ9",
+  "ﾁﾂ0ﾃﾄ1ﾅﾆ2ﾇﾈ3",
+  "ﾉﾊ4ﾋﾌ5ﾍﾎ6ﾏﾐ7",
+  "ﾑﾒ8ﾓﾔ9ﾕﾖ0ﾗﾘ1",
+  "ﾙﾚ2ﾛﾜ3ﾝｦ4ｧｨ5",
+  "ｩｪ6ｫｬ7ｭｮ8ｯｰ9",
+  "0ｱ1ｲ2ｳ3ｴ4ｵ5ｶ",
+  "6ｷ7ｸ8ｹ9ｺ0ｻ1ｼ",
+  "1ｼ2ｽ3ｾ4ｿ5ﾀ6ﾁ",
+  "7ﾂ8ﾃ9ﾄ0ﾅ1ﾆ2ﾇ",
+  "2ﾇ3ﾈ4ﾉ5ﾊ6ﾋ7ﾌ",
+  "8ﾌ9ﾍ0ﾎ1ﾏ2ﾐ3ﾑ",
+  "3ﾑ4ﾒ5ﾓ6ﾔ7ﾕ8ﾖ",
+  "9ﾖ0ﾗ1ﾘ2ﾙ3ﾚ4ﾛ",
+  "5ﾛ6ﾜ7ﾝ8ｦ9ｧ0ﾜ",
+  "ｨ1ｩ2ｪ3ｫ4ｬ5ｭ6",
+  "ｮ7ｯ8ｰ9ｱ0ｲ1ｳｴ",
+  "ｴ2ｵ3ｶ4ｷ5ｸ6ｹｵ",
 ];
 
 /**
@@ -393,7 +439,9 @@ export function bootFrame(progress: number, noise: (column: number) => string): 
 
 const BOOT_STEPS = 18;
 const BOOT_STEP_MS = 40;
-const KATAKANA = [...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph));
+const KATAKANA = [
+  ...new Set([...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph))),
+];
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
