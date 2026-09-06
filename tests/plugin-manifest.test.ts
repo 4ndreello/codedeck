@@ -20,6 +20,9 @@ const frontmatter = (path: string) => {
 const field = (source: string, name: string) =>
   source.match(new RegExp(`^${name}:\\s*(.+)$`, "m"))?.[1] ?? "";
 
+const agentBody = (path: string) =>
+  readText(path).replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+
 describe("CodeDeck plugin manifest contract", () => {
   it("pins the plugin identity and experimental theme directory", () => {
     const manifest = readJson(plugin(".claude-plugin", "plugin.json"));
@@ -160,6 +163,17 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(tools("auditor")).toMatch(/\bTask\b/);
   });
 
+  it("requires --role on every dispatching role", () => {
+    const agents = readdirSync(plugin("agents")).filter((file) => file.endsWith(".md"));
+    for (const file of agents) {
+      const name = file.replace(/\.md$/, "");
+      const path = plugin("agents", `${name}.md`);
+      if (/\bTask\b/.test(field(frontmatter(path), "tools"))) {
+        expect(agentBody(path), name).toContain("codedeck run --role");
+      }
+    }
+  });
+
   // ultra.md is appended to every role, so anything role-specific in it
   // contradicts one of them. It carries only what holds for all four.
   it("keeps the shared system prompt universal", () => {
@@ -177,7 +191,7 @@ describe("CodeDeck plugin manifest contract", () => {
     const auditor = readText(plugin("agents", "auditor.md"));
     const statusline = readText(plugin("statusline.sh"));
 
-    expect(orchestrator).toContain("codedeck run --worktree");
+    expect(orchestrator).toContain('codedeck run --role <role> --worktree "<briefing>"');
     expect(orchestrator).toContain("codedeck diff <id>");
     expect(orchestrator).toContain("codedeck stop <id>");
 
