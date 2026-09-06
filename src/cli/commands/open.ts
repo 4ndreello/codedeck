@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
 import os, { constants } from "node:os";
 import type { Command } from "commander";
@@ -13,6 +14,7 @@ import {
   resolveRoleBinding,
   type RoleBinding,
 } from "../../config/config.js";
+import { getPaths } from "../../config/paths.js";
 import { isInteractiveTerminal } from "./setup.js";
 import { INDENT, LOGO, renderFarewell, renderLogo } from "../ui.js";
 import { getRegistry } from "../../drivers/registry.js";
@@ -135,6 +137,34 @@ const execFileAsync = promisify(execFile);
  */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Gives Claude's child sessions a `codedeck` command even when this CLI came
+ * from a checkout or an npx process that never installed a global shim.
+ */
+export function ensureCodedeckShim(): string | undefined {
+  try {
+    const binDir = path.join(getPaths().base, "bin");
+    const entry = fileURLToPath(new URL("../index.js", import.meta.url));
+    const shim = path.join(binDir, "codedeck");
+
+    fs.mkdirSync(binDir, { recursive: true });
+    // The shim leads PATH so a stale global install cannot take over from the
+    // CLI instance that is running this checkout.
+    fs.writeFileSync(
+      shim,
+      `#!/usr/bin/env sh\nexec ${shellQuote(process.execPath)} ${shellQuote(entry)} "$@"\n`,
+      { mode: 0o755 },
+    );
+    // Rewriting is deliberate because the Node binary or checkout can move
+    // after a previous launch, and writeFileSync preserves an existing mode.
+    fs.chmodSync(shim, 0o755);
+    return binDir;
+  } catch {
+    // A missing shim must not turn an otherwise valid Claude launch into a
+    // failure.
+  }
 }
 
 /**
@@ -263,6 +293,17 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // alone, since silencing mise everywhere is not this command's call.
   sanitized.MISE_QUIET ??= "1";
   return sanitized;
+}
+
+export function withCodedeckOnPath(env: NodeJS.ProcessEnv, binDir: string): NodeJS.ProcessEnv {
+  const currentPath = env.PATH;
+  const entries = currentPath ? currentPath.split(path.delimiter) : [];
+  if (entries[0] === binDir) return { ...env };
+
+  return {
+    ...env,
+    PATH: [binDir, ...entries].join(path.delimiter),
+  };
 }
 
 /**
@@ -784,9 +825,14 @@ function launchClaude(
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const output = { value: "" };
+    const binDir = ensureCodedeckShim();
+    const childEnv =
+      binDir === undefined
+        ? sanitizeEnv(process.env)
+        : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
     const child = spawn(claudeBin, args, {
       cwd,
-      env: { ...sanitizeEnv(process.env), CODEDECK_SESSION_FILE: sessionFile },
+      env: { ...childEnv, CODEDECK_SESSION_FILE: sessionFile },
       stdio: ["inherit", "inherit", "pipe"],
     });
 

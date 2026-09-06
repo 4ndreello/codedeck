@@ -1,4 +1,6 @@
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 
@@ -22,6 +24,8 @@ import {
   resolvePluginDir,
   sanitizeEnv,
   scanOptions,
+  ensureCodedeckShim,
+  withCodedeckOnPath,
 } from "../src/cli/commands/open.js";
 
 /** The launcher passes settings inline, so every assertion reads them back. */
@@ -226,6 +230,56 @@ describe("open command pure helpers", () => {
     // The caller's own object is never touched, whether a key is dropped or
     // added: it is process.env, and this runs before the launch.
     expect(env).not.toHaveProperty("MISE_QUIET");
+  });
+
+  it("puts the CodeDeck bin directory first without mutating the environment", () => {
+    const env = { PATH: `/usr/bin${path.delimiter}/bin`, HOME: "/tmp/home" };
+    const binDir = "/tmp/codedeck/bin";
+
+    expect(withCodedeckOnPath(env, binDir)).toEqual({
+      PATH: `${binDir}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+      HOME: "/tmp/home",
+    });
+    expect(env).toEqual({ PATH: `/usr/bin${path.delimiter}/bin`, HOME: "/tmp/home" });
+  });
+
+  it("uses only the CodeDeck bin directory when PATH is absent or empty", () => {
+    const binDir = "/tmp/codedeck/bin";
+
+    expect(withCodedeckOnPath({}, binDir)).toEqual({ PATH: binDir });
+    expect(withCodedeckOnPath({ PATH: "" }, binDir)).toEqual({ PATH: binDir });
+  });
+
+  it("does not duplicate a CodeDeck bin directory already at the front", () => {
+    const binDir = "/tmp/codedeck/bin";
+    const once = withCodedeckOnPath({ PATH: `/usr/bin${path.delimiter}/bin` }, binDir);
+
+    expect(withCodedeckOnPath(once, binDir)).toEqual(once);
+  });
+
+  it("writes an executable Claude-facing codedeck shim", () => {
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-shim-"));
+    process.env.RUN_AGENT_DIR = runAgentDir;
+
+    try {
+      const binDir = ensureCodedeckShim();
+
+      expect(binDir).toBe(path.join(runAgentDir, "bin"));
+      if (binDir === undefined) return;
+
+      const shim = path.join(binDir, "codedeck");
+      const stats = fs.statSync(shim);
+      const body = fs.readFileSync(shim, "utf8");
+
+      expect(stats.mode & 0o111).not.toBe(0);
+      expect(body.split("\n", 1)[0]).toBe("#!/usr/bin/env sh");
+      expect(body).toContain(process.execPath);
+    } finally {
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      fs.rmSync(runAgentDir, { recursive: true, force: true });
+    }
   });
 
   it("renders one banner string carrying the whole launch context", () => {
