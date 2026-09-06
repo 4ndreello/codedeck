@@ -27,8 +27,10 @@ import {
 } from "../../core/models.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
+import { effectiveModel } from "../../open/contract.js";
 
 export { ROLES, parseRole, resolvePluginDir, type Role };
+export { effectiveModel };
 
 export interface OpenFlags {
   model?: string;
@@ -283,30 +285,6 @@ export function buildOpenArgs(
   ];
 
   return args;
-}
-
-const MODEL_PREFIX = "--model=";
-
-/**
- * Claude honours the last --model on the line and the passthrough is appended
- * last, so `open --model bad -- --model good` really launches "good". Checking
- * anything but the last one grounds a launch that would have worked.
- *
- * Only the passthrough is scanned, never the built vector. That vector always
- * opens with a --model pair, so scanning it could never answer "the passthrough
- * overrode nothing", and a bare "--model" swallowed as another flag's value (as
- * in `open --resume --model`) would be read as a model of its own.
- *
- * Known limit: a literal "--model" passed as the value of one of Claude's own
- * flags still reads as an override. Telling that apart needs Claude's option
- * arity, which CodeDeck does not have.
- */
-export function effectiveModel(passthrough: string[]): string | undefined {
-  for (let i = passthrough.length - 1; i >= 0; i--) {
-    const token = passthrough[i];
-    if (token.startsWith(MODEL_PREFIX)) return token.slice(MODEL_PREFIX.length);
-    if (i > 0 && passthrough[i - 1] === "--model") return token;
-  }
 }
 
 
