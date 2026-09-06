@@ -22,13 +22,13 @@ try {
  * the bright end of the theme on purpose: a mid tone arrives on screen as grey.
  * SGR survives, which is why these are raw escapes and not a library.
  */
-const CYAN = "\x1b[38;2;34;211;238m";
-const VIOLET = "\x1b[38;2;167;139;250m";
-const TEXT = "\x1b[38;2;226;232;240m";
-const MUTED = "\x1b[38;2;100;116;139m";
-const GREEN = "\x1b[38;2;52;211;153m";
+const BLOOD = "\x1b[38;2;225;29;72m";
+const EMBER = "\x1b[38;2;251;146;60m";
+const TEXT = "\x1b[38;2;247;237;238m";
+const MUTED = "\x1b[38;2;163;139;143m";
+const GREEN = "\x1b[38;2;74;222;128m";
 const AMBER = "\x1b[38;2;251;191;36m";
-const RED = "\x1b[38;2;251;113;133m";
+const RED = "\x1b[38;2;255;77;109m";
 const OFF = "\x1b[0m";
 
 const paint = (color, value) => color + value + OFF;
@@ -113,13 +113,13 @@ const costField = () => {
 };
 
 const fields = [
-  role && paint(VIOLET, clean(role)),
+  role && paint(EMBER, clean(role)),
   model && paint(TEXT, clean(model)),
-  branch && paint(CYAN, clean(branch)),
+  branch && paint(BLOOD, clean(branch)),
   contextField(),
   costField(),
 ].filter(Boolean);
 
-const label = paint(CYAN, "▌ULTRA");
+const label = paint(BLOOD, "▌RAGE");
 process.stdout.write(fields.length > 0 ? label + " " + fields.join(paint(MUTED, " · ")) : label);
 '
