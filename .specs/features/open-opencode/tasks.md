@@ -286,12 +286,14 @@ T7 → T8 → T9
 
 **Done when**:
 
-- [ ] Script exits 0 with refusal evidence and no file created
-- [ ] Spec assumptions table records the verdict (permission mapping stands or changes to `bash: deny`)
-- [ ] Gate check passes: `./scripts/probe-opencode-reviewer.sh`
+- [x] Script exits 0 with refusal evidence and no file created
+- [x] Spec assumptions table records the verdict (mapping stands, bash hole documented like Claude)
+- [x] Gate check passes: `./scripts/probe-opencode-reviewer.sh`
 
 **Tests**: integration (script itself + spec record in same commit)
 **Gate**: probe
+
+**Status**: complete
 
 **Commit**: `test(open): probe opencode reviewer write refusal`
 
