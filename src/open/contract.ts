@@ -18,6 +18,7 @@ export interface OpenFlags {
   worktree?: boolean;
   bypass?: boolean;
   theme?: boolean;
+  remoteControl?: boolean;
 }
 
 export interface OpenModelInput {

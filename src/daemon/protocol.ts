@@ -9,6 +9,7 @@ export type RequestMethod =
   | "session.create"
   | "session.list"
   | "session.get"
+  | "session.rename"
   | "session.send"
   | "session.stop"
   | "session.logs"
@@ -52,6 +53,11 @@ export interface ListSessionsRequest {
 export interface GetSessionRequest {
   method: "session.get";
   params: { id: string };
+}
+
+export interface RenameSessionRequest {
+  method: "session.rename";
+  params: { id: string; name: string };
 }
 
 export interface SendSessionRequest {
@@ -117,6 +123,7 @@ export type RequestParams =
   | CreateSessionRequest
   | ListSessionsRequest
   | GetSessionRequest
+  | RenameSessionRequest
   | SendSessionRequest
   | StopSessionRequest
   | LogsSessionRequest

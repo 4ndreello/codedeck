@@ -18,7 +18,7 @@ function repoHash(repoRoot: string): string {
   return crypto.createHash("sha1").update(repoRoot).digest("hex").slice(0, 8);
 }
 
-function slugify(prompt: string): string {
+export function slugify(prompt: string): string {
   return prompt
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

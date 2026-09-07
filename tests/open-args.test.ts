@@ -54,6 +54,7 @@ describe("open command argument builder", () => {
       "claude-opus-4-8",
       "--effort",
       "xhigh",
+      "--remote-control",
       "--dangerously-skip-permissions",
       "--plugin-dir",
       "/opt/codedeck/plugin",
@@ -111,6 +112,7 @@ describe("open command argument builder", () => {
       "claude-sonnet",
       "--effort",
       "high",
+      "--remote-control",
       "--plugin-dir",
       "/opt/codedeck/plugin",
       "--append-system-prompt-file",
@@ -128,6 +130,12 @@ describe("open command argument builder", () => {
       "--add-dir",
       "other tree",
     ]);
+  });
+
+  it("enables Remote Control by default and respects the config toggle", () => {
+    expect(buildOpenArgs("general", {}, "/opt/codedeck/plugin", [])).toContain("--remote-control");
+    expect(buildOpenArgs("general", { remoteControl: true }, "/opt/codedeck/plugin", [])).toContain("--remote-control");
+    expect(buildOpenArgs("general", { remoteControl: false }, "/opt/codedeck/plugin", [])).not.toContain("--remote-control");
   });
 
   // ${CLAUDE_PLUGIN_ROOT} is expanded only for hooks declared in a plugin's

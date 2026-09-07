@@ -98,6 +98,7 @@ describe("config model persistence", () => {
     const config: RunAgentConfig = {
       defaultAgent: "codex",
       worktree: true,
+      remoteControl: true,
       defaultModel: "legacy-default",
       models: {
         claude: "claude-configured",
@@ -120,10 +121,17 @@ describe("config model persistence", () => {
     expect(resolveModel("omp", undefined, loadConfig())).toBe("legacy-default");
   });
 
+  it("enables Remote Control when legacy config omits the toggle", () => {
+    saveConfig({ defaultAgent: "claude" });
+
+    expect(loadConfig().remoteControl).toBe(true);
+  });
+
   it("round-trips the per-agent bindings setup writes", () => {
     const config: RunAgentConfig = {
       defaultAgent: "claude",
       worktree: false,
+      remoteControl: true,
       agents: {
         general: { harness: "claude", model: "claude-opus-4-8" },
         reviewer: { harness: "codex", model: "gpt-5.6-luna" },

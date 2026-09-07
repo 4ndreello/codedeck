@@ -119,7 +119,7 @@ describe("runModelSetupWizard", () => {
   }
 
   const base = () => ({
-    config: { defaultAgent: "claude" as const, worktree: false },
+    config: { defaultAgent: "claude" as const, worktree: false, remoteControl: true },
     registry: {} as DriverRegistry,
     isTTY: true,
     discoverModels: async () => discoveredHarnesses(),

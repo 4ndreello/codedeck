@@ -8,6 +8,7 @@ import type { AgentEvent } from "../../core/events.js";
 import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
 import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
+import { slugify } from "../../git/worktree.js";
 import { getCliInvocation, getCliName } from "../cli-name.js";
 
 export function runIdFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -44,6 +45,7 @@ Resume with: ${getCliName()} send <id> "continue"
 `)
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
+      const sessionName = opts.name ?? slugify(prompt);
       const cfg = loadConfig();
       // A bound role owns both halves. The worker dispatches the role and the
       // role decides the harness and model; --agent/--model cannot override a
@@ -168,7 +170,7 @@ Resume with: ${getCliName()} send <id> "continue"
         fast: effectiveFast,
         sandbox: effectiveSandbox,
         dangerouslyBypassApprovalsAndSandbox: agent === "codex" ? dangerouslyBypass : undefined,
-        name: opts.name,
+        name: sessionName,
         cwd,
         worktree: opts.worktree,
         noWorktree: opts.noWorktree,

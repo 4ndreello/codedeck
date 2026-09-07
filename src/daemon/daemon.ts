@@ -352,6 +352,16 @@ class Daemon {
         break;
       }
 
+      case "session.rename": {
+        const p = params as { id: string; name: string };
+        const s = this.sessions.get(p.id);
+        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!p.name || !p.name.trim()) { send({ error: { code: "INVALID", message: "name required" } }); return; }
+        this.sessions.update(s.id, { name: p.name });
+        send({ result: { ok: true } });
+        break;
+      }
+
       case "session.send": {
         const p = params as { id: string; message: string };
         const s = this.sessions.get(p.id);

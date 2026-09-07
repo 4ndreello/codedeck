@@ -432,7 +432,13 @@ export function registerOpenCommand(program: Command): void {
       }
 
       const resolved = boundModel ?? DEFAULT_MODEL;
-      const args = buildOpenArgs(role, { ...opts, model: resolved }, pluginDir, invocation.passthrough, cwd);
+      const args = buildOpenArgs(
+        role,
+        { ...opts, model: resolved, remoteControl: config.remoteControl },
+        pluginDir,
+        invocation.passthrough,
+        cwd,
+      );
       const model = passthroughModel ?? resolved;
 
       await preflightModel(model, fromConfig);

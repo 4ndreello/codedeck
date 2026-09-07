@@ -103,6 +103,25 @@ describe("SessionRuntime.spawn — file transport", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }, 15000);
 
+  it("passes the CodeDeck session id to the child environment", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-"));
+    const runtime = SessionRuntime.spawn({
+      sessionId: "env-session",
+      cmd: process.execPath,
+      args: [
+        "-e",
+        'process.stdout.write(JSON.stringify({ type: "session", id: process.env.CODEDECK_SESSION_ID }) + "\\n");',
+      ],
+      cwd: dir,
+      hooks: makeHooks([]),
+    });
+
+    for await (const _event of runtime.events()) {}
+
+    expect(runtime.nativeSessionId).toBe("env-session");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, 15000);
+
   it("exit 0 with stderr but NO output synthesizes a harness-style failure", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-"));
     const hooks: RuntimeHooks = {
