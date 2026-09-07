@@ -6,7 +6,7 @@ import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
 import type { Role } from "../../core/roles.js";
-import { catalogWarning, judgeModelIn, type ModelVerdict, type OpenFlags } from "../contract.js";
+import { catalogWarning, judgeModelIn, readUltra, type ModelVerdict, type OpenFlags } from "../contract.js";
 import { composeOrchestratorProse } from "../orchestrator-prose.js";
 import {
   errorDetails,
@@ -115,9 +115,7 @@ export function buildOpenArgs(
     ...(flags.bypass !== false ? ["--dangerously-skip-permissions"] : []),
     "--plugin-dir",
     pluginDir,
-    "--append-system-prompt-file",
-    path.join(pluginDir, "ultra.md"),
-    ...(orchestratorProse ? ["--append-system-prompt", orchestratorProse] : []),
+    ...appendSystemPromptArgs(pluginDir, orchestratorProse),
     "--settings",
     JSON.stringify(buildSettings(pluginDir, flags)),
     // `--agent` layers on top of Claude's own system prompt rather than
@@ -134,6 +132,18 @@ export function buildOpenArgs(
   ];
 
   return args;
+}
+
+/**
+ * Ultra ships as a file, but Claude Code refuses --append-system-prompt-file
+ * together with --append-system-prompt, and an orchestrator preset needs its
+ * dynamic prose appended too. With prose the two are merged and handed over
+ * inline as the single source Claude allows; without it the file keeps the
+ * original, cheaper contract.
+ */
+function appendSystemPromptArgs(pluginDir: string, prose: string): string[] {
+  if (!prose) return ["--append-system-prompt-file", path.join(pluginDir, "ultra.md")];
+  return ["--append-system-prompt", `${readUltra(pluginDir).trimEnd()}\n\n${prose}`];
 }
 
 /**
