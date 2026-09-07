@@ -146,6 +146,36 @@ export function truncate(text: string, width: number): string {
   return painted ? `${out}${RESET}` : out;
 }
 
+export function padToWidth(s: string, w: number): string {
+  const v = visibleWidth(s);
+  if (v >= w) return s;
+  return s + " ".repeat(w - v);
+}
+
+export function ellipsizeEnd(s: string, w: number): string {
+  if (w <= 0) return "";
+  if (visibleWidth(s) <= w) return padToWidth(s, w);
+  if (w === 1) return "…";
+  return padToWidth(`${truncate(s, w - 1)}…`, w);
+}
+
+export function ellipsizeStart(s: string, w: number): string {
+  if (w <= 0) return "";
+  if (visibleWidth(s) <= w) return padToWidth(s, w);
+  if (w === 1) return "…";
+  const chars = Array.from(s);
+  let width = 0;
+  let take = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const cw = visibleWidth(chars[i]);
+    if (width + cw > w - 1) break;
+    width += cw;
+    take++;
+  }
+  return padToWidth(`…${chars.slice(chars.length - take).join("")}`, w);
+}
+
+
 const FALLBACK: Dimensions = { rows: 24, columns: 80 };
 
 /**

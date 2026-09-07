@@ -97,4 +97,24 @@ describe("usage daemon methods", () => {
       message: "runId required",
     });
   });
+
+  it("handles usage.query via IPC returning aggregated range and totals", async () => {
+    const runId = "query-test-run";
+    const createResponse = await request("session.create", createParams(runId));
+    const created = createResponse.result.session;
+
+    seam(daemon!).sessions.update(created.id, {
+      usage: { inputTokens: 500, outputTokens: 200, cachedTokens: 100, cost: 0.25 },
+    });
+
+    const response = await request("usage.query", { period: "all" });
+    expect(response.result).toBeDefined();
+    expect(response.result.totals.sessionCount).toBe(1);
+    expect(response.result.totals.inputTokens).toBe(500);
+    expect(response.result.totals.outputTokens).toBe(200);
+    expect(response.result.totals.costUsd).toBe(0.25);
+    expect(response.result.byAgent.length).toBe(1);
+    expect(response.result.byAgent[0].key).toBe("codex");
+  });
 });
+
