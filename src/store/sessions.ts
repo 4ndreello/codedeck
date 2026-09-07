@@ -440,7 +440,16 @@ export class SessionStore {
 export function resolveUsageDateRange(params: UsageQueryParams = {}): { since: string; until: string } {
   const now = new Date();
   let sinceDate: Date;
-  const untilDate: Date = params.until ? new Date(params.until) : now;
+  let untilDate: Date;
+  if (params.until) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(params.until)) {
+      untilDate = new Date(`${params.until}T23:59:59.999Z`);
+    } else {
+      untilDate = new Date(params.until);
+    }
+  } else {
+    untilDate = now;
+  }
 
   if (params.since) {
     sinceDate = new Date(params.since);

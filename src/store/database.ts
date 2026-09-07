@@ -131,9 +131,6 @@ export class Database {
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_usage_created ON sessions(created_at DESC, repository, agent, model)`);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_repo_created ON sessions(repository, created_at DESC)`);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_model_created ON sessions(model, created_at DESC)`);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_agent_created ON sessions(agent, created_at DESC)`);
   }
 
   getHandle(): DatabaseSync {
