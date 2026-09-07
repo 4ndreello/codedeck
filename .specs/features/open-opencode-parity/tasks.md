@@ -144,6 +144,8 @@ T11 -> T12 -> T13
 **Tests**: manual probe transcript
 **Gate**: manual
 
+**Status**: ✅ Complete (positive via list-diff, transcript committed)
+
 **Commit**: `docs(specs): add opencode session-id probe transcript`
 
 ---

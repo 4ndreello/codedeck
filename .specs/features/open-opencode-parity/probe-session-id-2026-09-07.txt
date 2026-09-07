@@ -1,0 +1,28 @@
+T3 probe: opencode session id capture (POSITIVE, list-diff)
+Date: 2026-09-07
+Binary: opencode 1.18.21
+Spec: OP-08 (resume line when captured), OP-10 (pty window or session
+list, no new daemon), OP-19 (no user-config writes)
+
+Method
+1. `opencode session list --format json -n 3` (exit 0, no auth needed):
+   [{id: "ses_f87425ee9ffejNZXkRaHKoEc3G", title: "Agent claims board
+   spec", updated, created, projectId, directory: "/home/andreello/dev/
+   codedeck"}, ...]. Fields id/title/created/directory all present.
+   This is the oracle for T4 as well.
+2. `opencode run --format json` emits `sessionID` in events, but the
+   probe account has no valid model key (401 Invalid API key), so no
+   live turn was possible. Consequence: the pty leading-window scan is
+   UNVERIFIED for the TUI path and stays a fallback, not the primary.
+3. No daemon calls, no config writes involved in either command.
+
+Verdict: POSITIVE via list-diff. Recommended mechanism for T9:
+snapshot `session list --format json` before spawn, diff after close,
+newest `created` in the launch cwd is the session. Tie rule: exactly
+one new session, else no hint (same race class as pid-named session
+files, documented in src/open/pty.ts).
+Shape warning for T9: opencode ids look like
+`ses_f87425ee9ffejNZXkRaHKoEc3G` and FAIL the
+`/^[0-9a-fA-F-]{8,}$` check in takeSessionId/resumeHint
+(src/open/runtime.ts). T9 must accept the `ses_` shape on the opencode
+path instead of reusing the Claude check verbatim.
