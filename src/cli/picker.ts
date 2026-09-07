@@ -105,10 +105,14 @@ export async function runScreens(
     output.write(PASTE_ON);
     stopResize = io.onResize?.(() => frame.repaint());
 
-    for (const screen of screens) {
+    const pending = [...screens];
+    for (let index = 0; index < pending.length; index += 1) {
+      const screen = pending[index];
       const result = await runScreen(screen, io, c, frame);
       results.push(result);
       if (result.kind === "aborted") break;
+      const followups = screen.next?.(result) ?? [];
+      if (followups.length > 0) pending.splice(index + 1, 0, ...followups);
     }
   } finally {
     frame.repaint = () => {};

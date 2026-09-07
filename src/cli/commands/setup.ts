@@ -12,11 +12,262 @@ import { getCliName } from "../cli-name.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { ROLES, type Role } from "../../core/roles.js";
 import {
+  BALANCED_PRESET,
+  DISPATCHER_PRESET,
+  EXPLORER_PRESET,
+  ORCHESTRATOR_PRESETS,
+  isOrchestratorMode,
   loadConfig,
+  orchestratorModeLabel,
+  resolveOrchestratorMode,
   saveConfig,
+  type InvestigateMode,
+  type OrchestratorMode,
+  type OrchestratorTools,
   type RoleBinding,
   type RunAgentConfig,
+  type SelfWorkMode,
 } from "../../config/config.js";
+
+const ORCHESTRATOR_SCREEN_ROLE = "orchestrator-mode";
+const ORCHESTRATOR_PICKER_GROUP = "orchestrator";
+const PARALLELISM_NONE = "none";
+
+const ORCHESTRATOR_PARALLELISM_NOTE_LINES = [
+  "parallelism is advisory. Version 1 puts the requested cap in the",
+  "orchestrator prompt for review verification and does not enforce the",
+  "cap in code.",
+] as const;
+export const ORCHESTRATOR_PARALLELISM_NOTE = ORCHESTRATOR_PARALLELISM_NOTE_LINES.join(" ");
+
+type OrchestratorPresetName = keyof typeof ORCHESTRATOR_PRESETS;
+type OrchestratorParameter = "investigate" | "selfWork" | "tools" | "parallelism";
+const ORCHESTRATOR_PARAMETERS: readonly OrchestratorParameter[] = [
+  "investigate",
+  "selfWork",
+  "tools",
+  "parallelism",
+];
+
+export interface OrchestratorParameterValues {
+  investigate: InvestigateMode;
+  selfWork: SelfWorkMode;
+  tools: OrchestratorTools;
+  parallelism?: number;
+}
+
+function copyOrchestratorMode(mode: OrchestratorMode): OrchestratorMode {
+  return {
+    investigate: mode.investigate,
+    selfWork: mode.selfWork,
+    tools: mode.tools,
+    ...(mode.parallelism === undefined ? {} : { parallelism: mode.parallelism }),
+  };
+}
+
+function selectionId(selection: string | { id: string }): string {
+  return typeof selection === "string" ? selection : selection.id;
+}
+
+/**
+ * Turns a preset or a complete custom answer into the config block. The
+ * returned object contains parameters only, so labels and preset names cannot
+ * leak into the saved JSON.
+ */
+export function orchestratorConfigFromSelection(
+  selection: string | { id: string },
+  parameters?: OrchestratorParameterValues,
+): OrchestratorMode | undefined {
+  const id = selectionId(selection);
+  if (Object.hasOwn(ORCHESTRATOR_PRESETS, id)) {
+    return copyOrchestratorMode(ORCHESTRATOR_PRESETS[id as OrchestratorPresetName]);
+  }
+  if (id !== "custom" || parameters === undefined) return undefined;
+
+  const mode: OrchestratorMode = {
+    investigate: parameters.investigate,
+    selfWork: parameters.selfWork,
+    tools: parameters.tools,
+    ...(parameters.parallelism === undefined ? {} : { parallelism: parameters.parallelism }),
+  };
+  return isOrchestratorMode(mode) ? mode : undefined;
+}
+
+export function orchestratorDisplayLabel(config: RunAgentConfig): string {
+  return orchestratorModeLabel(resolveOrchestratorMode(config));
+}
+
+function modeValue(mode: OrchestratorMode, parameter: OrchestratorParameter): string {
+  if (parameter === "parallelism") return mode.parallelism === undefined ? PARALLELISM_NONE : String(mode.parallelism);
+  return mode[parameter];
+}
+
+function parameterItems(parameter: OrchestratorParameter, mode: OrchestratorMode): PickerItem[] {
+  const choices: string[] =
+    parameter === "investigate"
+      ? ["none", "read", "free"]
+      : parameter === "selfWork"
+        ? ["none", "trivial", "small"]
+        : parameter === "tools"
+          ? ["dispatch", "read", "edit"]
+          : [PARALLELISM_NONE, "1", "2", "3", "4", "5", "6", "8", "12"];
+  const current = modeValue(mode, parameter);
+  const ordered = [current, ...choices.filter((choice) => choice !== current)];
+
+  return ordered.map((choice) => ({
+    id: choice,
+    label: parameter === "parallelism" && choice === PARALLELISM_NONE ? "sem limite" : choice,
+    group: ORCHESTRATOR_PICKER_GROUP,
+    harness: ORCHESTRATOR_PICKER_GROUP,
+    ...(choice === current ? { note: "atual" } : {}),
+  }));
+}
+
+export function buildOrchestratorScreen(
+  config: RunAgentConfig = {},
+  index = 0,
+  total = 1,
+): Screen {
+  const mode = resolveOrchestratorMode(config);
+  const presets = [
+    ["dispatcher", DISPATCHER_PRESET],
+    ["balanced", BALANCED_PRESET],
+    ["explorer", EXPLORER_PRESET],
+  ] as const;
+  const presetItems = presets.map(([name, preset]) => ({
+    id: name,
+    label: name,
+    group: ORCHESTRATOR_PICKER_GROUP,
+    harness: ORCHESTRATOR_PICKER_GROUP,
+    note: `${preset.investigate} / ${preset.selfWork} / ${preset.tools}`,
+  }));
+
+  return {
+    role: ORCHESTRATOR_SCREEN_ROLE,
+    title: `orchestrator (${orchestratorModeLabel(mode)})`,
+    counter: `agente ${index + 1} de ${total}`,
+    description: ORCHESTRATOR_PARALLELISM_NOTE_LINES,
+    items: [
+      ...presetItems,
+      {
+        id: "custom",
+        label: "custom",
+        group: ORCHESTRATOR_PICKER_GROUP,
+        harness: ORCHESTRATOR_PICKER_GROUP,
+        note: "ajustar os quatro parametros",
+      },
+    ],
+    pinned: false,
+    known: new Set([
+      ...presetItems.map((item) => itemKey(item.harness, item.id)),
+      itemKey(ORCHESTRATOR_PICKER_GROUP, "custom"),
+    ]),
+    harnesses: new Set([ORCHESTRATOR_PICKER_GROUP]),
+    next: (result) =>
+      result.kind === "picked" && result.id === "custom"
+        ? [buildOrchestratorParameterScreen(ORCHESTRATOR_PARAMETERS[0], mode, 0)]
+        : [],
+  };
+}
+
+function modeAfterParameter(mode: OrchestratorMode, result: ScreenResult): OrchestratorMode {
+  const parameters = collectOrchestratorParameters([result], mode);
+  return orchestratorConfigFromSelection("custom", parameters) ?? mode;
+}
+
+function buildOrchestratorParameterScreen(
+  parameter: OrchestratorParameter,
+  mode: OrchestratorMode,
+  index: number,
+  chain = true,
+): Screen {
+  const items = parameterItems(parameter, mode);
+  const description =
+    parameter === "parallelism"
+      ? [...ORCHESTRATOR_PARALLELISM_NOTE_LINES, "Type orchestrator:N for another positive cap."]
+      : ORCHESTRATOR_PARALLELISM_NOTE_LINES;
+  return {
+    role: `${ORCHESTRATOR_SCREEN_ROLE}.${parameter}`,
+    title: `orchestrator (${orchestratorModeLabel(mode)}) · ${parameter}`,
+    counter: `parametro ${index + 1} de ${ORCHESTRATOR_PARAMETERS.length}`,
+    description,
+    items,
+    pinned: false,
+    known: new Set(items.map((item) => itemKey(item.harness, item.id))),
+    harnesses: new Set([ORCHESTRATOR_PICKER_GROUP]),
+    ...(chain && index + 1 < ORCHESTRATOR_PARAMETERS.length
+      ? {
+          next: (result: ScreenResult) => {
+            const nextIndex = index + 1;
+            return [
+              buildOrchestratorParameterScreen(
+                ORCHESTRATOR_PARAMETERS[nextIndex],
+                modeAfterParameter(mode, result),
+                nextIndex,
+              ),
+            ];
+          },
+        }
+      : {}),
+  };
+}
+
+/** A static snapshot for callers that need all four parameter screens at once. */
+export function buildOrchestratorParameterScreens(mode: OrchestratorMode): Screen[] {
+  return ORCHESTRATOR_PARAMETERS.map((parameter, index) =>
+    buildOrchestratorParameterScreen(parameter, mode, index, false),
+  );
+}
+
+function numericParallelism(value: string): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** Keeps skipped parameter screens at the mode shown when customization began. */
+export function collectOrchestratorParameters(
+  results: readonly ScreenResult[],
+  existing: OrchestratorMode,
+): OrchestratorParameterValues {
+  const parameters: OrchestratorParameterValues = {
+    investigate: existing.investigate,
+    selfWork: existing.selfWork,
+    tools: existing.tools,
+    ...(existing.parallelism === undefined ? {} : { parallelism: existing.parallelism }),
+  };
+
+  for (const result of results) {
+    if (result.kind !== "picked") continue;
+    const parameter = result.role.startsWith(`${ORCHESTRATOR_SCREEN_ROLE}.`)
+      ? result.role.slice(`${ORCHESTRATOR_SCREEN_ROLE}.`.length)
+      : "";
+    if (parameter === "investigate" && ["none", "read", "free"].includes(result.id)) {
+      parameters.investigate = result.id as InvestigateMode;
+    } else if (parameter === "selfWork" && ["none", "trivial", "small"].includes(result.id)) {
+      parameters.selfWork = result.id as SelfWorkMode;
+    } else if (parameter === "tools" && ["dispatch", "read", "edit"].includes(result.id)) {
+      parameters.tools = result.id as OrchestratorTools;
+    } else if (parameter === "parallelism") {
+      if (result.id === PARALLELISM_NONE) delete parameters.parallelism;
+      else {
+        const parsed = numericParallelism(result.id);
+        if (parsed !== undefined) parameters.parallelism = parsed;
+      }
+    }
+  }
+  return parameters;
+}
+
+export function collectOrchestratorSelection(
+  selection: ScreenResult | undefined,
+  parameters: readonly ScreenResult[],
+  existing: RunAgentConfig = {},
+): OrchestratorMode | undefined {
+  if (selection?.kind !== "picked") return undefined;
+  if (selection.id !== "custom") return orchestratorConfigFromSelection(selection);
+  const current = resolveOrchestratorMode(existing);
+  return orchestratorConfigFromSelection("custom", collectOrchestratorParameters(parameters, current));
+}
 
 export interface ModelWizardOptions {
   config?: RunAgentConfig;
@@ -266,15 +517,53 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   }
 
   const paint = colors(Boolean(output.isTTY) && !process.env.NO_COLOR);
-  const results = await runScreens(screens, { input, output, onResize: watchResize }, paint);
+  const results = await runScreens(
+    [...screens, buildOrchestratorScreen(config, screens.length, screens.length + 1)],
+    { input, output, onResize: watchResize },
+    paint,
+  );
 
-  const { agents, write } = collectSelections(results, config.agents, screens.length);
+  if (results.some((result) => result.kind === "aborted")) {
+    console.error("Warning: Model setup was interrupted; nothing was saved.");
+    return config;
+  }
+
+  const answeredResults = results.filter(
+    (result): result is Exclude<ScreenResult, { kind: "aborted" }> => result.kind !== "aborted",
+  );
+  const agentResults = answeredResults.filter((result) => screens.some((screen) => screen.role === result.role));
+  const { agents, write } = collectSelections(agentResults, config.agents, screens.length);
   if (!write) {
     console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
   }
 
+  const orchestratorSelection = answeredResults.find((result) => result.role === ORCHESTRATOR_SCREEN_ROLE);
+  if (orchestratorSelection === undefined) {
+    console.error("Warning: Orchestrator setup was interrupted; nothing was saved.");
+    return config;
+  }
+
+  let orchestrator: OrchestratorMode | undefined;
+  if (orchestratorSelection.kind === "picked" && orchestratorSelection.id === "custom") {
+    const parameterResults = answeredResults.filter((result) =>
+      result.role.startsWith(`${ORCHESTRATOR_SCREEN_ROLE}.`),
+    );
+    orchestrator = collectOrchestratorSelection(orchestratorSelection, parameterResults, config);
+    if (orchestrator === undefined) {
+      console.error("Warning: Orchestrator setup was invalid; nothing was saved.");
+      return config;
+    }
+  } else if (orchestratorSelection.kind === "picked") {
+    orchestrator = collectOrchestratorSelection(orchestratorSelection, [], config);
+    if (orchestrator === undefined) {
+      console.error("Warning: Orchestrator setup was invalid; nothing was saved.");
+      return config;
+    }
+  }
+
   const updatedConfig: RunAgentConfig = { ...config, agents };
+  if (orchestrator !== undefined) updatedConfig.orchestrator = orchestrator;
   try {
     (options.save ?? saveConfig)(updatedConfig);
   } catch (error) {
@@ -287,7 +576,8 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
       return `${screen.role} ${binding ? `${binding.harness}:${binding.model}` : "unset"}`;
     })
     .join(" · ");
-  output.write(`\n  saved: ${summary}\n\n`);
+  const modeSummary = orchestrator === undefined ? "" : ` · orchestrator ${orchestratorModeLabel(orchestrator)}`;
+  output.write(`\n  saved: ${summary}${modeSummary}\n\n`);
   return updatedConfig;
 }
 

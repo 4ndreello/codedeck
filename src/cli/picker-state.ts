@@ -16,7 +16,11 @@ export interface Screen {
   title: string;
   counter: string;
   error?: string;
+  /** Non-error explanatory lines that should remain visible above the list. */
+  description?: readonly string[];
   items: PickerItem[];
+  /** Screens that should follow this one, decided after its answer. */
+  next?: (result: ScreenResult) => Screen[];
   /** `items[0]` is a pinned row, drawn above the group headers. */
   pinned: boolean;
   known: ReadonlySet<string>;
