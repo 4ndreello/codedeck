@@ -864,7 +864,7 @@ function jsonValue(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(jsonValue);
   if (jsonObject(value)) {
     return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [key, jsonValue(value[key])]),
+      Object.keys(value).sort((left, right) => left.localeCompare(right)).map((key) => [key, jsonValue(value[key])]),
     ) as {
       [key: string]: JsonValue;
     };
@@ -895,7 +895,7 @@ function diffAt(
   const beforeObject = beforePresent && jsonObject(before) ? before : undefined;
   const afterObject = afterPresent && jsonObject(after) ? after : undefined;
   if (beforeObject !== undefined && afterObject !== undefined) {
-    const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort();
+    const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
     if (keys.length === 0) return;
     for (const key of keys) {
       diffAt(
@@ -911,7 +911,7 @@ function diffAt(
   }
   if (!beforePresent && afterObject !== undefined) {
     if (expandObjectChildren) {
-      const keys = Object.keys(afterObject).sort();
+      const keys = Object.keys(afterObject).sort((left, right) => left.localeCompare(right));
       if (keys.length === 0) {
         output.push({
           path: pathValue,
@@ -950,7 +950,7 @@ function diffAt(
   }
   if (beforeObject !== undefined && !afterPresent) {
     if (expandObjectChildren) {
-      const keys = Object.keys(beforeObject).sort();
+      const keys = Object.keys(beforeObject).sort((left, right) => left.localeCompare(right));
       if (keys.length === 0) {
         output.push({
           path: pathValue,
@@ -1001,7 +1001,7 @@ export function diffConfig(before: RunAgentConfig, after: RunAgentConfig): Setup
   const output: SetupEnvelope["mudancas"] = [];
   const beforeObject = jsonObject(before) ? before : {};
   const afterObject = jsonObject(after) ? after : {};
-  const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort();
+  const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
   for (const key of keys) {
     diffAt(
       output,

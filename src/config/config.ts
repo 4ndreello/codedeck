@@ -143,7 +143,7 @@ export function serializeConfig(config: RunAgentConfig): string {
     if (!isJsonObject(value)) return value;
     return Object.fromEntries(
       Object.keys(value)
-        .sort()
+        .sort((left, right) => left.localeCompare(right))
         .map((key) => [key, sortJson(value[key])]),
     );
   };
