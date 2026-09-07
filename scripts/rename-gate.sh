@@ -27,10 +27,8 @@ export RUN_AGENT_CONFIG_DIR="$CONFIG_DIR"
 export RUN_AGENT_DIR="$STATE_DIR"
 SESSIONS="$STATE_DIR/sessions"
 
-# The prompt is the name: plugin/hooks/session-name.sh slugifies it, so what
-# the session ends up called is predictable enough to grep for.
+# The hook asks Haiku for a short title and keeps the result in the sidecar.
 PROMPT="${RENAME_GATE_PROMPT:-responda apenas ok}"
-SLUG="$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-30)"
 
 # Seconds before the prompt is typed, and after it, for the turn to finish and
 # the queued command to run. Generous because a cold runner starts slowly.
@@ -51,7 +49,7 @@ if [ ! -f "$CLAUDE_JSON" ]; then
   printf '{"hasCompletedOnboarding":true}\n' > "$CLAUDE_JSON"
 fi
 
-echo "expecting the session to rename itself to \"$SLUG\""
+echo "expecting the session to rename itself to the generated title"
 
 # --no-bypass keeps the gate runnable as root, where Claude Code refuses to
 # skip permission prompts. It changes nothing about the rename path.
@@ -67,7 +65,8 @@ if [ -z "$sidecar" ]; then
   exit 1
 fi
 
-echo "hook wrote $sidecar ($(cat "$sidecar"))"
+NAME="$(cat "$sidecar")"
+echo "hook wrote $sidecar ($NAME)"
 
 # <session file>.<session id>.name, so the id is the second-to-last field.
 session_id="$(basename "$sidecar" .name | awk -F. '{print $NF}')"
@@ -78,8 +77,8 @@ if [ -z "$transcript" ]; then
   exit 1
 fi
 
-if grep -qF "\"type\":\"custom-title\"" "$transcript" && grep -qF "\"customTitle\":\"$SLUG\"" "$transcript"; then
-  echo "session renamed itself to $SLUG"
+if grep -qF "\"type\":\"custom-title\"" "$transcript" && grep -qF "\"customTitle\":\"$NAME\"" "$transcript"; then
+  echo "session renamed itself to $NAME"
   exit 0
 fi
 
