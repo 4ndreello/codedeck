@@ -394,8 +394,8 @@ export class SessionStore {
       const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       accumulate(byDayMap, dayKey);
 
-      // Repo
-      const repoKey = row.repository || row.cwd;
+      // Repo (normalized project name across worktrees)
+      const repoKey = normalizeProjectName(row);
       accumulate(byRepoMap, repoKey);
 
       // Model
@@ -464,4 +464,39 @@ export function resolveUsageDateRange(params: UsageQueryParams = {}): { since: s
     until: untilDate.toISOString(),
   };
 }
+
+export function normalizeProjectName(row: { repository?: string | null; cwd?: string | null; worktree?: string | null }): string {
+  const all = [row.repository, row.cwd, row.worktree].filter(Boolean).join(" ");
+  if (all.includes("codedeck") || all.includes("3189bd7a") || all.includes("orchestrator-presets")) {
+    return "codedeck";
+  }
+  if (all.includes("thoth-analytics") || all.includes("b56732e7")) {
+    return "thoth-analytics";
+  }
+  if (all.includes("bank-classifier")) {
+    return "bank-classifier-mvp";
+  }
+  if (all.includes("toupeira")) {
+    return "toupeira";
+  }
+
+  // If explicit repository exists and is not a worktree folder
+  if (row.repository && !row.repository.includes(".run-agent/worktrees")) {
+    const clean = row.repository.replace(/\/+$/, "");
+    const parts = clean.split("/");
+    return parts[parts.length - 1] || clean;
+  }
+
+  const cwd = row.cwd || "";
+  const wtMatch = cwd.match(/(.*?)(?:\.worktrees|-wt)(?:\/.*)?$/);
+  if (wtMatch && wtMatch[1]) {
+    const parts = wtMatch[1].replace(/\/+$/, "").split("/");
+    return parts[parts.length - 1] || wtMatch[1];
+  }
+
+  const cleanCwd = cwd.replace(/\/+$/, "");
+  const parts = cleanCwd.split("/");
+  return parts[parts.length - 1] || "outros";
+}
+
 

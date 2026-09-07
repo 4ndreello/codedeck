@@ -127,6 +127,7 @@ export class Database {
     const eventColumns = new Set(
       (this.db.prepare(`PRAGMA table_info(events)`).all() as any[]).map((c) => c.name as string),
     );
+    if (!eventColumns.has("source_key")) this.db.exec(`ALTER TABLE events ADD COLUMN source_key TEXT`);
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_usage_created ON sessions(created_at DESC, repository, agent, model)`);

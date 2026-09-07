@@ -3,7 +3,6 @@ import type { UsageQueryResult, UsagePeriod } from "../../daemon/protocol.js";
 import { colors, readDimensions, truncate, visibleWidth, padToWidth, ellipsizeEnd, type Colors } from "../ui.js";
 import { renderBarChart, type BarDatum } from "../charts/bar-chart.js";
 import { renderStackedBar } from "../charts/stacked-bar.js";
-import { renderSparkline } from "../charts/sparkline.js";
 
 export interface DashboardFetcher {
   fetch(period: UsagePeriod): Promise<UsageQueryResult>;
@@ -35,6 +34,12 @@ function formatTokens(n: number): string {
 function formatCurrency(n: number, complete = true): string {
   const symbol = complete ? "" : "?";
   return `$${n.toFixed(2)}${symbol}`;
+}
+
+function renderProgressBar(pct: number, barWidth = 16): string {
+  const filled = Math.max(0, Math.min(barWidth, Math.round((pct / 100) * barWidth)));
+  const empty = Math.max(0, barWidth - filled);
+  return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
 }
 
 export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): Promise<void> {
@@ -126,16 +131,21 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
     if (!data) return lines;
 
     const { totals, byDay, byRepository, byModel, byRun } = data;
+    const totalCost = totals.costUsd || 0.01;
+    const totalTok = totals.totalTokens || 1;
 
-    // Tab 0: Overview
+    // Tab 0: Overview (Geral)
     if (currentTab === 0) {
-      // KPI summary
+      // Executive KPI Box
+      const boxWidth = Math.min(width - 6, 120);
       const costText = `${c.bold(formatCurrency(totals.costUsd, totals.costComplete))} USD`;
       const tokText = `${formatTokens(totals.totalTokens)} (${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cachedTokens)} cached)`;
-      const sessText = `${totals.sessionCount} (${totals.completedSessionCount} concluídas, ${totals.failedSessionCount} falhas)`;
+      const sessText = `${totals.sessionCount} (${totals.completedSessionCount} concluídas, ${totals.failedSessionCount} falhas${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} ativas` : ""})`;
 
-      lines.push(`  ${c.bold("Custo Total:")} ${costText}   ${c.bold("Sessões:")} ${sessText}`);
-      lines.push(`  ${c.bold("Tokens:")}      ${tokText}`);
+      lines.push(`  ┌── RESUMO EXECUTIVO ${"─".repeat(Math.max(0, boxWidth - 22))}┐`);
+      lines.push(`  │  ${c.bold("Custo Total:")} ${padToWidth(costText, 24)}  ${c.bold("Sessões:")} ${padToWidth(sessText, 38)} │`);
+      lines.push(`  │  ${c.bold("Tokens:")}      ${padToWidth(tokText, 66)} │`);
+      lines.push(`  └──${"─".repeat(Math.max(0, boxWidth - 4))}┘`);
       lines.push("");
 
       // Bar Chart for daily cost
@@ -145,59 +155,101 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
           label: d.key,
           value: d.costUsd,
         }));
-        const chartLines = renderBarChart(chartData, { height: Math.min(5, Math.max(3, height - 18)) });
+        const chartHeight = Math.max(5, Math.min(10, Math.floor(height * 0.24)));
+        const chartLines = renderBarChart(chartData, {
+          height: chartHeight,
+          maxWidth: width - 6,
+          showValues: true,
+          color: true,
+        });
         for (const cl of chartLines) lines.push(cl);
         lines.push("");
       }
 
-      // Proportional bar for models
+      // Distributions (Projects and Models)
+      const distWidth = Math.max(30, Math.min(width - 6, 100));
+
+      if (byRepository.length > 0) {
+        lines.push(`  ${c.dim("-- DISTRIBUIÇÃO POR PROJETO " + "-".repeat(Math.max(0, width - 36)))}`);
+        const projSegments = byRepository.slice(0, 6).map((p) => ({
+          key: p.key,
+          label: p.label || p.key,
+          value: p.costUsd || p.totalTokens,
+        }));
+        const stacked = renderStackedBar(projSegments, distWidth, { color: true });
+        lines.push(`  ${stacked.bar}`);
+        if (stacked.legend) lines.push(`  ${stacked.legend}`);
+        lines.push("");
+      }
+
       if (byModel.length > 0) {
-        lines.push(`  ${c.dim("-- DISTRIBUIÇÃO POR MODELO " + "-".repeat(Math.max(0, width - 35)))}`);
-        const segments = byModel.slice(0, 5).map((m) => ({
+        lines.push(`  ${c.dim("-- DISTRIBUIÇÃO DE TOKENS POR MODELO " + "-".repeat(Math.max(0, width - 45)))}`);
+        const modelSegments = byModel.slice(0, 6).map((m) => ({
           key: m.key,
           label: m.key.replace("claude-", "").replace("gemini-", "").replace("meta/", ""),
-          value: m.costUsd || m.totalTokens,
+          value: m.totalTokens,
         }));
-        const stacked = renderStackedBar(segments, Math.min(width - 6, 60));
+        const stacked = renderStackedBar(modelSegments, distWidth, { color: true });
         lines.push(`  ${stacked.bar}`);
-        if (stacked.legend) lines.push(`  ${c.dim(stacked.legend)}`);
+        if (stacked.legend) lines.push(`  ${stacked.legend}`);
         lines.push("");
       }
     }
 
-    // Tab 1: Projects
+    // Tab 1: Projects (Clean Normalized Repositories)
     if (currentTab === 1) {
-      lines.push(`  ${c.dim(padToWidth("PROJETO / REPOSITÓRIO", 36) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 20) + "  " + padToWidth("CUSTO", 10))}`);
-      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 80)))}`);
+      lines.push(`  ${c.dim(padToWidth("PROJETO", 32) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("PARTICIPAÇÃO", 24))}`);
+      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 100)))}`);
+
+      const maxScroll = Math.max(0, byRepository.length - 5);
+      scrollOffset = Math.min(scrollOffset, maxScroll);
+
       for (let i = scrollOffset; i < byRepository.length; i++) {
         const item = byRepository[i];
-        let name = item.label || item.key;
-        if (name.includes("/")) {
-          const parts = name.split("/");
-          name = parts[parts.length - 1] || name;
-        }
-        lines.push(`  ${ellipsizeEnd(name, 36)}  ${padToWidth(String(item.sessionCount), 9)}  ${padToWidth(formatTokens(item.totalTokens), 20)}  ${c.bold(padToWidth(formatCurrency(item.costUsd, item.costComplete), 10))}`);
+        const pct = Math.round((item.costUsd / totalCost) * 100);
+        const bar = renderProgressBar(pct, 14);
+        const nameCell = ellipsizeEnd(item.label || item.key, 32);
+        const sessCell = padToWidth(String(item.sessionCount), 9);
+        const tokCell = padToWidth(formatTokens(item.totalTokens), 18);
+        const costCell = padToWidth(formatCurrency(item.costUsd, item.costComplete), 12);
+        const shareCell = `${bar} ${pct}%`;
+
+        lines.push(`  ${nameCell}  ${sessCell}  ${tokCell}  ${c.bold(costCell)}  ${c.dim(shareCell)}`);
       }
     }
 
     // Tab 2: Models
     if (currentTab === 2) {
-      lines.push(`  ${c.dim(padToWidth("MODELO", 32) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("IN / OUT / CACHED", 26) + "  " + padToWidth("CUSTO", 10))}`);
-      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 80)))}`);
+      lines.push(`  ${c.dim(padToWidth("MODELO", 34) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("IN / OUT / CACHED", 26) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("TOKENS %", 24))}`);
+      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 110)))}`);
+
+      const maxScroll = Math.max(0, byModel.length - 5);
+      scrollOffset = Math.min(scrollOffset, maxScroll);
+
       for (let i = scrollOffset; i < byModel.length; i++) {
         const item = byModel[i];
         const tok = `${formatTokens(item.inputTokens)} / ${formatTokens(item.outputTokens)} / ${formatTokens(item.cachedTokens)}`;
-        lines.push(`  ${ellipsizeEnd(item.key, 32)}  ${padToWidth(String(item.sessionCount), 9)}  ${padToWidth(tok, 26)}  ${c.bold(padToWidth(formatCurrency(item.costUsd, item.costComplete), 10))}`);
+        const pct = Math.round((item.totalTokens / totalTok) * 100);
+        const bar = renderProgressBar(pct, 14);
+
+        lines.push(`  ${ellipsizeEnd(item.key, 34)}  ${padToWidth(String(item.sessionCount), 9)}  ${padToWidth(tok, 26)}  ${c.bold(padToWidth(formatCurrency(item.costUsd, item.costComplete), 12))}  ${c.dim(`${bar} ${pct}%`)}`);
       }
     }
 
     // Tab 3: Runs
     if (currentTab === 3) {
-      lines.push(`  ${c.dim(padToWidth("RUN ID / NOME", 36) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("CUSTO", 10))}`);
-      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 80)))}`);
+      lines.push(`  ${c.dim(padToWidth("RUN ID / NOME", 36) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("PARTICIPAÇÃO", 24))}`);
+      lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 105)))}`);
+
+      const maxScroll = Math.max(0, byRun.length - 5);
+      scrollOffset = Math.min(scrollOffset, maxScroll);
+
       for (let i = scrollOffset; i < byRun.length; i++) {
         const item = byRun[i];
-        lines.push(`  ${ellipsizeEnd(item.label || item.key, 36)}  ${padToWidth(String(item.sessionCount), 9)}  ${padToWidth(formatTokens(item.totalTokens), 18)}  ${c.bold(padToWidth(formatCurrency(item.costUsd, item.costComplete), 10))}`);
+        const pct = Math.round((item.costUsd / totalCost) * 100);
+        const bar = renderProgressBar(pct, 14);
+
+        lines.push(`  ${ellipsizeEnd(item.label || item.key, 36)}  ${padToWidth(String(item.sessionCount), 9)}  ${padToWidth(formatTokens(item.totalTokens), 18)}  ${c.bold(padToWidth(formatCurrency(item.costUsd, item.costComplete), 12))}  ${c.dim(`${bar} ${pct}%`)}`);
       }
     }
 
@@ -218,14 +270,14 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
     output.write(`\x1b[H\x1b[2J${lines.join("\n")}\n`);
   };
 
+  const onResize = () => paint();
+
   try {
     output.write("\x1b[?1049h\x1b[?25l"); // Enter Alternate Screen Buffer, hide cursor
     emitKeypressEvents(input);
     input.setRawMode?.(true);
     input.resume();
 
-    // Resize listener
-    const onResize = () => paint();
     process.stdout.on("resize", onResize);
 
     // Initial data load
@@ -238,7 +290,6 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
         // Quit on q, Esc, or Ctrl+C
         if (key.name === "q" || key.name === "escape" || (key.ctrl && key.name === "c") || key.sequence === "\x03") {
           input.off("keypress", onKeypress);
-          process.stdout.off("resize", onResize);
           resolve();
           return;
         }
@@ -299,6 +350,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
       input.on("keypress", onKeypress);
     });
   } finally {
+    process.stdout.off("resize", onResize);
     process.off("exit", onExit);
     process.off("SIGTERM", onSigterm);
     process.off("SIGINT", onSigint);

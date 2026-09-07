@@ -86,7 +86,7 @@ describe("SessionStore.queryUsage", () => {
 
     // Breakdown by Repo
     expect(result.byRepository.length).toBe(1);
-    expect(result.byRepository[0].key).toBe("/dev/codedeck");
+    expect(result.byRepository[0].key).toBe("codedeck");
     expect(result.byRepository[0].sessionCount).toBe(2);
   });
 
@@ -109,7 +109,7 @@ describe("SessionStore.queryUsage", () => {
 
     const result = store.queryUsage({ period: "all", repository: "frontend" });
     expect(result.totals.sessionCount).toBe(1);
-    expect(result.byRepository[0].key).toBe("/dev/frontend");
+    expect(result.byRepository[0].key).toBe("frontend");
   });
 
   it("supports readOnly database instantiation without running migrations", () => {

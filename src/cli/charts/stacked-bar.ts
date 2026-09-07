@@ -4,17 +4,33 @@ export interface StackSegment {
   value: number;
 }
 
-const TEXTURES = ["█", "▓", "▒", "░", "■", "▨", "▤", "□"];
+export interface StackedBarOptions {
+  color?: boolean;
+}
 
 export interface StackedBarResult {
   bar: string;
   legend: string;
 }
 
+const PALETTE = [
+  "\x1b[36m", // Cyan
+  "\x1b[32m", // Green
+  "\x1b[33m", // Yellow
+  "\x1b[35m", // Magenta
+  "\x1b[34m", // Blue
+  "\x1b[91m", // Bright Red
+  "\x1b[96m", // Bright Cyan
+  "\x1b[92m", // Bright Green
+];
+const RESET = "\x1b[0m";
+
 export function renderStackedBar(
   segments: StackSegment[],
   width: number,
+  options: StackedBarOptions = {},
 ): StackedBarResult {
+  const useColor = options.color ?? true;
   const validSegments = segments.filter((s) => Number.isFinite(s.value) && s.value > 0);
   const total = validSegments.reduce((sum, s) => sum + s.value, 0);
 
@@ -52,12 +68,18 @@ export function renderStackedBar(
 
   for (let i = 0; i < validSegments.length; i++) {
     const count = integers[i];
-    const texture = TEXTURES[i % TEXTURES.length];
-    if (count > 0) {
-      barChars += texture.repeat(count);
-    }
+    const color = useColor ? PALETTE[i % PALETTE.length] : "";
+    const reset = useColor ? RESET : "";
     const pct = Math.round((validSegments[i].value / total) * 100);
-    legendParts.push(`${texture} ${validSegments[i].label} (${pct}%)`);
+
+    if (count > 0) {
+      barChars += `${color}${"█".repeat(count)}${reset}`;
+    }
+
+    // Only show items that have at least 1% share
+    if (pct >= 1) {
+      legendParts.push(`${color}■${reset} ${validSegments[i].label} (${pct}%)`);
+    }
   }
 
   return {

@@ -16,10 +16,11 @@ describe("bar-chart", () => {
       { label: "2026-09-07", value: 40 },
     ];
     const lines = renderBarChart(data, { height: 4 });
-    expect(lines.length).toBe(6); // 4 bar rows + 1 axis row + 1 label row
+    expect(lines.length).toBe(7); // 4 bar rows + 1 axis row + 1 label row + 1 value row
     expect(lines[0]).toContain("│");
     expect(lines[4]).toContain("└───");
     expect(lines[5]).toContain("09-07");
+    expect(lines[6]).toContain("$40");
   });
 
   it("handles all-zero data without NaN or throwing", () => {
@@ -48,7 +49,7 @@ describe("stacked-bar", () => {
       { key: "codex", label: "Codex", value: 30 },
       { key: "gemini", label: "Gemini", value: 10 },
     ];
-    const result = renderStackedBar(segments, 32); // 32 chars = 2 brackets + 30 inner chars
+    const result = renderStackedBar(segments, 32, { color: false }); // 32 chars = 2 brackets + 30 inner chars
     expect(result.bar.length).toBe(32);
     expect(result.bar.startsWith("[")).toBe(true);
     expect(result.bar.endsWith("]")).toBe(true);
