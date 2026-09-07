@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import * as readline from "node:readline";
-import os from "node:os";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";

@@ -14,6 +14,7 @@
  */
 import net from "node:net";
 import os from "node:os";
+import { accessSync, constants } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 
 // The command comes from `codedeck open`, one argv entry per argument, and is
@@ -27,12 +28,27 @@ if (target.length === 0 || !SAFE_BINARY.test(target[0])) {
   process.exit(64);
 }
 
+/**
+ * Named by absolute path rather than looked up on PATH: this runs with the
+ * environment of whoever opened the session, and a PATH entry they can write
+ * to would decide what "stty" means.
+ */
+const STTY = ["/bin/stty", "/usr/bin/stty"].find((candidate) => {
+  try {
+    accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // Applying the size on the slave is also what makes the kernel raise SIGWINCH
 // on the session's foreground group, so the TUI redraws without ever knowing
 // this shim exists.
 function applySize(rows, cols) {
+  if (STTY === undefined) return false;
   if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows <= 0 || cols <= 0) return false;
-  const done = spawnSync("stty", ["rows", String(rows), "cols", String(cols)], {
+  const done = spawnSync(STTY, ["rows", String(rows), "cols", String(cols)], {
     stdio: ["inherit", "ignore", "ignore"],
   });
   return done.status === 0;

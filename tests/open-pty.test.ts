@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -354,6 +355,34 @@ describe("startPtySession", () => {
     session.dispose();
 
     expect(written).toEqual([]);
+  });
+
+  // The shim binds the socket a moment after the pty exists. A resize landing
+  // in that window used to be dropped, and nothing sent the size again.
+  it("sends the size as soon as there is a wire, not only on resize", async () => {
+    const { spawnChild, session, terminal } = start();
+    const spawnOptions = (spawnChild.mock.calls[0] as unknown[])[2] as { env: Record<string, string> };
+    const control = spawnOptions.env.CODEDECK_PTY_CONTROL;
+
+    // The resize happens before anything is listening, exactly as it would
+    // while the shim is still starting.
+    Object.assign(terminal.stdout, { rows: 30, columns: 100 });
+    terminal.stdout.emit("resize");
+
+    const received: string[] = [];
+    const server = net.createServer((conn) => {
+      conn.on("data", (chunk: Buffer) => received.push(chunk.toString()));
+    });
+    await new Promise<void>((resolve) => server.listen(control, resolve));
+
+    try {
+      await vi.waitFor(() => expect(received.length).toBeGreaterThan(0), { timeout: 5000 });
+    } finally {
+      session.dispose();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    expect(JSON.parse(received.join(""))).toEqual({ type: "resize", rows: 30, cols: 100 });
   });
 
   it("survives the EPIPE a dying session raises on the pipe itself", () => {

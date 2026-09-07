@@ -115,6 +115,9 @@ export function spawnUnderPty(target: PtyTarget, options: PtyOptions = {}): PtyS
   // The shim needs a moment to bind, and losing the socket must never take
   // the session down: a missed resize is a redraw, not a crash.
   let conn: net.Socket | undefined;
+  const sendResize = () => {
+    conn?.write(`${JSON.stringify({ type: "resize", rows: process.stdout.rows, cols: process.stdout.columns })}\n`);
+  };
   let connecting = true;
   const connect = (attempt = 0) => {
     if (!connecting) return;
@@ -122,6 +125,9 @@ export function spawnUnderPty(target: PtyTarget, options: PtyOptions = {}): PtyS
     socket.on("connect", () => {
       conn = socket;
       connecting = false;
+      // A resize that landed before the shim was listening would otherwise be
+      // lost, so the current size goes out as soon as there is a wire.
+      sendResize();
     });
     socket.on("error", () => {
       socket.destroy();
@@ -130,9 +136,6 @@ export function spawnUnderPty(target: PtyTarget, options: PtyOptions = {}): PtyS
   };
   connect();
 
-  const sendResize = () => {
-    conn?.write(`${JSON.stringify({ type: "resize", rows: process.stdout.rows, cols: process.stdout.columns })}\n`);
-  };
   process.stdout.on("resize", sendResize);
 
   const dispose = () => {

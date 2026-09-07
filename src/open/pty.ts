@@ -53,8 +53,11 @@ export function sessionsDir(): string {
   return dir;
 }
 
+const QUOTE = "'";
+const ESCAPED_QUOTE = "'\\''";
+
 function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
+  return QUOTE + value.replaceAll(QUOTE, ESCAPED_QUOTE) + QUOTE;
 }
 
 /**
@@ -282,6 +285,14 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   // The shim binds the socket a moment after the pty exists, and a lost
   // connection costs a redraw rather than the session.
   let connection: net.Socket | undefined;
+  // Sent on connect as well as on resize: a resize that lands before the shim
+  // is listening would otherwise be dropped, leaving the harness drawing at
+  // the size it booted with until the next one.
+  const sendResize = (): void => {
+    connection?.write(`${JSON.stringify({ type: "resize", rows: stdout.rows, cols: stdout.columns })}\n`);
+  };
+  stdout.on("resize", sendResize);
+
   let connecting = true;
   const connect = (attempt = 0): void => {
     if (!connecting) return;
@@ -289,6 +300,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     socket.on("connect", () => {
       connecting = false;
       connection = socket;
+      sendResize();
     });
     socket.on("error", () => {
       socket.destroy();
@@ -296,11 +308,6 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     });
   };
   connect();
-
-  const sendResize = (): void => {
-    connection?.write(`${JSON.stringify({ type: "resize", rows: stdout.rows, cols: stdout.columns })}\n`);
-  };
-  stdout.on("resize", sendResize);
 
   const inject = (keystrokes: string): void => {
     write(keystrokes);
