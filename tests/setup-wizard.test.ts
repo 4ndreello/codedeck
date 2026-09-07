@@ -12,11 +12,13 @@ import {
   BALANCED_PRESET,
   loadConfig,
   type OrchestratorMode,
+  type RunAgentConfig,
 } from "../src/config/config.js";
 import { itemKey } from "../src/cli/picker-state.js";
 import {
   ORCHESTRATOR_PARALLELISM_NOTE,
   buildOrchestratorScreen,
+  buildSandboxScreen,
   collectOrchestratorSelection,
   buildRoleScreen,
   buildScreens,
@@ -166,11 +168,142 @@ describe("runModelSetupWizard", () => {
     expect(discoverModels).toHaveBeenCalledWith(expect.anything(), true);
   });
 
+  it.each([
+    ["absent", undefined, ["OFF", "ON"]],
+    ["workspace-write", "workspace-write", ["OFF", "ON"]],
+    ["danger-full-access", "danger-full-access", ["ON", "OFF"]],
+    ["read-only", "read-only", ["OFF", "ON"]],
+    ["invalid", "network", ["OFF", "ON"]],
+    ["number", 42, ["OFF", "ON"]],
+    ["object", { mode: "danger-full-access" }, ["OFF", "ON"]],
+  ] as const)("renders the sandbox toggle from a %s config", (_name, defaultSandbox, labels) => {
+    const screen = buildSandboxScreen(
+      defaultSandbox === undefined ? {} : ({ defaultSandbox } as unknown as RunAgentConfig),
+    );
+
+    expect(screen.title).toBe("Danger full access");
+    expect(screen.items.map((item) => item.label)).toEqual(labels);
+    expect(screen.items).toHaveLength(2);
+    expect(screen.items.map((item) => item.id)).not.toContain("read-only");
+    expect(screen.items.map((item) => item.label)).not.toContain("read-only");
+    expect(screen.next?.({ kind: "skipped", role: screen.role })).toEqual([]);
+    expect(
+      screen.next?.({ kind: "picked", role: screen.role, harness: "sandbox", id: "danger-full-access" }),
+    ).toEqual([]);
+  });
+
+  it("saves workspace-write when the sandbox toggle is OFF", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.defaultSandbox).toBe("workspace-write");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("saves danger-full-access when the sandbox toggle is ON", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\x1b[B", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.defaultSandbox).toBe("danger-full-access");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("replaces a hand-edited read-only value only after an explicit OFF pick", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, defaultSandbox: "read-only" as const };
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.defaultSandbox).toBe("workspace-write");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["workspace-write", "workspace-write"],
+    ["danger-full-access", "danger-full-access"],
+    ["read-only", "read-only"],
+    ["invalid", "network"],
+  ] as const)("preserves a %s sandbox value when the screen is skipped", async (_name, defaultSandbox) => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config =
+      defaultSandbox === undefined
+        ? base().config
+        : ({ ...base().config, defaultSandbox } as unknown as RunAgentConfig);
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\x07"]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    if (defaultSandbox === undefined) expect(Object.hasOwn(result, "defaultSandbox")).toBe(false);
+    else expect(result.defaultSandbox).toBe(defaultSandbox);
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("ignores a hand-typed invalid sandbox choice", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, defaultSandbox: "read-only" as const };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07",
+      ...[..."sandbox:network"], "\r", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.defaultSandbox).toBe("read-only");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("does not save or change config when the wizard is aborted on the sandbox screen", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      defaultSandbox: "read-only" as const,
+      defaultModel: "keep-me",
+      orchestrator: { investigate: "read", selfWork: "none", tools: "dispatch" } as const,
+    };
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\x03"]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(result).toBe(config);
+  });
+
+  it("preserves unrelated config fields while saving the sandbox toggle", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      defaultSandbox: "read-only" as const,
+      defaultModel: "keep-me",
+      models: { claude: "claude-opus", codex: "gpt-5.6-luna" } as const,
+      agents: { general: { harness: "claude" as const, model: "claude-opus" } },
+      orchestrator: { investigate: "read", selfWork: "none", tools: "dispatch" } as const,
+    };
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\x1b[B", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result).toEqual({ ...config, defaultSandbox: "danger-full-access" });
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
   // Four screens, one per agent, each spanning claude and omp. The second is
   // typed by hand and needs a second Enter because no catalog vouches for it.
   it("persists one harness and model per agent, and writes the config", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r", "\x07"]);
+    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -186,7 +319,7 @@ describe("runModelSetupWizard", () => {
   it("persists a selected orchestrator preset as parameters only", async () => {
     const { input, output } = io();
     const save = vi.fn();
-    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x1b[B", "\r"]);
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x1b[B", "\r", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output, save });
 
@@ -207,6 +340,7 @@ describe("runModelSetupWizard", () => {
       "\x1b[B", "\r",
       "\x1b[B", "\x1b[B", "\r",
       "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+      "\x07",
     ]);
 
     const result = await runModelSetupWizard({ ...base(), input, output, save });
@@ -230,6 +364,7 @@ describe("runModelSetupWizard", () => {
       "\x1b[B", "\x1b[B", "\x1b[B", "\r",
       "\x07", "\x07", "\x07",
       ...[..."orchestrator:7"], "\r", "\r",
+      "\x07",
     ]);
 
     const result = await runModelSetupWizard({ ...base(), input, output, save });
@@ -258,6 +393,7 @@ describe("runModelSetupWizard", () => {
       "\x07", "\x07", "\x07",
       ...[..."orchestrator:0"], "\r", "\r",
       "\x07",
+      "\x07",
     ]);
 
     const result = await runModelSetupWizard({
@@ -277,7 +413,7 @@ describe("runModelSetupWizard", () => {
   // either. Picking the pin every time would prove nothing about the second.
   it("binds an agent to a harness other than the default one", async () => {
     const { input, output } = io();
-    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r", "\x07"]);
+    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -289,7 +425,7 @@ describe("runModelSetupWizard", () => {
   // group header, not as a prefix free text could name.
   it("offers only the installed harnesses", async () => {
     const { input, output, seen } = io();
-    drive(input, output, ["\r", "\r", "\r", "\r", "\x07"]);
+    drive(input, output, ["\r", "\r", "\r", "\r", "\x07", "\x07"]);
 
     await runModelSetupWizard({ ...base(), input, output });
     const painted = seen.join("");
@@ -301,7 +437,7 @@ describe("runModelSetupWizard", () => {
 
   it("leaves an agent unset when it is skipped", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -313,7 +449,7 @@ describe("runModelSetupWizard", () => {
   it("warns and continues when config persistence fails", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07", "\x07"]);
 
     try {
       const result = await runModelSetupWizard({

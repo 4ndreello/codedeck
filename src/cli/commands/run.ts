@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig, resolveModel, resolveRoleBinding } from "../../config/config.js";
+import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding } from "../../config/config.js";
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
@@ -105,6 +105,8 @@ Resume with: ${getCliName()} send <id> "continue"
           console.error(e instanceof Error ? e.message : String(e));
           process.exit(3);
         }
+      } else {
+        sandbox = resolveDefaultSandbox(cfg);
       }
       // --dangerously-bypass-approvals-and-sandbox is sugar for
       // --sandbox danger-full-access plus bypass flag; keep it codex-only.

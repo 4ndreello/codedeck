@@ -32,6 +32,10 @@ import {
 const ORCHESTRATOR_SCREEN_ROLE = "orchestrator-mode";
 const ORCHESTRATOR_PICKER_GROUP = "orchestrator";
 const PARALLELISM_NONE = "none";
+const SANDBOX_SCREEN_ROLE = "sandbox";
+const SANDBOX_PICKER_GROUP = "sandbox";
+const SANDBOX_OFF = "workspace-write" as const;
+const SANDBOX_ON = "danger-full-access" as const;
 
 const ORCHESTRATOR_PARALLELISM_NOTE_LINES = [
   "parallelism is advisory. Version 1 puts the requested cap in the",
@@ -167,6 +171,34 @@ export function buildOrchestratorScreen(
       result.kind === "picked" && result.id === "custom"
         ? [buildOrchestratorParameterScreen(ORCHESTRATOR_PARAMETERS[0], mode, 0)]
         : [],
+  };
+}
+
+export function buildSandboxScreen(
+  config: RunAgentConfig = {},
+  index = 0,
+  total = 1,
+): Screen {
+  const selected = config.defaultSandbox === SANDBOX_ON ? SANDBOX_ON : SANDBOX_OFF;
+  const values = selected === SANDBOX_ON ? [SANDBOX_ON, SANDBOX_OFF] : [SANDBOX_OFF, SANDBOX_ON];
+  const items = values.map((value) => ({
+    id: value,
+    label: value === SANDBOX_ON ? "ON" : "OFF",
+    group: SANDBOX_PICKER_GROUP,
+    harness: SANDBOX_PICKER_GROUP,
+    ...(value === selected ? { note: "atual" } : {}),
+  }));
+
+  return {
+    role: SANDBOX_SCREEN_ROLE,
+    title: "Danger full access",
+    counter: `configuração ${index + 1} de ${total}`,
+    description: ["Danger full access applies to new Codex sessions."],
+    items,
+    pinned: true,
+    known: new Set(items.map((item) => itemKey(item.harness, item.id))),
+    harnesses: new Set([SANDBOX_PICKER_GROUP]),
+    next: () => [],
   };
 }
 
@@ -507,11 +539,11 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     harnesses = [];
   }
 
-  const screens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude");
+  const roleScreens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude");
 
   // Writing `agents` is what marks first-run setup as done. Doing that after
   // showing nothing would spend the single prompt the user ever gets.
-  if (screens.length === 0) {
+  if (roleScreens.length === 0) {
     console.error("Warning: No installed harness reported any model; skipping model setup.");
     return config;
   }
@@ -523,8 +555,12 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   }
 
   const paint = colors(Boolean(output.isTTY) && !process.env.NO_COLOR);
+  const screens = [
+    ...roleScreens,
+    buildOrchestratorScreen(config, roleScreens.length, roleScreens.length + 1),
+  ];
   const results = await runScreens(
-    [...screens, buildOrchestratorScreen(config, screens.length, screens.length + 1)],
+    [...screens, buildSandboxScreen(config, screens.length, screens.length + 1)],
     { input, output, onResize: watchResize },
     paint,
   );
@@ -537,8 +573,10 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   const answeredResults = results.filter(
     (result): result is Exclude<ScreenResult, { kind: "aborted" }> => result.kind !== "aborted",
   );
-  const agentResults = answeredResults.filter((result) => screens.some((screen) => screen.role === result.role));
-  const { agents, write } = collectSelections(agentResults, config.agents, screens.length);
+  const agentResults = answeredResults.filter((result) =>
+    roleScreens.some((screen) => screen.role === result.role),
+  );
+  const { agents, write } = collectSelections(agentResults, config.agents, roleScreens.length);
   if (!write) {
     console.error("Warning: Model setup was interrupted; nothing was saved.");
     return config;
@@ -570,13 +608,19 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
 
   const updatedConfig: RunAgentConfig = { ...config, agents };
   if (orchestrator !== undefined) updatedConfig.orchestrator = orchestrator;
+  const sandboxSelection = answeredResults.find((result) => result.role === SANDBOX_SCREEN_ROLE);
+  if (sandboxSelection?.kind === "picked") {
+    if (sandboxSelection.id === SANDBOX_OFF || sandboxSelection.id === SANDBOX_ON) {
+      updatedConfig.defaultSandbox = sandboxSelection.id;
+    }
+  }
   try {
     (options.save ?? saveConfig)(updatedConfig);
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const summary = screens
+  const summary = roleScreens
     .map((screen) => {
       const binding = agents[screen.role as Role];
       return `${screen.role} ${binding ? `${binding.harness}:${binding.model}` : "unset"}`;
