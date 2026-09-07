@@ -198,6 +198,8 @@ T11 -> T12 -> T13
 **Tests**: manual probe transcript
 **Gate**: manual
 
+**Status**: ✅ Complete (negative probe, transcript committed)
+
 **Commit**: `docs(specs): add opencode effort probe transcript`
 
 ---

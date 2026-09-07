@@ -1,0 +1,19 @@
+T5 probe: opencode effort reader (NEGATIVE for TUI)
+Date: 2026-09-07
+Binary: opencode 1.18.21
+Spec: OP-15 (travel through probed reader), fallback OP-16 (exact
+warning plus banner "default")
+
+Method
+1. `opencode run --help`: HAS `--variant` ("model variant
+   (provider-specific reasoning effort, e.g., high, max, minimal)").
+   Run-only; `open` launches the TUI, not `run`.
+2. `opencode --help` grepped for variant/effort/thinking: NO match.
+   The TUI command has no effort-shaped flag.
+3. `opencode debug config` grepped for variant: NO match. No
+   config-shaped reader visible in the resolved config.
+
+Verdict: NEGATIVE for the TUI path in 1.18.21. No effort reader to
+map to. Consequences per spec: OP-16 fallback active, T12 prints the
+spec-pinned warning and keeps banner "default". Re-probe if `open`
+ever launches via `run` or a newer TUI gains the flag.
