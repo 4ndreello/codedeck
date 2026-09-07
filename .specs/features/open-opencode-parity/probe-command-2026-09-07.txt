@@ -1,0 +1,31 @@
+T2 probe: OPENCODE_CONFIG_CONTENT command channel (POSITIVE)
+Date: 2026-09-07
+Binary: opencode 1.18.21
+Spec: OP-05 (invokable once channel probed), OP-06 (body minus frontmatter)
+
+Method
+1. Official docs (https://opencode.ai/docs/commands/, fetched 2026-09-07):
+   custom commands via config `command` key:
+   `{"command": {"<name>": {"template": "...", "description": "...",
+   "agent?": "...", "model?": "..."}}}`. Invoked in the TUI as
+   `/<name>`. Builtins listed (`/init`, `/undo`, `/redo`, `/share`,
+   `/help`) confirm slash invocation.
+2. Live local run, no TUI needed (config resolution is the channel):
+   $ OPENCODE_CONFIG_CONTENT='{"command":{"zzprobe":{"template":"probe says hi","description":"probe command"}}}' opencode debug config
+   Output contains verbatim:
+     "command": {
+       "zzprobe": {
+         "template": "probe says hi",
+         "description": "probe command"
+       }
+     },
+   Exit 0. Nothing written to ~/.config/opencode (env-only, same merge
+   the base spec proved for agent/instructions).
+
+Verdict: POSITIVE. The inline env channel carries a `command` key with
+`template` plus `description`. T8 adds
+`command: {autonomous: {template: <md minus frontmatter>,
+description: <from frontmatter>}}` to buildInlineConfig.
+Not verified here (left to T8 gate): actual `/autonomous` keystroke in
+a live TUI. Config resolution plus docs slash-invocation is the pinned
+contract; a live keystroke check rides on the T8 unit gate only.
