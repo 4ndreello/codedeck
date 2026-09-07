@@ -7,6 +7,13 @@ export function getSocketPath(): string {
   return getPaths().daemonSock;
 }
 
+function ipcError(error: NonNullable<IpcResponse["error"]>): Error & { code: string; details?: unknown } {
+  const err = new Error(error.message) as Error & { code: string; details?: unknown };
+  err.code = error.code;
+  if (error.details !== undefined) err.details = error.details;
+  return err;
+}
+
 export async function isDaemonRunning(): Promise<boolean> {
   const sock = getSocketPath();
   if (!fs.existsSync(sock)) return false;
@@ -87,7 +94,7 @@ export class IpcClient {
                 try { client.end(); } catch {}
                 // Destroy shortly after end to free socket quickly
                 setTimeout(() => { try { client.destroy(); } catch {} }, 50).unref?.();
-                reject(new Error(res.error.message));
+                reject(ipcError(res.error));
               }
             } else {
               if (!resolved) {
@@ -122,7 +129,7 @@ export class IpcClient {
         if (!resolved && buf.trim()) {
           try {
             const res = JSON.parse(buf.trim()) as IpcResponse;
-            if (res.error) reject(new Error(res.error.message));
+            if (res.error) reject(ipcError(res.error));
             else resolve(res.result as T);
             resolved = true;
             cleanup();
@@ -164,7 +171,7 @@ export class IpcClient {
             onDone?.();
             client.end();
           } else if (msg.error) {
-            onError?.(new Error(msg.error.message));
+            onError?.(ipcError(msg.error));
             client.end();
           } else if (msg.event) {
             onEvent(msg.event);

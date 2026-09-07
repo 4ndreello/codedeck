@@ -42,7 +42,8 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "minimatch": "^10.2.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
