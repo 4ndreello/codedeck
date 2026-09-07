@@ -28,6 +28,7 @@ export interface SessionUsage {
 
 export interface Session {
   id: string;
+  runId?: string | null;
   name?: string;
   agent: AgentId;
   nativeSessionId?: string;
@@ -67,6 +68,7 @@ export interface CreateSessionOptions {
   agent: AgentId;
   prompt: string;
   cwd: string;
+  runId?: string | null;
   model?: string;
   name?: string;
   worktree?: boolean;

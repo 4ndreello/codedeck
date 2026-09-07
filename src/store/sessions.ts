@@ -4,6 +4,7 @@ import type { FailureInfo } from "../core/errors.js";
 
 export interface SessionRow {
   id: string;
+  run_id: string | null;
   name: string | null;
   agent: string;
   native_session_id: string | null;
@@ -46,6 +47,7 @@ function rowToSession(row: SessionRow): Session {
 
   return {
     id: row.id,
+    runId: row.run_id ?? undefined,
     name: row.name ?? undefined,
     agent: row.agent as AgentId,
     nativeSessionId: row.native_session_id ?? undefined,
@@ -70,6 +72,7 @@ function rowToSession(row: SessionRow): Session {
     usage:
       row.usage_input_tokens != null ||
       row.usage_output_tokens != null ||
+      row.usage_cached_tokens != null ||
       row.usage_cost != null
         ? {
             inputTokens: row.usage_input_tokens ?? undefined,
@@ -98,8 +101,13 @@ export class SessionStore {
         repository, cwd, worktree, branch, base_commit, pid,
         pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
-        last_event, effort, fast, sandbox, dangerously_bypass_approvals_and_sandbox, failure, log_offset, stderr_offset
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_event, effort, fast, sandbox, dangerously_bypass_approvals_and_sandbox, failure, log_offset, stderr_offset,
+        run_id
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )
     `);
     stmt.run(
       session.id,
@@ -130,6 +138,7 @@ export class SessionStore {
       session.failure ? JSON.stringify(session.failure) : null,
       session.logOffset ?? null,
       session.stderrOffset ?? null,
+      session.runId ?? null,
     );
   }
 
@@ -171,6 +180,17 @@ export class SessionStore {
       `SELECT * FROM sessions WHERE status IN ('starting','working','needs_input','idle') ORDER BY updated_at DESC`,
     ).all() as unknown as SessionRow[];
     return rows.map(rowToSession);
+  }
+
+  getByRunId(runId: string): Session[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM sessions WHERE run_id = ? ORDER BY updated_at DESC`,
+    ).all(runId) as unknown as SessionRow[];
+    return rows.map(rowToSession);
+  }
+
+  listByRunId(runId: string): Session[] {
+    return this.getByRunId(runId);
   }
 
   update(id: string, patch: Partial<Session> & { status?: SessionStatus }): void {

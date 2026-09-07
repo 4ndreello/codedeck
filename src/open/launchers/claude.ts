@@ -59,6 +59,7 @@ export function buildSettings(pluginDir: string, flags: OpenFlags): Record<strin
   const statusLine = {
     type: "command",
     command: `bash ${shellQuote(path.join(pluginDir, "statusline.sh"))}`,
+    refreshInterval: 2,
   };
 
   // --no-theme means "do not restyle my session", so it drops the whole look,

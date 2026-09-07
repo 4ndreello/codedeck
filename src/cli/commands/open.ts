@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import * as readline from "node:readline";
 import os from "node:os";
@@ -82,10 +83,12 @@ export function launchClaude(
   onClose: () => void,
   spawnChild: typeof spawn = spawn,
   signalHost: SignalHost = process,
+  envExtra?: Record<string, string>,
 ): Promise<void> {
   return spawnHarness(claudeBin, args, {
     cwd,
     sessionFile,
+    envExtra,
     model,
     notFoundMessage: CLAUDE_NOT_FOUND,
     entitlementError,
@@ -369,6 +372,7 @@ export function registerOpenCommand(program: Command): void {
       );
 
       const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
+      const runId = randomUUID();
 
       if (launcher === "opencode") {
         // Dispatch needs a binding, and a binding always carries a model, so
@@ -414,6 +418,7 @@ export function registerOpenCommand(program: Command): void {
           {
             cwd,
             envExtra: {
+              CODEDECK_RUN_ID: runId,
               OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role),
               ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
             },
@@ -450,6 +455,9 @@ export function registerOpenCommand(program: Command): void {
         cwd,
         sessionFile,
         () => finishOpenSession(role, sessionFile),
+        undefined,
+        undefined,
+        { CODEDECK_RUN_ID: runId },
       );
     });
 }

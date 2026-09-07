@@ -17,6 +17,7 @@ import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerModelsCommand } from "./commands/models.js";
 import { registerOpenCommand } from "./commands/open.js";
 import { registerSetupCommand } from "./commands/setup.js";
+import { registerUsageCommand } from "./commands/usage.js";
 import { getCliInvocation, getCliName } from "./cli-name.js";
 
 function getVersion(): string {
@@ -84,6 +85,7 @@ registerDoctorCommand(program);
 registerModelsCommand(program);
 registerOpenCommand(program);
 registerSetupCommand(program);
+registerUsageCommand(program);
 
 // Make `codedeck help` behave like `codedeck --help`
 program.command("help", { hidden: true }).action(() => program.outputHelp());

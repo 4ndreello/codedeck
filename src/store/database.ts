@@ -27,6 +27,7 @@ export class Database {
 
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
+        run_id TEXT,
         name TEXT,
         agent TEXT NOT NULL,
         native_session_id TEXT,
@@ -100,6 +101,7 @@ export class Database {
       ["log_offset", "INTEGER"],
       ["stderr_offset", "INTEGER"],
       ["pid_start_time", "TEXT"],
+      ["run_id", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
@@ -109,6 +111,7 @@ export class Database {
     );
     if (!eventColumns.has("source_key")) this.db.exec(`ALTER TABLE events ADD COLUMN source_key TEXT`);
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id)`);
   }
 
   getHandle(): DatabaseSync {

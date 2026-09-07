@@ -1,48 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Command } from "commander";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { IpcClient } from "../src/daemon/ipc.js";
-import { registerOpenCommand } from "../src/cli/commands/open.js";
 import * as opencodeLauncher from "../src/open/launchers/opencode.js";
 import * as runtime from "../src/open/runtime.js";
+import { setupOpenHarness } from "./helpers/open-harness.js";
 
 const originalCwd = process.cwd();
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
-
-let configDir: string;
-
-beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-action-"));
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
-  fs.writeFileSync(
-    path.join(configDir, "config.json"),
-    JSON.stringify({ agents: { reviewer: { harness: "opencode", model: "prov/m" } } }),
-  );
-  vi.spyOn(IpcClient.prototype, "ensureDaemonStarted").mockResolvedValue(undefined as never);
-  vi.spyOn(opencodeLauncher, "preflight").mockResolvedValue(undefined);
-  vi.spyOn(opencodeLauncher, "resolveBinary").mockResolvedValue("/bin/opencode");
-  vi.spyOn(runtime, "spawnHarness").mockResolvedValue(undefined);
-  vi.spyOn(runtime, "finishOpenSession").mockImplementation(() => {});
-  vi.spyOn(runtime, "renderBanner").mockReturnValue("");
-});
-
-afterEach(() => {
-  process.chdir(originalCwd);
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
-  fs.rmSync(configDir, { recursive: true, force: true });
-  vi.restoreAllMocks();
-});
-
-async function runOpen(argv: string[]): Promise<void> {
-  const program = new Command();
-  program.exitOverride();
-  registerOpenCommand(program);
-  await program.parseAsync(["node", "codedeck", "open", ...argv], { from: "node" });
-}
+const { runOpen } = setupOpenHarness({ prefix: "codedeck-action-", restoreCwd: true });
 
 describe("opencode dispatch", () => {
   it("guarantees the daemon before spawning, in order", async () => {
