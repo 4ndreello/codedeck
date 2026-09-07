@@ -27,22 +27,11 @@ function expectMarkers(body: string, markers: readonly string[], label: string):
   }
 }
 
-describe("/autonomous command contract", () => {
-  it("is an explicit user-only command with the required frontmatter", () => {
-    const { frontmatter } = commandParts();
-
-    expect(existsSync(defaultCommandPath)).toBe(true);
-    expect(frontmatter).toMatch(/^description:\s+[^\r\n]+$/m);
-    expect(frontmatter).toContain(
-      "description: Continue this autonomous orchestrator session without human input and write a run report.",
-    );
-    expect(frontmatter).toMatch(/^disable-model-invocation:\s*true\s*$/m);
-  });
-
-  it("contains the never-ask rule and all three decision buckets", () => {
-    const { body } = commandParts();
-
-    expectMarkers(body, [
+const markerChecks = [
+  {
+    description: "contains the never-ask rule and all three decision buckets",
+    label: "contract",
+    markers: [
       "This mode is explicit and one-way for the rest of that session. It never activates at startup, through configuration, because a worker asks a question, or through any other automatic path.",
       "The orchestrator must never ask the human a question, request a choice, wait for an answer, or stop because a human answer is unavailable.",
       "If the orchestrator or a worker would need to ask the human for input, that work is blocked.",
@@ -57,26 +46,24 @@ describe("/autonomous command contract", () => {
       "Defer the action and record it in the report. Do not ask for permission.",
       "For this MVP, naming a candidate library in notes or prose is bucket 1. Installing, fetching, or vendoring that library is bucket 2.",
       "A revert does not undo dependency installation, network fetches, transitive code execution, shared-state changes, or external side effects.",
-    ], "contract");
-  });
-
-  it("records blockers and routes around work that does not depend on them", () => {
-    const { body } = commandParts();
-
-    expectMarkers(body, [
+    ],
+  },
+  {
+    description: "records blockers and routes around work that does not depend on them",
+    label: "route-around",
+    markers: [
       "## Route around blockers",
       "When a task is deferred or blocked, the orchestrator records the reason, keeps a running notes entry, and continues dispatching or doing every independent task.",
       "Independent means the task needs no output, file, or decision from the deferred or blocked item.",
       "When in doubt, list it as deferred rather than dispatch it.",
       "One blocker must not halt the whole run.",
       "Work that depends on the deferred decision remains listed as deferred.",
-    ], "route-around");
-  });
-
-  it("dispatches report-file creation and defines append-only notes", () => {
-    const { body } = commandParts();
-
-    expectMarkers(body, [
+    ],
+  },
+  {
+    description: "dispatches report-file creation and defines append-only notes",
+    label: "report-workflow",
+    markers: [
       "On activation, the orchestrator dispatches a worker (or, if the session is an edit-capable harness, directs the session) to create the slug directory and both files immediately.",
       "`<slug>` is the feature slug from the active work item, lowercased with every run of non-alphanumeric characters replaced by one hyphen and leading or trailing hyphens removed.",
       "If the work item has no feature slug, use `autonomous-mode`.",
@@ -87,7 +74,33 @@ describe("/autonomous command contract", () => {
       "The final report lives at `.specs/features/<slug>/run-report.md`",
       "Do not write `see run-notes.md`; fold the notes into the report as content.",
       "time-or-sequence, decision, category (bucket), and reason",
-    ], "report-workflow");
+    ],
+  },
+] as const;
+
+const linkRuleMarkers = [
+  "The `Done` section derives the branch by running `git branch --show-current` and the commit by running `git rev-parse HEAD`.",
+  "- Branch: `[<branch-name>](<remote>/tree/<branch-name>)`",
+  "- Commit: `[<full-sha>](<remote>/commit/<full-sha>)`",
+  "Without a web remote, it includes the exact branch name and full commit SHA and states that links are unavailable.",
+] as const;
+
+describe("/autonomous command contract", () => {
+  it("is an explicit user-only command with the required frontmatter", () => {
+    const { frontmatter } = commandParts();
+
+    expect(existsSync(defaultCommandPath)).toBe(true);
+    expect(frontmatter).toMatch(/^description:\s+[^\r\n]+$/m);
+    expect(frontmatter).toContain(
+      "description: Continue this autonomous orchestrator session without human input and write a run report.",
+    );
+    expect(frontmatter).toMatch(/^disable-model-invocation:\s*true\s*$/m);
+  });
+
+  it.each(markerChecks)("$description", ({ markers, label }) => {
+    const { body } = commandParts();
+
+    expectMarkers(body, markers, label);
   });
 
   it("pins the revert limitation and rejects approval prompts", () => {
@@ -117,11 +130,6 @@ describe("/autonomous command contract", () => {
       previous = position;
     }
 
-    expectMarkers(body, [
-      "The `Done` section derives the branch by running `git branch --show-current` and the commit by running `git rev-parse HEAD`.",
-      "- Branch: `[<branch-name>](<remote>/tree/<branch-name>)`",
-      "- Commit: `[<full-sha>](<remote>/commit/<full-sha>)`",
-      "Without a web remote, it includes the exact branch name and full commit SHA and states that links are unavailable.",
-    ], "link-rule");
+    expectMarkers(body, linkRuleMarkers, "link-rule");
   });
 });
