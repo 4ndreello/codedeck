@@ -187,6 +187,51 @@ describe("diffOpencodeSession", () => {
     ).toBeUndefined();
   });
 
+  it("identifies an existing session whose updated timestamp moved forward when no session is new", () => {
+    expect(
+      diffOpencodeSession(
+        [
+          { id: "ses_old1", created: 1, updated: 10 },
+          { id: "ses_old2", created: 1, updated: 10 },
+        ],
+        [
+          { id: "ses_old1", created: 1, updated: 20 },
+          { id: "ses_old2", created: 1, updated: 10 },
+        ],
+      ),
+    ).toBe("ses_old1");
+  });
+
+  it("picks the strictly newest updated session when multiple existing sessions were touched", () => {
+    expect(
+      diffOpencodeSession(
+        [
+          { id: "ses_old1", created: 1, updated: 10 },
+          { id: "ses_old2", created: 1, updated: 10 },
+        ],
+        [
+          { id: "ses_old1", created: 1, updated: 30 },
+          { id: "ses_old2", created: 1, updated: 20 },
+        ],
+      ),
+    ).toBe("ses_old1");
+  });
+
+  it("returns undefined when multiple sessions share the same latest updated timestamp", () => {
+    expect(
+      diffOpencodeSession(
+        [
+          { id: "ses_old1", created: 1, updated: 10 },
+          { id: "ses_old2", created: 1, updated: 10 },
+        ],
+        [
+          { id: "ses_old1", created: 1, updated: 20 },
+          { id: "ses_old2", created: 1, updated: 20 },
+        ],
+      ),
+    ).toBeUndefined();
+  });
+
   it("ignores rows without string ids on either side", () => {
     expect(
       diffOpencodeSession(
@@ -233,6 +278,45 @@ describe("opencode resume capture", () => {
       opts.onClose();
       const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
       expect(fs.readFileSync(sessionFile, "utf8")).toBe("ses_f87425ee9ffejNZXkRaHKoEc3G");
+    });
+  });
+
+  it("captures an existing session id when it was continued and updated", async () => {
+    vi.mocked(execFileSync)
+      .mockReturnValueOnce(
+        JSON.stringify([
+          { id: "ses_f82b88106ffeB9yHJu47iWswnC", created: 1, updated: 10 },
+          { id: "ses_other", created: 1, updated: 10 },
+        ]),
+      )
+      .mockReturnValueOnce(
+        JSON.stringify([
+          { id: "ses_f82b88106ffeB9yHJu47iWswnC", created: 1, updated: 20 },
+          { id: "ses_other", created: 1, updated: 10 },
+        ]),
+      );
+
+    await withTempRunAgentDir(async () => {
+      await runOpen(["reviewer", "--no-theme"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      opts.onClose();
+      const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
+      expect(fs.readFileSync(sessionFile, "utf8")).toBe("ses_f82b88106ffeB9yHJu47iWswnC");
+    });
+  });
+
+  it("preserves explicit --resume id when diff is ambiguous or empty", async () => {
+    const same = JSON.stringify([{ id: "ses_f82b88106ffeB9yHJu47iWswnC", created: 1, updated: 10 }]);
+    vi.mocked(execFileSync).mockReturnValueOnce(same).mockReturnValueOnce(same);
+
+    await withTempRunAgentDir(async () => {
+      await runOpen(["reviewer", "--no-theme", "--resume", "ses_f82b88106ffeB9yHJu47iWswnC"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      opts.onClose();
+      const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
+      expect(fs.readFileSync(sessionFile, "utf8")).toBe("ses_f82b88106ffeB9yHJu47iWswnC");
     });
   });
 
