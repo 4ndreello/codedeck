@@ -12,7 +12,7 @@ import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
 import { isTerminalStatus, type AgentId, type Session } from "../core/session.js";
-import type { AgentDriver, DriverSession } from "../core/driver.js";
+import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
@@ -20,7 +20,7 @@ import { getDiff } from "../git/diff.js";
 import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
-import { loadConfig } from "../config/config.js";
+import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
@@ -33,6 +33,14 @@ function powerServiceInstalled(): boolean {
     return fs.existsSync(path.join(os.homedir(), ".config", "systemd", "user", "codedeck.service"));
   } catch {
     return false;
+  }
+}
+
+function resolveRequestSandbox(value: unknown): CodexSandbox | undefined {
+  try {
+    return typeof value === "string" ? parseSandbox(value) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -247,6 +255,9 @@ class Daemon {
         const cfg = loadConfig();
         let agent: AgentId = p.agent || cfg.defaultAgent || "claude";
         if (!this.registry.has(agent)) { send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } }); return; }
+        const requestSandbox = resolveRequestSandbox(p.sandbox);
+        const configuredSandbox = resolveDefaultSandbox(cfg);
+        const sandbox = agent === "codex" ? requestSandbox ?? configuredSandbox : undefined;
 
         const sessionId = generateSessionId();
         let cwd = path.resolve(cwdIn);
@@ -293,7 +304,7 @@ class Daemon {
           model: p.model,
           effort: p.effort,
           fast: !!p.fast,
-          sandbox: p.sandbox,
+          sandbox,
           dangerouslyBypassApprovalsAndSandbox: !!p.dangerouslyBypassApprovalsAndSandbox,
           status: "starting",
           repository,
