@@ -76,6 +76,7 @@ Resume with: ${getCliName()} send <id> "continue"
       // `open` hands the role to Claude as `--agent`, which no other harness
       // has. Here it becomes a prompt prefix instead, so a codex or opencode
       // worker gets the same contract through the only channel it shares.
+      // v1 boundary: `run --role orchestrator` does not get native tool scoping.
       let rolePrompt: string;
       try {
         rolePrompt = resolveRolePrompt(resolvePluginDir(), opts.role, prompt);

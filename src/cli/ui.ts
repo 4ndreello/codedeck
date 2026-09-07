@@ -168,18 +168,19 @@ function drawsLogo(dim: Dimensions): boolean {
 }
 
 /**
- * Counted, not a constant: the error line and the logo only exist sometimes,
- * and a wrong constant here silently cuts items off the list.
+ * Counted, not a constant: error and description lines and the logo only exist
+ * sometimes, and a wrong constant here silently cuts items off the list.
  */
 export function chromeHeight(state: PickerState, dim: Dimensions): number {
   const logo = drawsLogo(dim) ? LOGO.length + 1 : 0;
   const header = 1;
   const error = state.screen.error ? 1 : 0;
+  const description = state.screen.description?.length ?? 0;
   const filterLine = 1;
   const footer = 1;
   // One: the blank above the filter. The logo brings its own, already counted.
   const blank = 1;
-  return logo + header + error + filterLine + footer + blank;
+  return logo + header + error + description + filterLine + footer + blank;
 }
 
 const PLAIN = colors(false);
@@ -248,6 +249,7 @@ export function renderFrame(state: PickerState, dim: Dimensions, c: Colors): str
 
   lines.push(`${INDENT}${c.bold(`${state.screen.title}  ~  ${state.screen.counter}`)}`);
   if (state.screen.error) lines.push(`${INDENT}${c.dim(state.screen.error)}`);
+  for (const line of state.screen.description ?? []) lines.push(`${INDENT}${c.dim(line)}`);
 
   lines.push("");
   lines.push(`${INDENT}filtrar: ${state.filter}`);

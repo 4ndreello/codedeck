@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DISPATCHER_PRESET, type OrchestratorMode } from "../src/config/orchestrator-mode.js";
 import type { HarnessModels } from "../src/core/models.js";
 import { LOGO } from "../src/cli/ui.js";
 import {
@@ -40,6 +41,11 @@ import {
 const settingsOf = (args: string[]) =>
   JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}") as Record<string, any>;
 
+const mode = (overrides: Partial<OrchestratorMode> = {}): OrchestratorMode => ({
+  ...DISPATCHER_PRESET,
+  ...overrides,
+});
+
 afterEach(() => {
   delete process.env.CODEDECK_CLI_NAME;
 });
@@ -65,6 +71,79 @@ describe("open command argument builder", () => {
       "codedeck:orchestrator",
       "-n",
       "CodeDeck · orchestrator",
+    ]);
+  });
+
+  it("keeps dispatcher arguments equal to the pre-change contract", () => {
+    const defaultArgs = buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", []);
+    const dispatcherArgs = buildOpenArgs(
+      "orchestrator",
+      {},
+      "/opt/codedeck/plugin",
+      [],
+      undefined,
+      DISPATCHER_PRESET,
+    );
+
+    expect(dispatcherArgs).toEqual(defaultArgs);
+    expect(dispatcherArgs).not.toContain("--append-system-prompt");
+    expect(dispatcherArgs.slice(dispatcherArgs.indexOf("--agent"), dispatcherArgs.indexOf("--agent") + 2)).toEqual([
+      "--agent",
+      "codedeck:orchestrator",
+    ]);
+  });
+
+  it.each([
+    ["dispatch", "codedeck:orchestrator", mode()],
+    ["read", "codedeck:orchestrator-read", mode({ tools: "read" })],
+    ["edit", "codedeck:orchestrator-edit", mode({ tools: "edit" })],
+  ] as const)("selects the Claude agent for the %s tools tier", (_tier, agent, orchestratorMode) => {
+    const args = buildOpenArgs(
+      "orchestrator",
+      {},
+      "/opt/codedeck/plugin",
+      [],
+      undefined,
+      orchestratorMode,
+    );
+
+    expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
+      "--agent",
+      agent,
+    ]);
+  });
+
+  it("appends orchestrator prose with Claude's inline prompt flag", () => {
+    const args = buildOpenArgs(
+      "orchestrator",
+      {},
+      "/opt/codedeck/plugin",
+      [],
+      undefined,
+      mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
+    );
+    const proseIndex = args.indexOf("--append-system-prompt");
+
+    expect(args.slice(proseIndex, proseIndex + 2)).toEqual([
+      "--append-system-prompt",
+      "Investigation allowance: read.\nSelf-work allowance: trivial.\nRun at most 2 workers concurrently.",
+    ]);
+  });
+
+  it("leaves non-orchestrator roles unchanged when a richer mode is configured", () => {
+    const args = buildOpenArgs(
+      "reviewer",
+      {},
+      "/opt/codedeck/plugin",
+      [],
+      undefined,
+      mode({ investigate: "free", selfWork: "small", tools: "edit", parallelism: 3 }),
+    );
+
+    expect(args).not.toContain("--append-system-prompt");
+    expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
+      "--agent",
+      "codedeck:reviewer",
     ]);
   });
 

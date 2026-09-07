@@ -8,13 +8,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DriverRegistry } from "../src/core/driver.js";
 import type { HarnessModels } from "../src/core/models.js";
 import type { AgentId } from "../src/core/session.js";
-import { loadConfig } from "../src/config/config.js";
+import {
+  BALANCED_PRESET,
+  loadConfig,
+  type OrchestratorMode,
+} from "../src/config/config.js";
 import { itemKey } from "../src/cli/picker-state.js";
 import {
+  ORCHESTRATOR_PARALLELISM_NOTE,
+  buildOrchestratorScreen,
+  collectOrchestratorSelection,
   buildRoleScreen,
   buildScreens,
   collectSelections,
   needsModelSetup,
+  orchestratorConfigFromSelection,
+  orchestratorDisplayLabel,
   registerSetupCommand,
   runModelSetupWizard,
 } from "../src/cli/commands/setup.js";
@@ -111,7 +120,7 @@ describe("runModelSetupWizard", () => {
   function drive(input: PassThrough, output: PassThrough, keys: string[]): void {
     let next = 0;
     output.on("data", (chunk) => {
-      if (!String(chunk).includes("agente")) return;
+      if (!String(chunk).includes("filtrar")) return;
       if (next >= keys.length) return;
       const key = keys[next++];
       setImmediate(() => input.write(key));
@@ -161,7 +170,7 @@ describe("runModelSetupWizard", () => {
   // typed by hand and needs a second Enter because no catalog vouches for it.
   it("persists one harness and model per agent, and writes the config", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r"]);
+    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -174,11 +183,101 @@ describe("runModelSetupWizard", () => {
     expect(loadConfig()).toEqual(result);
   });
 
+  it("persists a selected orchestrator preset as parameters only", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x1b[B", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.orchestrator).toEqual(BALANCED_PRESET);
+    expect(Object.keys(result.orchestrator ?? {})).toEqual(["investigate", "selfWork", "tools"]);
+    expect(result.orchestrator).not.toHaveProperty("label");
+    expect(result.orchestrator).not.toHaveProperty("preset");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("persists all four tuned parameters and derives the custom label", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+      "\x1b[B", "\r",
+      "\x1b[B", "\r",
+      "\x1b[B", "\x1b[B", "\r",
+      "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.orchestrator).toEqual({
+      investigate: "read",
+      selfWork: "trivial",
+      tools: "edit",
+      parallelism: 3,
+    });
+    expect(orchestratorDisplayLabel(result)).toBe("custom");
+    expect(result.orchestrator).not.toHaveProperty("label");
+    expect(result.orchestrator).not.toHaveProperty("preset");
+  });
+
+  it("accepts an arbitrary positive parallelism cap by harness-prefixed text", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+      "\x07", "\x07", "\x07",
+      ...[..."orchestrator:7"], "\r", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.orchestrator).toEqual({
+      investigate: "none",
+      selfWork: "none",
+      tools: "dispatch",
+      parallelism: 7,
+    });
+    expect(orchestratorDisplayLabel(result)).toBe("custom");
+  });
+
+  it("shows an error and keeps the existing cap for invalid parallelism text", async () => {
+    const { input, output, seen } = io();
+    const existing: OrchestratorMode = {
+      investigate: "none",
+      selfWork: "none",
+      tools: "dispatch",
+      parallelism: 4,
+    };
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+      "\x07", "\x07", "\x07",
+      ...[..."orchestrator:0"], "\r", "\r",
+      "\x07",
+    ]);
+
+    const result = await runModelSetupWizard({
+      ...base(),
+      config: { ...base().config, orchestrator: existing },
+      input,
+      output,
+      save,
+    });
+
+    expect(seen.join("")).toContain("parallelism must be a positive finite number");
+    expect(result.orchestrator).toEqual(existing);
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
   // Two harnesses on one screen, so the answer for an agent can come from
   // either. Picking the pin every time would prove nothing about the second.
   it("binds an agent to a harness other than the default one", async () => {
     const { input, output } = io();
-    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r"]);
+    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -190,7 +289,7 @@ describe("runModelSetupWizard", () => {
   // group header, not as a prefix free text could name.
   it("offers only the installed harnesses", async () => {
     const { input, output, seen } = io();
-    drive(input, output, ["\r", "\r", "\r", "\r"]);
+    drive(input, output, ["\r", "\r", "\r", "\r", "\x07"]);
 
     await runModelSetupWizard({ ...base(), input, output });
     const painted = seen.join("");
@@ -202,17 +301,19 @@ describe("runModelSetupWizard", () => {
 
   it("leaves an agent unset when it is skipped", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
     expect(result.agents).toEqual({ general: { harness: "claude", model: "claude-opus" } });
+    expect(result).not.toHaveProperty("orchestrator");
+    expect(loadConfig()).not.toHaveProperty("orchestrator");
   });
 
   it("warns and continues when config persistence fails", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {});
     const { input, output } = io();
-    drive(input, output, ["\r", "\x07", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\x07"]);
 
     try {
       const result = await runModelSetupWizard({
@@ -308,6 +409,48 @@ describe("runModelSetupWizard", () => {
     } finally {
       warning.mockRestore();
     }
+  });
+});
+
+describe("orchestrator setup", () => {
+  it("maps a preset selection to parameters only", () => {
+    const mode = orchestratorConfigFromSelection("balanced");
+
+    expect(mode).toEqual(BALANCED_PRESET);
+    expect(mode).not.toHaveProperty("label");
+    expect(mode).not.toHaveProperty("preset");
+    expect(Object.keys(mode ?? {})).toEqual(["investigate", "selfWork", "tools"]);
+  });
+
+  it("maps a tuned non-preset bundle and displays custom", () => {
+    const tuned: OrchestratorMode = {
+      investigate: "read",
+      selfWork: "none",
+      tools: "edit",
+      parallelism: 5,
+    };
+
+    expect(orchestratorConfigFromSelection("custom", tuned)).toEqual(tuned);
+    expect(orchestratorDisplayLabel({ orchestrator: tuned })).toBe("custom");
+    expect(buildOrchestratorScreen({ orchestrator: tuned }).title).toContain("custom");
+  });
+
+  it("does not produce an orchestrator block when its screen is skipped", () => {
+    expect(
+      collectOrchestratorSelection({ kind: "skipped", role: "orchestrator-mode" }, [], {}),
+    ).toBeUndefined();
+  });
+
+  it("describes parallelism as an advisory prompt instruction", () => {
+    const screen = buildOrchestratorScreen();
+    const description = screen.description?.join(" ") ?? "";
+
+    expect(description).toContain("parallelism is advisory");
+    expect(description).toContain("Version 1");
+    expect(description).toContain("orchestrator prompt");
+    expect(description).toContain("review verification");
+    expect(description).toContain("does not enforce the cap in code");
+    expect(ORCHESTRATOR_PARALLELISM_NOTE).toBe(description);
   });
 });
 

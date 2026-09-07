@@ -12,6 +12,12 @@ import { setupOpenHarness } from "./helpers/open-harness.js";
 const originalCwd = process.cwd();
 const { runOpen } = setupOpenHarness({ prefix: "codedeck-action-", restoreCwd: true });
 
+function writeConfig(config: Record<string, unknown>): void {
+  const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+  if (!configDir) throw new Error("test config directory is missing");
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify(config));
+}
+
 describe("opencode dispatch", () => {
   it("guarantees the daemon before spawning, in order", async () => {
     await runOpen(["reviewer", "--no-theme"]);
@@ -131,6 +137,57 @@ describe("claude dispatch", () => {
 
     const [, args] = vi.mocked(runtime.spawnHarness).mock.calls[0];
     expect(args).not.toContain("--remote-control");
+  });
+
+  it("passes the resolved orchestrator mode through to Claude", async () => {
+    writeConfig({
+      orchestrator: {
+        investigate: "read",
+        selfWork: "trivial",
+        tools: "edit",
+        parallelism: 2,
+      },
+    });
+    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
+    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
+    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+
+    await runOpen(["orchestrator", "--no-theme"]);
+
+    const [, args] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
+      "--agent",
+      "codedeck:orchestrator-edit",
+    ]);
+    expect(args).toContain("--append-system-prompt");
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toContain(
+      "Run at most 2 workers concurrently.",
+    );
+  });
+
+  it("passes the resolved orchestrator mode through to OpenCode", async () => {
+    writeConfig({
+      orchestrator: {
+        investigate: "read",
+        selfWork: "trivial",
+        tools: "read",
+      },
+      agents: { orchestrator: { harness: "opencode", model: "prov/m" } },
+    });
+
+    await runOpen(["orchestrator", "--no-theme"]);
+
+    const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    const agent = JSON.parse((opts.envExtra as Record<string, string>).OPENCODE_CONFIG_CONTENT)
+      .agent["codedeck-orchestrator"];
+    expect(agent.permission).toEqual({
+      read: "allow",
+      edit: "deny",
+      write: "deny",
+      task: "deny",
+      bash: "allow",
+    });
+    expect(agent.prompt).toContain("Investigation allowance: read.");
   });
 });
 

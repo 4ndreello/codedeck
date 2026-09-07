@@ -3,6 +3,24 @@ import path from "node:path";
 import { getPaths } from "./paths.js";
 import { isAgentId, type AgentId } from "../core/session.js";
 import type { Role } from "../core/roles.js";
+import type { OrchestratorMode } from "./orchestrator-mode.js";
+
+export {
+  BALANCED_PRESET,
+  DISPATCHER_PRESET,
+  EXPLORER_PRESET,
+  ORCHESTRATOR_PRESETS,
+  isOrchestratorMode,
+  orchestratorModeLabel,
+  resolveOrchestratorMode,
+} from "./orchestrator-mode.js";
+export type {
+  InvestigateMode,
+  OrchestratorMode,
+  OrchestratorModeLabel,
+  OrchestratorTools,
+  SelfWorkMode,
+} from "./orchestrator-mode.js";
 
 /**
  * Which harness runs a role, and on which model. Both halves are one answer:
@@ -25,6 +43,7 @@ export interface RunAgentConfig {
    */
   models?: Partial<Record<AgentId, string>>;
   agents?: Partial<Record<Role, RoleBinding>>;
+  orchestrator?: OrchestratorMode;
 }
 
 /**

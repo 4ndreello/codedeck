@@ -8,6 +8,7 @@ vi.mock("../src/drivers/helpers.js", async (importOriginal) => {
   return { ...mod, detectBinary: vi.fn() };
 });
 
+import { DISPATCHER_PRESET, type OrchestratorMode } from "../src/config/orchestrator-mode.js";
 import {
   agentName,
   buildArgs,
@@ -31,6 +32,11 @@ const mockedDetect = vi.mocked(detectBinary);
 
 const pluginDir = resolvePluginDir();
 
+const mode = (overrides: Partial<OrchestratorMode> = {}): OrchestratorMode => ({
+  ...DISPATCHER_PRESET,
+  ...overrides,
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -40,14 +46,19 @@ describe("rolePermission", () => {
     expect(rolePermission("general")).toEqual({ "*": "allow" });
   });
 
-  it("gives orchestrator bash and nothing else", () => {
-    expect(rolePermission("orchestrator")).toEqual({
-      read: "deny",
-      edit: "deny",
-      write: "deny",
-      task: "deny",
-      bash: "allow",
-    });
+  it.each([
+    ["dispatch", mode(), { read: "deny", edit: "deny", write: "deny", task: "deny", bash: "allow" }],
+    ["read", mode({ tools: "read" }), { read: "allow", edit: "deny", write: "deny", task: "deny", bash: "allow" }],
+    ["edit", mode({ tools: "edit" }), { read: "allow", edit: "allow", write: "allow", task: "deny", bash: "allow" }],
+  ] as const)("maps the orchestrator %s tier explicitly", (_tier, orchestratorMode, expected) => {
+    expect(rolePermission("orchestrator", orchestratorMode)).toEqual(expected);
+    expect(Object.keys(rolePermission("orchestrator", orchestratorMode))).toEqual([
+      "read",
+      "edit",
+      "write",
+      "task",
+      "bash",
+    ]);
   });
 
   it("denies reviewer edits and dispatch but keeps bash", () => {
@@ -89,6 +100,36 @@ describe("buildInlineConfig", () => {
       const parsed = JSON.parse(buildInlineConfig(pluginDir, role)) as any;
       expect(parsed.agent[`codedeck-${role}`].permission).toEqual(rolePermission(role));
     }
+  });
+
+  it("keeps the dispatcher contract byte-identical", () => {
+    expect(buildInlineConfig(pluginDir, "orchestrator", DISPATCHER_PRESET)).toBe(
+      buildInlineConfig(pluginDir, "orchestrator"),
+    );
+  });
+
+  it("appends the resolved orchestrator prose to the agent prompt", () => {
+    const parsed = JSON.parse(
+      buildInlineConfig(
+        pluginDir,
+        "orchestrator",
+        mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
+      ),
+    ) as any;
+
+    expect(parsed.agent["codedeck-orchestrator"].prompt).toMatch(
+      /Investigation allowance: read\.\nSelf-work allowance: trivial\.\nRun at most 2 workers concurrently\.$/,
+    );
+  });
+
+  it("leaves non-orchestrator prompts unchanged for a richer mode", () => {
+    expect(
+      buildInlineConfig(
+        pluginDir,
+        "reviewer",
+        mode({ investigate: "free", selfWork: "small", tools: "edit", parallelism: 3 }),
+      ),
+    ).toBe(buildInlineConfig(pluginDir, "reviewer"));
   });
 
   it("writes nothing to disk", () => {
