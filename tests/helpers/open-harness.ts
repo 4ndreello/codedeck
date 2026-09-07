@@ -32,6 +32,35 @@ export function setupOpenHarness(options: OpenHarnessOptions): {
       JSON.stringify({ agents: { reviewer: { harness: "opencode", model: "prov/m" } } }),
     );
     vi.spyOn(IpcClient.prototype, "ensureDaemonStarted").mockResolvedValue(undefined as never);
+    let idCounter = 1;
+    vi.spyOn(IpcClient.prototype, "request").mockImplementation(async (method: string, params: any) => {
+      if (method === "session.adopt") {
+        const id = (idCounter++).toString(16).padStart(4, "0");
+        return {
+          session: {
+            id,
+            runId: id,
+            origin: "open",
+            agent: params.agent,
+            model: params.model,
+            cwd: params.cwd,
+            name: params.name,
+            status: "working",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        } as any;
+      }
+      if (method === "session.patch" || method === "session.release") {
+        return {
+          session: {
+            id: params.id,
+            status: method === "session.release" ? (params.status || "completed") : "working",
+          },
+        } as any;
+      }
+      return {} as any;
+    });
     vi.spyOn(opencodeLauncher, "preflight").mockResolvedValue(undefined);
     vi.spyOn(opencodeLauncher, "resolveBinary").mockResolvedValue("/bin/opencode");
     vi.spyOn(runtime, "spawnHarness").mockResolvedValue(undefined);

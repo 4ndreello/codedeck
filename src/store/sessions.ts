@@ -32,6 +32,7 @@ export interface SessionRow {
   failure: string | null;
   log_offset: number | null;
   stderr_offset: number | null;
+  origin: string | null;
 }
 
 
@@ -48,6 +49,7 @@ function rowToSession(row: SessionRow): Session {
   return {
     id: row.id,
     runId: row.run_id ?? undefined,
+    origin: (row.origin as Session["origin"]) ?? undefined,
     name: row.name ?? undefined,
     agent: row.agent as AgentId,
     nativeSessionId: row.native_session_id ?? undefined,
@@ -102,11 +104,11 @@ export class SessionStore {
         pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
         last_event, effort, fast, sandbox, dangerously_bypass_approvals_and_sandbox, failure, log_offset, stderr_offset,
-        run_id
+        run_id, origin
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `);
     stmt.run(
@@ -139,6 +141,7 @@ export class SessionStore {
       session.logOffset ?? null,
       session.stderrOffset ?? null,
       session.runId ?? null,
+      session.origin ?? null,
     );
   }
 
@@ -226,6 +229,7 @@ export class SessionStore {
       log_offset: patch.logOffset,
       stderr_offset: patch.stderrOffset,
       failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
+      origin: patch.origin,
     };
 
     for (const [col, val] of Object.entries(map)) {

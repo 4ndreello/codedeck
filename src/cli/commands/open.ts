@@ -1,11 +1,11 @@
-import { execFileSync, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import * as readline from "node:readline";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
+import type { SessionAdoptResult } from "../../daemon/protocol.js";
 import {
   loadConfig,
   resolveRoleBinding,
@@ -89,11 +89,12 @@ export function launchClaude(
   args: string[],
   cwd: string,
   sessionFile: string,
-  onClose: () => void,
+  onClose: () => void | Promise<void>,
   spawnChild: typeof spawn = spawn,
   signalHost: SignalHost = process,
   envExtra?: Record<string, string>,
   pty?: PtyLaunch,
+  onSpawn?: (child: ChildProcess) => void | Promise<void>,
 ): Promise<void> {
   return spawnHarness(claudeBin, args, {
     cwd,
@@ -106,6 +107,7 @@ export function launchClaude(
     spawnChild,
     signalHost,
     pty,
+    onSpawn,
   });
 }
 
@@ -453,50 +455,141 @@ export function registerOpenCommand(program: Command): void {
       // this file into a live session, and on Linux anyone on the box can put
       // a file in /tmp under a name that is only a pid.
       const sessionFile = path.join(sessionsDir(), `codedeck-session-${process.pid}`);
-      const runId = randomUUID();
 
-      if (launcher === "opencode") {
-        // Dispatch needs a binding, and a binding always carries a model, so
-        // this is unreachable through the CLI. It stays because buildArgs
-        // takes a string and a TypeError is not a diagnostic.
-        if (boundModel === undefined) {
-          throw new Error(
-            `Agent "${role}" has no model bound. Run \`${getCliName()} setup\` to bind one.`,
-          );
-        }
-        // OO-20 (warn-and-continue) is retired: --worktree now isolates
-        // through a CodeDeck-side checkout, the same machinery as
-        // `run --worktree`. The harness has no native flag; CodeDeck does.
-        let openCwd = cwd;
-        if (opts.worktree) {
-          const gitInfo = await getGitInfo(cwd);
-          if (!gitInfo) {
-            throw new Error(
-              `--worktree needs a git repository, and the current directory is outside one.`,
+      if (launcher === "opencode" && boundModel === undefined) {
+        throw new Error(
+          `Agent "${role}" has no model bound. Run \`${getCliName()} setup\` to bind one.`,
+        );
+      }
+
+      const initialModel = passthroughModel ?? boundModel ?? (launcher === "opencode" ? undefined : DEFAULT_MODEL);
+      const adoptRes = await client.request<SessionAdoptResult>("session.adopt", {
+        agent: launcher,
+        model: initialModel,
+        cwd,
+        name: role,
+      });
+      const runId = adoptRes.session.id;
+
+      let patchPromise: Promise<unknown> | undefined;
+      try {
+        if (launcher === "opencode") {
+          let openCwd = cwd;
+          let wtInfo: { path: string; branch?: string; baseCommit?: string | null } | undefined;
+          if (opts.worktree) {
+            const gitInfo = await getGitInfo(cwd);
+            if (!gitInfo) {
+              throw new Error(
+                `--worktree needs a git repository, and the current directory is outside one.`,
+              );
+            }
+            // A creation failure propagates before the spawn: OP-14 would
+            // rather fail than open in the wrong cwd.
+            const wt = await createWorktree({
+              repoRoot: gitInfo.root,
+              sessionId: runId,
+              prompt: role,
+              name: role,
+            });
+            wtInfo = wt;
+            openCwd = wt.path;
+          }
+          const model = passthroughModel ?? boundModel!;
+          await preflightOpencode(model, fromConfig);
+          const opencodeBin = await resolveOpencodeBinary();
+          // No opencode effort reader (probe-effort-2026-09-07): an explicit
+          // flag warns instead of dying silently, and the banner keeps
+          // naming "default" (OP-16, OP-23).
+          const effort = "default";
+          if (opts.effort !== undefined) {
+            console.error(
+              'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
             );
           }
-          // A creation failure propagates before the spawn: OP-14 would
-          // rather fail than open in the wrong cwd.
-          const wt = await createWorktree({
-            repoRoot: gitInfo.root,
-            sessionId: runId,
-            prompt: role,
-            name: role,
-          });
-          openCwd = wt.path;
-        }
-        const model = passthroughModel ?? boundModel;
-        await preflightOpencode(model, fromConfig);
-        const opencodeBin = await resolveOpencodeBinary();
-        // No opencode effort reader (probe-effort-2026-09-07): an explicit
-        // flag warns instead of dying silently, and the banner keeps
-        // naming "default" (OP-16, OP-23).
-        const effort = "default";
-        if (opts.effort !== undefined) {
-          console.error(
-            'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
+
+          // --no-theme asks for no CodeDeck styling, and an animation is styling.
+          if (opts.theme === false) {
+            process.stdout.write(renderBanner(role, model, effort));
+          } else {
+            await playBoot(role, model, effort);
+          }
+
+          // --no-theme leaves the user's own opencode theme alone. Otherwise the
+          // managed rage theme is ensured once and selected through an ephemeral
+          // config dir, so the user's tui.json is never rewritten.
+          const tuiDir = opts.theme === false || !ensureOpencodeTheme(pluginDir)
+            ? undefined
+            : createEphemeralTuiDir();
+          // Snapshot before the spawn so the close path can tell which
+          // session this launch created (probe-session-id-2026-09-07).
+          const sessionsBefore = readOpencodeSessions(opencodeBin);
+          const closeOpencode = async () => {
+            if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
+            const after = readOpencodeSessions(opencodeBin);
+            const id = after === undefined || sessionsBefore === undefined
+              ? undefined
+              : diffOpencodeSession(sessionsBefore, after);
+            if (id !== undefined) {
+              try {
+                fs.writeFileSync(sessionFile, id);
+              } catch {}
+            }
+            const nativeSessionId = finishOpenSession(role, sessionFile);
+            try {
+              if (patchPromise) await patchPromise;
+            } catch {}
+            try {
+              await client.request("session.release", {
+                id: runId,
+                nativeSessionId,
+              });
+            } catch {}
+          };
+
+          await spawnHarness(
+            opencodeBin,
+            buildOpencodeArgs(role, { ...opts, model: boundModel! }, invocation.passthrough),
+            {
+              cwd: openCwd,
+              envExtra: {
+                CODEDECK_RUN_ID: runId,
+                OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),
+                ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
+              },
+              sessionFile,
+              model,
+              notFoundMessage: OPENCODE_NOT_FOUND,
+              onClose: closeOpencode,
+              onSpawn: (child) => {
+                if (child.pid) {
+                  patchPromise = client.request("session.patch", {
+                    id: runId,
+                    pid: child.pid,
+                    ...(wtInfo ? { worktree: wtInfo.path, branch: wtInfo.branch, baseCommit: wtInfo.baseCommit ?? undefined, cwd: wtInfo.path } : {}),
+                  });
+                }
+              },
+            },
           );
+          return;
         }
+
+        const resolved = boundModel ?? DEFAULT_MODEL;
+        const args = buildOpenArgs(
+          role,
+          { ...opts, model: resolved, remoteControl: config.remoteControl },
+          pluginDir,
+          invocation.passthrough,
+          cwd,
+          orchestratorMode,
+        );
+        const model = passthroughModel ?? resolved;
+
+        await preflightModel(model, fromConfig);
+        const claudeBin = await resolveBinary();
+        await assertSupport(claudeBin, cwd);
+
+        const effort = opts.effort ?? DEFAULT_EFFORT;
 
         // --no-theme asks for no CodeDeck styling, and an animation is styling.
         if (opts.theme === false) {
@@ -505,83 +598,48 @@ export function registerOpenCommand(program: Command): void {
           await playBoot(role, model, effort);
         }
 
-        // --no-theme leaves the user's own opencode theme alone. Otherwise the
-        // managed rage theme is ensured once and selected through an ephemeral
-        // config dir, so the user's tui.json is never rewritten.
-        const tuiDir = opts.theme === false || !ensureOpencodeTheme(pluginDir)
-          ? undefined
-          : createEphemeralTuiDir();
-        // Snapshot before the spawn so the close path can tell which
-        // session this launch created (probe-session-id-2026-09-07).
-        const sessionsBefore = readOpencodeSessions(opencodeBin);
-        const closeOpencode = () => {
-          if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
-          const after = readOpencodeSessions(opencodeBin);
-          const id = after === undefined || sessionsBefore === undefined
-            ? undefined
-            : diffOpencodeSession(sessionsBefore, after);
-          if (id !== undefined) {
-            try {
-              fs.writeFileSync(sessionFile, id);
-            } catch {}
-          }
-          finishOpenSession(role, sessionFile);
+        const closeClaude = async () => {
+          const nativeSessionId = finishOpenSession(role, sessionFile);
+          try {
+            if (patchPromise) await patchPromise;
+          } catch {}
+          try {
+            await client.request("session.release", {
+              id: runId,
+              nativeSessionId,
+            });
+          } catch {}
         };
 
-        await spawnHarness(
-          opencodeBin,
-          buildOpencodeArgs(role, { ...opts, model: boundModel }, invocation.passthrough),
-          {
-            cwd: openCwd,
-            envExtra: {
-              CODEDECK_RUN_ID: runId,
-              OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),
-              ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
-            },
-            sessionFile,
-            model,
-            notFoundMessage: OPENCODE_NOT_FOUND,
-            onClose: closeOpencode,
+        await launchClaude(
+          claudeBin,
+          model,
+          args,
+          cwd,
+          sessionFile,
+          closeClaude,
+          undefined,
+          undefined,
+          { CODEDECK_RUN_ID: runId },
+          ptyLaunchForHarness("claude", pluginDir, sessionFile, opts, config, interactive),
+          (child) => {
+            if (child.pid) {
+              patchPromise = client.request("session.patch", {
+                id: runId,
+                pid: child.pid,
+              });
+            }
           },
         );
-        return;
+      } catch (err: unknown) {
+        try {
+          await client.request("session.release", {
+            id: runId,
+            status: "failed",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        } catch {}
+        throw err;
       }
-
-      const resolved = boundModel ?? DEFAULT_MODEL;
-      const args = buildOpenArgs(
-        role,
-        { ...opts, model: resolved, remoteControl: config.remoteControl },
-        pluginDir,
-        invocation.passthrough,
-        cwd,
-        orchestratorMode,
-      );
-      const model = passthroughModel ?? resolved;
-
-      await preflightModel(model, fromConfig);
-      const claudeBin = await resolveBinary();
-      await assertSupport(claudeBin, cwd);
-
-      const effort = opts.effort ?? DEFAULT_EFFORT;
-
-      // --no-theme asks for no CodeDeck styling, and an animation is styling.
-      if (opts.theme === false) {
-        process.stdout.write(renderBanner(role, model, effort));
-      } else {
-        await playBoot(role, model, effort);
-      }
-
-      await launchClaude(
-        claudeBin,
-        model,
-        args,
-        cwd,
-        sessionFile,
-        () => finishOpenSession(role, sessionFile),
-        undefined,
-        undefined,
-        { CODEDECK_RUN_ID: runId },
-        ptyLaunchForHarness("claude", pluginDir, sessionFile, opts, config, interactive),
-      );
     });
 }

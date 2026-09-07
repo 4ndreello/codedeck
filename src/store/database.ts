@@ -51,7 +51,8 @@ export class Database {
         effort TEXT,
         fast INTEGER NOT NULL DEFAULT 0,
         sandbox TEXT,
-        dangerously_bypass_approvals_and_sandbox INTEGER
+        dangerously_bypass_approvals_and_sandbox INTEGER,
+        origin TEXT
       );
 
       CREATE TABLE IF NOT EXISTS events (
@@ -102,6 +103,7 @@ export class Database {
       ["stderr_offset", "INTEGER"],
       ["pid_start_time", "TEXT"],
       ["run_id", "TEXT"],
+      ["origin", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);

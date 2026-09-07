@@ -11,7 +11,7 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import { isTerminalStatus, normalizeAgentId, type AgentId, type Session } from "../core/session.js";
+import { isTerminalStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
@@ -142,6 +142,54 @@ class Daemon {
       // (no hunt). Defensive: listActive() already returns only
       // starting|working|needs_input|idle.
       if (s.status === "interrupted") continue;
+
+      if (s.origin === "open") {
+        if (s.pid == null) {
+          this.sessions.setStatus(s.id, "failed", { lastEvent: "open session terminated before patch" });
+          continue;
+        }
+        const currentStart = processStartTime(s.pid);
+        const processPresent = processAlive(s.pid);
+        const identityVerified = s.pidStartTime != null && currentStart === s.pidStartTime;
+
+        if (processPresent && identityVerified) {
+          // Head process still running interactively; remain working, no driver to attach
+          continue;
+        } else if (!processPresent) {
+          // Closed normally while daemon was away
+          const ev: AgentEvent = {
+            type: "session.completed",
+            sessionId: s.id,
+            timestamp: new Date().toISOString(),
+            reason: "closed while daemon was stopped",
+          };
+          this.events.append(s.id, ev);
+          this.sessions.setStatus(s.id, "completed", { lastEvent: "closed while daemon was stopped" });
+          continue;
+        } else {
+          // PID recycled (processPresent is true but !identityVerified)
+          const failure: FailureInfo = {
+            code: "HARNESS_CRASH",
+            blame: "harness",
+            retryable: false,
+            reason: "pid_reused",
+            detail: `PID ${s.pid} no longer identifies the head session`,
+          };
+          const detail = failure.detail ?? `PID ${s.pid} no longer identifies the head session`;
+          const event: AgentEvent = {
+            type: "session.failed",
+            sessionId: s.id,
+            timestamp: new Date().toISOString(),
+            error: detail,
+            failure,
+            raw: { pid: s.pid, expectedStartTime: s.pidStartTime, currentStart },
+          };
+          this.events.append(s.id, event);
+          this.sessions.setStatus(s.id, "failed", { lastEvent: detail, failure });
+          continue;
+        }
+      }
+
       const driver = this.registry.get(s.agent);
       const metadata = readSessionProcessMetadata(s.id);
       const pid = metadata?.pid ?? s.pid;
@@ -344,6 +392,131 @@ class Daemon {
         break;
       }
 
+      case "session.adopt": {
+        const p = params as any;
+        const cwdIn = p.cwd || process.cwd();
+        const rawAgent = p.agent || "claude";
+        const agent: AgentId = (normalizeAgentId(rawAgent) ?? rawAgent) as AgentId;
+        if (!this.registry.has(agent)) {
+          send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } });
+          return;
+        }
+
+        let sessionId = generateSessionId();
+        while (this.sessions.get(sessionId)) {
+          sessionId = generateSessionId();
+        }
+
+        const cwd = path.resolve(cwdIn);
+        let repository: string | undefined;
+        let baseCommit = p.baseCommit;
+
+        const gitInfo = await getGitInfo(cwd);
+        if (this.shuttingDown) {
+          send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+          return;
+        }
+        if (gitInfo) {
+          repository = gitInfo.root;
+          if (!baseCommit) baseCommit = gitInfo.head;
+        }
+
+        const now = new Date();
+        const session: Session = {
+          id: sessionId,
+          runId: sessionId,
+          origin: "open",
+          name: p.name,
+          agent,
+          model: p.model,
+          status: "working",
+          repository,
+          cwd,
+          worktree: p.worktree,
+          branch: p.branch,
+          baseCommit: baseCommit || undefined,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        this.sessions.create(session);
+        send({ result: { session } });
+        break;
+      }
+
+      case "session.patch": {
+        const p = params as any;
+        const s = this.sessions.get(p.id);
+        if (!s) {
+          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
+          return;
+        }
+
+        let pidStartTime = p.pidStartTime;
+        if (p.pid !== undefined && pidStartTime === undefined) {
+          pidStartTime = processStartTime(p.pid);
+        }
+
+        const updates: Partial<Session> = {};
+        if (p.pid !== undefined) updates.pid = p.pid;
+        if (pidStartTime !== undefined) updates.pidStartTime = pidStartTime;
+        if (p.worktree !== undefined) updates.worktree = p.worktree;
+        if (p.branch !== undefined) updates.branch = p.branch;
+        if (p.baseCommit !== undefined) updates.baseCommit = p.baseCommit;
+        if (p.cwd !== undefined) updates.cwd = p.cwd;
+
+        this.sessions.update(s.id, updates);
+        const updated = this.sessions.get(s.id)!;
+        send({ result: { session: updated } });
+        break;
+      }
+
+      case "session.release": {
+        const p = params as any;
+        const s = this.sessions.get(p.id);
+        if (!s) {
+          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
+          return;
+        }
+
+        if (isTerminalStatus(s.status)) {
+          send({ result: { session: s } });
+          return;
+        }
+
+        const targetStatus: SessionStatus = p.status === "failed" ? "failed" : "completed";
+        const extra: Partial<Session> = {};
+        if (p.nativeSessionId !== undefined) {
+          extra.nativeSessionId = p.nativeSessionId;
+        }
+        if (targetStatus === "failed") {
+          extra.lastEvent = (p.error || "failed").slice(0, 200);
+        } else {
+          extra.lastEvent = "released";
+        }
+        this.sessions.setStatus(s.id, targetStatus, extra);
+
+        const ev: AgentEvent = targetStatus === "failed"
+          ? {
+              type: "session.failed",
+              sessionId: s.id,
+              timestamp: new Date().toISOString(),
+              error: p.error || "session failed",
+            }
+          : {
+              type: "session.completed",
+              sessionId: s.id,
+              timestamp: new Date().toISOString(),
+              reason: "released",
+            };
+        this.events.append(s.id, ev);
+        this.broadcast(s.id, ev);
+
+        const updated = this.sessions.get(s.id)!;
+        send({ result: { session: updated } });
+        break;
+      }
+
       case "session.list": {
         const p = params as any;
         const all = p?.all;
@@ -378,6 +551,10 @@ class Daemon {
         const p = params as { id: string; message: string };
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (s.origin === "open") {
+          send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Session ${s.id} is an interactive head session and does not support headless prompt turns` } });
+          return;
+        }
         const driver = this.registry.get(s.agent);
         // Do not start a second harness while the current one is still live:
         // both runtimes would tail the same per-session file and duplicate
