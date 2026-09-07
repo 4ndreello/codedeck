@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { getPaths } from "../config/paths.js";
 
 /**
  * Owning the pty is what lets CodeDeck type for the user.
@@ -20,6 +20,10 @@ import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
  */
 
 const SHIM_FILE = "pty-shim.mjs";
+const SCRIPT_BINARY = "script";
+/** A path with a control character in it cannot be a real binary, and a shell
+ * string is the wrong place to find out. */
+const SAFE_PATH = /^[^\u0000-\u001f]+$/;
 const CONTROL_ENV = "CODEDECK_PTY_CONTROL";
 const ROWS_ENV = "CODEDECK_PTY_ROWS";
 const COLS_ENV = "CODEDECK_PTY_COLS";
@@ -38,6 +42,17 @@ export function ptyShimPath(pluginDir: string): string {
   return path.join(pluginDir, SHIM_FILE);
 }
 
+/**
+ * Where the session file and the name the hook derives from the first prompt
+ * live. Created 0700 on the way out, because what lands here is typed into a
+ * live session and the shared temp directory is writable by anyone on the box.
+ */
+export function sessionsDir(): string {
+  const dir = getPaths().sessionsDir;
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
@@ -47,6 +62,11 @@ function shellQuote(value: string): string {
  * and the harness sit between the terminal and Claude Code.
  */
 export function buildInnerCommand(shim: string, target: PtyTarget, node: string = process.execPath): string {
+  for (const part of [node, shim, target.bin]) {
+    if (!SAFE_PATH.test(part)) {
+      throw new Error(`pty: refusing to run a command with a control character in it: ${JSON.stringify(part)}`);
+    }
+  }
   return `exec ${[node, shim, target.bin, ...target.args].map(shellQuote).join(" ")}`;
 }
 
@@ -57,20 +77,32 @@ export function buildInnerCommand(shim: string, target: PtyTarget, node: string 
 export function buildScriptInvocation(
   inner: string,
   platform: NodeJS.Platform = process.platform,
+  bin: string = SCRIPT_BINARY,
 ): { bin: string; args: string[] } {
-  if (platform === "darwin") return { bin: "script", args: ["-q", "/dev/null", "/bin/sh", "-c", inner] };
-  return { bin: "script", args: ["-qefc", inner, "/dev/null"] };
+  if (platform === "darwin") return { bin, args: ["-q", "/dev/null", "/bin/sh", "-c", inner] };
+  return { bin, args: ["-qefc", inner, "/dev/null"] };
+}
+
+/**
+ * The absolute path of a binary on PATH, or nothing.
+ *
+ * Resolved rather than spawned by name so the session runs the `script` that
+ * was checked, instead of whatever a PATH entry resolves to a moment later.
+ */
+export function findBinaryOnPath(name: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const entries = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const entry of entries) {
+    const candidate = path.join(entry, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {}
+  }
+  return undefined;
 }
 
 export function hasBinaryOnPath(name: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const entries = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
-  for (const entry of entries) {
-    try {
-      fs.accessSync(path.join(entry, name), fs.constants.X_OK);
-      return true;
-    } catch {}
-  }
-  return false;
+  return findBinaryOnPath(name, env) !== undefined;
 }
 
 export interface PtyPreconditions {
@@ -93,7 +125,7 @@ export function ptyUnavailableReason(options: PtyPreconditions): string | undefi
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const fileExists = options.fileExists ?? ((file: string) => fs.existsSync(file));
-  const hasScript = options.hasScript ?? ((value: NodeJS.ProcessEnv) => hasBinaryOnPath("script", value));
+  const hasScript = options.hasScript ?? ((value: NodeJS.ProcessEnv) => hasBinaryOnPath(SCRIPT_BINARY, value));
 
   if (options.enabled === false) return "disabled by configuration";
   if (platform === "win32") return "no script(1) on Windows";
@@ -126,7 +158,14 @@ export function watchNameSidecar(sessionFile: string, onName: (name: string) => 
     if (delivered || !isSidecar(file)) return;
     let name: string;
     try {
-      name = fs.readFileSync(path.join(dir, file), "utf8");
+      // O_NOFOLLOW so a symlink planted under this name reads as nothing
+      // rather than as whatever it points at. Belt to the directory's braces.
+      const handle = fs.openSync(path.join(dir, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        name = fs.readFileSync(handle, "utf8");
+      } finally {
+        fs.closeSync(handle);
+      }
     } catch {
       return;
     }
@@ -188,13 +227,19 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   const spawnChild = options.spawnChild ?? nodeSpawn;
   const stdin = options.stdin ?? process.stdin;
   const stdout = options.stdout ?? process.stdout;
-  const control = path.join(os.tmpdir(), `codedeck-pty-${process.pid}-${Date.now().toString(36)}.sock`);
+  // In the private directory rather than the shared one: a peer that can
+  // connect to this socket can resize the session's terminal.
+  const control = path.join(sessionsDir(), `codedeck-pty-${process.pid}-${Date.now().toString(36)}.sock`);
   // A terminal that reports 0 is a terminal whose size nobody set: passing the
   // zero down would leave the inner pty exactly as unusable as script leaves it.
   const rows = stdout.rows || FALLBACK_ROWS;
   const columns = stdout.columns || FALLBACK_COLUMNS;
 
-  const invocation = buildScriptInvocation(buildInnerCommand(options.launch.shim, options.target));
+  const invocation = buildScriptInvocation(
+    buildInnerCommand(options.launch.shim, options.target),
+    process.platform,
+    findBinaryOnPath(SCRIPT_BINARY, options.env) ?? SCRIPT_BINARY,
+  );
   const child = spawnChild(invocation.bin, invocation.args, {
     cwd: options.cwd,
     env: {

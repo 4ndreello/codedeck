@@ -16,8 +16,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 CONFIG_DIR="$(mktemp -d)"
+STATE_DIR="$(mktemp -d)"
 CAPTURE="$WORK/capture"
-trap 'rm -rf "$WORK" "$CONFIG_DIR"' EXIT
+trap 'rm -rf "$WORK" "$CONFIG_DIR" "$STATE_DIR"' EXIT
 
 ROWS="${PTY_GATE_ROWS:-41}"
 COLS="${PTY_GATE_COLS:-137}"
@@ -86,7 +87,7 @@ chmod +x "$WORK/bin/claude"
   done
   printf 'quit\r'
   sleep 2
-) | RUN_AGENT_CONFIG_DIR="$CONFIG_DIR" PATH="$WORK/bin:$PATH" FAKE_NAME="$NAME" \
+) | RUN_AGENT_CONFIG_DIR="$CONFIG_DIR" RUN_AGENT_DIR="$STATE_DIR" PATH="$WORK/bin:$PATH" FAKE_NAME="$NAME" \
   timeout "$LIMIT" script -qec \
     "sh -c 'stty rows $ROWS cols $COLS; exec node \"$HERE/dist/cli/index.js\" open general --no-theme'" \
     /dev/null > "$CAPTURE" 2>&1 || true

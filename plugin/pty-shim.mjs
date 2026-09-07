@@ -16,9 +16,14 @@ import net from "node:net";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 
+// The command comes from `codedeck open`, one argv entry per argument, and is
+// run without a shell. The guard is there so a value that could only have been
+// mangled on the way in — a control character, an empty binary — stops here
+// rather than becoming a process.
+const SAFE_BINARY = /^[^\u0000-\u001f]+$/;
 const target = process.argv.slice(2);
-if (target.length === 0) {
-  process.stderr.write("pty-shim: missing target command\n");
+if (target.length === 0 || !SAFE_BINARY.test(target[0])) {
+  process.stderr.write("pty-shim: missing or unusable target command\n");
   process.exit(64);
 }
 
@@ -35,7 +40,8 @@ function applySize(rows, cols) {
 
 applySize(Number(process.env.CODEDECK_PTY_ROWS), Number(process.env.CODEDECK_PTY_COLS));
 
-const child = spawn(target[0], target.slice(1), { stdio: "inherit" });
+const [binary, ...args] = target;
+const child = spawn(binary, args, { stdio: "inherit", shell: false });
 
 // Ctrl+C typed by the user reaches the whole foreground group, this shim
 // included. The harness owns that key (Claude Code draws its own interrupt),

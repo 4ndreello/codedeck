@@ -33,6 +33,11 @@ export function getPaths() {
     logsDir: path.join(base, "logs"),
     worktreesDir: path.join(base, "worktrees"),
     cacheDir: path.join(base, "cache"),
+    // Per-session scratch: the session id a hook reports, and the name it
+    // derives from the first prompt. It lives here rather than in the shared
+    // temp directory because `open` types what it finds there into a live
+    // session, and on Linux anyone on the box can write to /tmp.
+    sessionsDir: path.join(base, "sessions"),
     modelsCache: path.join(base, "cache", "models.json"),
     configFile: path.join(configBase, "config.json"),
   };
@@ -43,4 +48,7 @@ export function ensureDirs(): void {
   for (const dir of [p.base, p.logsDir, p.worktreesDir, p.cacheDir, path.dirname(p.configFile)]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  // Narrower than the rest on purpose: what lands here is typed into a
+  // session, so only its owner may put anything in it.
+  fs.mkdirSync(p.sessionsDir, { recursive: true, mode: 0o700 });
 }

@@ -17,6 +17,7 @@ import type { AgentId } from "../../core/session.js";
 import { harnessInjection } from "../../open/injection.js";
 import { ptyShimPath, type PtyLaunch } from "../../open/pty.js";
 import { isInteractiveTerminal } from "./setup.js";
+import { sessionsDir } from "../../open/pty.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
 import { getCliName } from "../cli-name.js";
@@ -400,7 +401,10 @@ export function registerOpenCommand(program: Command): void {
         config,
       );
 
-      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
+      // Not the shared temp directory: `open` types the name it finds beside
+      // this file into a live session, and on Linux anyone on the box can put
+      // a file in /tmp under a name that is only a pid.
+      const sessionFile = path.join(sessionsDir(), `codedeck-session-${process.pid}`);
       const runId = randomUUID();
 
       if (launcher === "opencode") {

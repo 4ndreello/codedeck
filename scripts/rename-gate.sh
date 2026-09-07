@@ -15,12 +15,17 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CAPTURE="$(mktemp)"
 CONFIG_DIR="$(mktemp -d)"
-trap 'rm -rf "$CAPTURE" "$CONFIG_DIR"' EXIT
+STATE_DIR="$(mktemp -d)"
+trap 'rm -rf "$CAPTURE" "$CONFIG_DIR" "$STATE_DIR"' EXIT
 
 # Same reason as the theme gate: an empty `models` key means the wizard never
 # opens, so the session paints instead of waiting on a question.
 printf '{"models":{}}\n' > "$CONFIG_DIR/config.json"
 export RUN_AGENT_CONFIG_DIR="$CONFIG_DIR"
+# The session file and its name sidecar live under the state directory, so the
+# gate reads them from a run of its own rather than from a machine's history.
+export RUN_AGENT_DIR="$STATE_DIR"
+SESSIONS="$STATE_DIR/sessions"
 
 # The prompt is the name: plugin/hooks/session-name.sh slugifies it, so what
 # the session ends up called is predictable enough to grep for.
@@ -46,10 +51,6 @@ if [ ! -f "$CLAUDE_JSON" ]; then
   printf '{"hasCompletedOnboarding":true}\n' > "$CLAUDE_JSON"
 fi
 
-# Sidecars from earlier runs would make the assertion below lie about which
-# session was named.
-rm -f /tmp/codedeck-session-*.name
-
 echo "expecting the session to rename itself to \"$SLUG\""
 
 # --no-bypass keeps the gate runnable as root, where Claude Code refuses to
@@ -58,7 +59,7 @@ echo "expecting the session to rename itself to \"$SLUG\""
   | timeout "$LIMIT" script -qec "node '$HERE/dist/cli/index.js' open general --no-bypass" /dev/null \
   > "$CAPTURE" 2>&1 || true
 
-sidecar="$(ls -t /tmp/codedeck-session-*.name 2>/dev/null | head -1 || true)"
+sidecar="$(ls -t "$SESSIONS"/codedeck-session-*.name 2>/dev/null | head -1 || true)"
 if [ -z "$sidecar" ]; then
   echo "no name sidecar was written: the UserPromptSubmit hook never saw the prompt" >&2
   echo "--- capture tail ---" >&2

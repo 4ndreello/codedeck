@@ -234,6 +234,23 @@ describe("watchNameSidecar", () => {
     expect(seen).toEqual([]);
   });
 
+  // The prune covers what is already there; this covers a symlink appearing
+  // while the session runs, which is the only window left.
+  it("refuses a symlink planted under a sidecar's name", async () => {
+    const sessionFile = tempSessionFile();
+    const secret = path.join(path.dirname(sessionFile), "secret");
+    fs.writeFileSync(secret, "conteudo-que-nao-deve-ser-digitado", "utf8");
+    const seen: string[] = [];
+    const stop = watchNameSidecar(sessionFile, (name) => seen.push(name));
+
+    fs.symlinkSync(secret, sidecar(sessionFile));
+    fs.writeFileSync(sidecar(sessionFile, "33333333-4444-5555-6666-777777777777"), "nome-de-verdade", "utf8");
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    stop();
+
+    expect(seen).toEqual(["nome-de-verdade"]);
+  });
+
   it("costs the rename, never the session, when the directory cannot be watched", () => {
     vi.spyOn(fs, "watch").mockImplementation(() => {
       throw new Error("ENOSPC");
