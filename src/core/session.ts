@@ -36,6 +36,7 @@ export interface SessionUsage {
 export interface Session {
   id: string;
   runId?: string | null;
+  origin?: "open" | "run" | string | null;
   name?: string;
   agent: AgentId;
   nativeSessionId?: string;

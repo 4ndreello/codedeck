@@ -358,18 +358,21 @@ export function writeStdoutSync(text: string): void {
  */
 export const CLAUDE_RESUME_ERASE = "\x1b[2A\x1b[J";
 
-/** Takes the session id and writes the farewell while the SIGINT guard is live. */
+/** Takes the session id, writes the farewell while the SIGINT guard is live, and returns the native session id. */
 export function finishOpenSession(
   role: Role,
   sessionFile: string,
   write: (text: string) => void = writeStdoutSync,
   stdoutIsTty: boolean = process.stdout.isTTY === true,
-): void {
+): string | undefined {
   try {
     const id = takeSessionId(sessionFile);
     if (resumeHint(role, id) !== undefined && stdoutIsTty) write(CLAUDE_RESUME_ERASE);
     write(renderExit(role, id));
-  } catch {}
+    return id;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -560,7 +563,8 @@ export interface SpawnHarnessOptions {
   model?: string;
   notFoundMessage: string;
   entitlementError?: (model: string, output: string) => string | undefined;
-  onClose: () => void;
+  onClose: () => void | Promise<void>;
+  onSpawn?: (child: ChildProcess) => void | Promise<void>;
   spawnChild?: typeof spawn;
   signalHost?: SignalHost;
   /**
@@ -651,6 +655,15 @@ export function spawnHarness(
       return;
     }
 
+    if (opts.onSpawn && child) {
+      try {
+        const res = opts.onSpawn(child);
+        if (res && typeof (res as Promise<void>).catch === "function") {
+          (res as Promise<void>).catch(() => {});
+        }
+      } catch {}
+    }
+
     if (pty) relayPtyOutput(child, output, process.stdout);
     else relayStderr(child, output);
 
@@ -664,7 +677,7 @@ export function spawnHarness(
       }
     });
 
-    child.once("close", (code, signal) => {
+    child.once("close", async (code, signal) => {
       if (settled) return;
       settled = true;
       pty?.dispose();
@@ -680,7 +693,7 @@ export function spawnHarness(
 
       process.exitCode = exitCodeFor(code, signal);
       try {
-        opts.onClose();
+        await opts.onClose();
         sigintGuard.dispose();
         resolve();
       } catch (error) {

@@ -7,6 +7,9 @@ import type { RunUsageSummary } from "../core/run-usage.js";
 
 export type RequestMethod =
   | "session.create"
+  | "session.adopt"
+  | "session.patch"
+  | "session.release"
   | "session.list"
   | "session.get"
   | "session.rename"
@@ -43,6 +46,42 @@ export interface RunOptions {
 export interface CreateSessionRequest {
   method: "session.create";
   params: RunOptions;
+}
+
+export interface AdoptSessionRequest {
+  method: "session.adopt";
+  params: {
+    agent: AgentId;
+    model?: string;
+    cwd: string;
+    name?: string;
+    worktree?: string;
+    branch?: string;
+    baseCommit?: string;
+  };
+}
+
+export interface PatchSessionRequest {
+  method: "session.patch";
+  params: {
+    id: string;
+    pid?: number;
+    pidStartTime?: string;
+    worktree?: string;
+    branch?: string;
+    baseCommit?: string;
+    cwd?: string;
+  };
+}
+
+export interface ReleaseSessionRequest {
+  method: "session.release";
+  params: {
+    id: string;
+    status?: "completed" | "failed";
+    nativeSessionId?: string;
+    error?: string;
+  };
 }
 
 export interface ListSessionsRequest {
@@ -121,6 +160,9 @@ export interface ListModelsResult {
 
 export type RequestParams =
   | CreateSessionRequest
+  | AdoptSessionRequest
+  | PatchSessionRequest
+  | ReleaseSessionRequest
   | ListSessionsRequest
   | GetSessionRequest
   | RenameSessionRequest
@@ -155,6 +197,18 @@ export interface IpcResponse {
 }
 
 export interface SessionCreateResult {
+  session: Session;
+}
+
+export interface SessionAdoptResult {
+  session: Session;
+}
+
+export interface SessionPatchResult {
+  session: Session;
+}
+
+export interface SessionReleaseResult {
   session: Session;
 }
 
