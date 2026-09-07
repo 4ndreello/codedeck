@@ -6,6 +6,8 @@ import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
 import { getCliName } from "../cli/cli-name.js";
 
+import type { OrchestratorMode } from "../config/orchestrator-mode.js";
+
 export type ModelVerdict =
   | { kind: "ok" }
   | { kind: "unknown-catalog"; warning: string }
@@ -27,6 +29,28 @@ export interface OpenModelInput {
   passthroughModel?: string;
 }
 
+export function resolveRoleFile(
+  pluginDir: string,
+  role: Role,
+  mode?: OrchestratorMode,
+): string {
+  if (role === "orchestrator" && mode?.tools && mode.tools !== "dispatch") {
+    return path.join(pluginDir, "agents", `orchestrator-${mode.tools}.md`);
+  }
+  return roleFile(pluginDir, role);
+}
+
+export function resolveRoleBody(
+  pluginDir: string,
+  role: Role,
+  mode?: OrchestratorMode,
+): string {
+  const file = resolveRoleFile(pluginDir, role, mode);
+  const raw = fs.readFileSync(file, "utf8");
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
+  return (match ? raw.slice(match[0].length) : raw).trim();
+}
+
 /**
  * The prompt half of a role: the agent body without frontmatter plus the
  * shared ultra text. Identical for every harness; only the delivery differs
@@ -35,13 +59,14 @@ export interface OpenModelInput {
 export function resolveRoleContract(
   pluginDir: string,
   role: Role,
+  mode?: OrchestratorMode,
 ): { agentBody: string; ultra: string } {
-  const file = roleFile(pluginDir, role);
+  const file = resolveRoleFile(pluginDir, role, mode);
   if (!fs.existsSync(file)) {
     throw new Error(`Role "${role}" has no agent file at ${file}. The CodeDeck plugin is incomplete.`);
   }
   return {
-    agentBody: roleBody(pluginDir, role),
+    agentBody: resolveRoleBody(pluginDir, role, mode),
     ultra: readUltra(pluginDir),
   };
 }
