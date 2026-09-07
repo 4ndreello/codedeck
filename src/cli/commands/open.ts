@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import * as readline from "node:readline";
-import os from "node:os";
 import type { Command } from "commander";
 
 import { IpcClient } from "../../daemon/ipc.js";
@@ -11,8 +10,13 @@ import {
   resolveRoleBinding,
   resolveOrchestratorMode,
   type RoleBinding,
+  type RunAgentConfig,
 } from "../../config/config.js";
+import type { AgentId } from "../../core/session.js";
+import { harnessInjection } from "../../open/injection.js";
+import { ptyShimPath, type PtyLaunch } from "../../open/pty.js";
 import { isInteractiveTerminal } from "./setup.js";
+import { sessionsDir } from "../../open/pty.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
 import { getCliName } from "../cli-name.js";
@@ -85,6 +89,7 @@ export function launchClaude(
   spawnChild: typeof spawn = spawn,
   signalHost: SignalHost = process,
   envExtra?: Record<string, string>,
+  pty?: PtyLaunch,
 ): Promise<void> {
   return spawnHarness(claudeBin, args, {
     cwd,
@@ -96,7 +101,28 @@ export function launchClaude(
     onClose,
     spawnChild,
     signalHost,
+    pty,
   });
+}
+
+/**
+ * What CodeDeck may type into this harness, or nothing when the harness has no
+ * command worth typing or the caller turned the pty off. Interactive only: a
+ * `--print` launch has no TUI to type into.
+ */
+export function ptyLaunchForHarness(
+  harness: AgentId,
+  pluginDir: string,
+  sessionFile: string,
+  flags: { pty?: boolean },
+  config: RunAgentConfig,
+  interactive: boolean,
+): PtyLaunch | undefined {
+  if (!interactive) return undefined;
+  if (flags.pty === false || config.pty === false) return undefined;
+  const rename = harnessInjection(harness).rename;
+  if (!rename) return undefined;
+  return { shim: ptyShimPath(pluginDir), sessionFile, keystrokesForName: rename };
 }
 
 
@@ -345,6 +371,7 @@ export function registerOpenCommand(program: Command): void {
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
     .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
+    .option("--no-pty", "do not run the session under a pty, which also drops the automatic rename")
     .allowUnknownOption()
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
@@ -373,7 +400,10 @@ export function registerOpenCommand(program: Command): void {
         config,
       );
 
-      const sessionFile = path.join(os.tmpdir(), `codedeck-session-${process.pid}`);
+      // Not the shared temp directory: `open` types the name it finds beside
+      // this file into a live session, and on Linux anyone on the box can put
+      // a file in /tmp under a name that is only a pid.
+      const sessionFile = path.join(sessionsDir(), `codedeck-session-${process.pid}`);
       const runId = randomUUID();
 
       if (launcher === "opencode") {
@@ -467,6 +497,7 @@ export function registerOpenCommand(program: Command): void {
         undefined,
         undefined,
         { CODEDECK_RUN_ID: runId },
+        ptyLaunchForHarness("claude", pluginDir, sessionFile, opts, config, interactive),
       );
     });
 }

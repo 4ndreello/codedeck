@@ -81,7 +81,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 | Command | Description |
 |---------|-------------|
-| `npx codedeck open [role] [--no-bypass] [--no-theme] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
+| `npx codedeck open [role] [--no-bypass] [--no-theme] [--no-pty] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
 | `npx codedeck setup` | Choose the harness and model each agent should run on |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
@@ -124,7 +124,7 @@ Two things worth knowing before you edit an agent file. `--agent` layers on top 
 npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 ```
 
-`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, `--no-pty` opts out of the session naming itself, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
 
 ### What the session looks like
 
@@ -133,6 +133,14 @@ npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 The payload is generated rather than shipped because of `${CLAUDE_PLUGIN_ROOT}`. Claude Code expands it only for hooks declared in a plugin's `hooks/hooks.json`, never for `statusLine.command`, and the failure is silent: no status line, no error, not even under `--debug`. `open` knows the real plugin directory, so it writes the resolved path.
 
 `--no-theme` is the way out of all of it. It keeps the status line and hands back the stock renderer, palette, spinner and tips.
+
+### The session names itself from the first prompt
+
+Every session on a repo used to open as `CodeDeck · <project> · <role>`, which is the only name available at launch: the prompt does not exist yet. So `open` renames the session once the prompt does exist, and the name reaches the `/resume` picker and the Claude app instead of only the status line.
+
+Claude Code changes a live session's name through `/rename` and nothing else. The `rename_session` control request needs an SDK stdin or a device-signed Remote Control bridge, and the title record in the transcript is re-read on re-stamp rather than watched — neither is reachable from a hook. What is left is typing it, so `open` runs the session under a pty of its own: `script(1)` allocates it, a shim inside it keeps the window size right, and `plugin/hooks/session-name.sh` writes the first prompt's slug next to the session file for the wrapper to type. The keystrokes are per harness (`src/open/injection.ts`), so a harness with no command CodeDeck has probed gets no pty and nothing typed.
+
+`--no-pty`, or `"pty": false` in the config, keeps the plain spawn. So does anything the pty needs and cannot have: Windows, no `script(1)`, a launch that is not attached to a terminal, or a `-p`/`--print` run with no TUI to type into. The session opens either way; only the rename is lost.
 
 A launch carrying `-p`/`--print` answers once and exits, so it never asks anything. Checking for a terminal is not enough on its own, since a pty gives a TTY to scripts and CI runners alike.
 

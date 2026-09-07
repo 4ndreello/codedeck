@@ -92,6 +92,7 @@ describe("orchestrator config persistence", () => {
       defaultAgent: "claude",
       worktree: true,
       remoteControl: true,
+      pty: true,
       defaultModel: "legacy-default",
       orchestrator,
     };

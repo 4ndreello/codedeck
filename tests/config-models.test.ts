@@ -99,6 +99,7 @@ describe("config model persistence", () => {
       defaultAgent: "codex",
       worktree: true,
       remoteControl: true,
+      pty: true,
       defaultModel: "legacy-default",
       models: {
         claude: "claude-configured",
@@ -132,6 +133,7 @@ describe("config model persistence", () => {
       defaultAgent: "claude",
       worktree: false,
       remoteControl: true,
+      pty: true,
       agents: {
         general: { harness: "claude", model: "claude-opus-4-8" },
         reviewer: { harness: "codex", model: "gpt-5.6-luna" },

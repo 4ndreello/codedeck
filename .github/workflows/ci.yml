@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Every job here only reads the checkout, and none of them posts back.
+permissions:
+  contents: read
+
 # A new push to the same branch makes the in-flight run pointless.
 concurrency:
   group: ci-${{ github.ref }}
@@ -34,6 +38,13 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+      # `open` owns the terminal so it can type `/rename` into the harness, and
+      # none of that is visible to a unit test: the size, the keystrokes and the
+      # fallback only exist once a real pty is in the picture. The gate stands a
+      # fake harness in for claude, so it needs no credential — and running it
+      # here covers both Node versions off a checkout that is already built.
+      - run: ./scripts/pty-gate.sh
 
   plugin:
     # The plugin ships inside the package, so a broken manifest is a broken
@@ -83,6 +94,18 @@ jobs:
           npm ci --ignore-scripts
           npm run build
           ./scripts/theme-gate.sh
+
+      - name: Session rename gate
+        # The other half of the rename chain is Claude Code's own: that a
+        # `/rename` queued during a turn executes as a command instead of
+        # reaching the model as a prompt. Only a real session answers that,
+        # so this needs the same credential the theme gate does.
+        if: env.ANTHROPIC_API_KEY != ''
+        run: ./scripts/rename-gate.sh
+
+      - name: Session rename gate skipped
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning title=Rename gate skipped::No ANTHROPIC_API_KEY, the automatic rename was not verified against a real session."
 
       - name: Theme render gate skipped
         # Skipped loudly rather than reported as a pass it never earned. The
