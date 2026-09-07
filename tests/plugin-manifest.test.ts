@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,51 @@ const field = (source: string, name: string) =>
 
 const agentBody = (path: string) =>
   readText(path).replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+
+// Drives the real session-name hook against a stubbed `claude` on PATH. Both the
+// success and the fallback case need the same wiring, so it lives here once.
+const spawnNameHook = (options: { sessionId: string; claudeStub: string }) => {
+  const tempDir = mkdtempSync(join(os.tmpdir(), "codedeck-session-name-"));
+  const binDir = mkdtempSync(join(os.tmpdir(), "codedeck-session-name-bin-"));
+  const sessionFile = join(tempDir, "session");
+  const sidecar = `${sessionFile}.${options.sessionId}.name`;
+  writeFileSync(join(binDir, "claude"), options.claudeStub, { mode: 0o755 });
+
+  const run = (prompt: string) =>
+    new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn("bash", [plugin("hooks", "session-name.sh")], {
+        env: {
+          ...process.env,
+          CLAUDE_PLUGIN_ROOT: plugin(),
+          CODEDECK_SESSION_FILE: sessionFile,
+          PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk: Buffer | string) => { stdout += chunk.toString(); });
+      child.stderr.on("data", (chunk: Buffer | string) => { stderr += chunk.toString(); });
+      child.once("error", reject);
+      child.once("close", (status) => resolve({ status, stdout, stderr }));
+      child.stdin.end(JSON.stringify({ prompt, session_id: options.sessionId }));
+    });
+
+  const waitForSidecar = async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (existsSync(sidecar)) return readFileSync(sidecar, "utf8");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("session name sidecar was not written");
+  };
+
+  const cleanup = () => {
+    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  };
+
+  return { run, waitForSidecar, sidecar, cleanup };
+};
 
 describe("CodeDeck plugin manifest contract", () => {
   it("pins the plugin identity and experimental theme directory", () => {
@@ -121,44 +166,44 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(statSync(plugin("hooks", "session-name.sh")).mode & 0o111).not.toBe(0);
   });
 
-  it("derives a task name once, sanitizes it, and stays silent", async () => {
-    const tempDir = mkdtempSync(join(os.tmpdir(), "codedeck-session-name-"));
-    const sessionFile = join(tempDir, "session");
-    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
-    const sidecar = `${sessionFile}.${sessionId}.name`;
-    const run = (prompt: string) => new Promise<{
-      status: number | null;
-      stdout: string;
-      stderr: string;
-    }>((resolve, reject) => {
-      const child = spawn("bash", [plugin("hooks", "session-name.sh")], {
-        env: { ...process.env, CODEDECK_SESSION_FILE: sessionFile },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk: Buffer | string) => { stdout += chunk.toString(); });
-      child.stderr.on("data", (chunk: Buffer | string) => { stderr += chunk.toString(); });
-      child.once("error", reject);
-      child.once("close", (status) => resolve({ status, stdout, stderr }));
-      child.stdin.end(JSON.stringify({ prompt, session_id: sessionId }));
+  it("dispatches the first prompt once, stays silent, and writes the worker title", async () => {
+    const hook = spawnNameHook({
+      sessionId: "92d88cce-bdbc-46db-8573-916afd32f6f7",
+      claudeStub: "#!/bin/sh\nprintf '%s\\n' 'Stub title'\n",
     });
 
     try {
-      const first = await run(" !!! Fix API / auth retry logic withx a very long tail that must disappear !!! ");
+      const first = await hook.run("summarize this prompt");
       expect(first.status).toBe(0);
       expect(first.stdout).toBe("");
       expect(first.stderr).toBe("");
-      expect(readFileSync(sidecar, "utf8")).toBe("fix-api-auth-retry-logic-withx");
+      await expect(hook.waitForSidecar()).resolves.toBe("Stub title");
 
-      writeFileSync(sidecar, "keep-this-name");
-      const second = await run("replace this name");
+      writeFileSync(hook.sidecar, "keep-this-name");
+      const second = await hook.run("replace this name");
       expect(second.status).toBe(0);
       expect(second.stdout).toBe("");
       expect(second.stderr).toBe("");
-      expect(readFileSync(sidecar, "utf8")).toBe("keep-this-name");
+      expect(readFileSync(hook.sidecar, "utf8")).toBe("keep-this-name");
     } finally {
-      rmSync(tempDir, { recursive: true, force: true });
+      hook.cleanup();
+    }
+  });
+
+  it("falls back to the slug when the title worker fails", async () => {
+    const hook = spawnNameHook({
+      sessionId: "a3b4c5d6-e7f8-4901-abcd-234567890123",
+      claudeStub: "#!/bin/sh\nexit 1\n",
+    });
+
+    try {
+      const result = await hook.run("Fix the PTY bug");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+      await expect(hook.waitForSidecar()).resolves.toBe("fix-the-pty-bug");
+    } finally {
+      hook.cleanup();
     }
   });
 
