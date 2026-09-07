@@ -67,7 +67,15 @@ describe("buildCodexArgs", () => {
 
 describe("buildClaudeArgs", () => {
   it("passes effort as a first-class flag", () => {
-    expect(hasPair(buildClaudeArgs({ ...base, effort: "max" }), "--effort", "max")).toBe(true);
+    const args = buildClaudeArgs({ ...base, effort: "max" });
+    expect(hasPair(args, "--effort", "max")).toBe(true);
+    expect(
+      hasPair(
+        buildClaudeArgs({ ...base, effort: "max" }, { autocompact: { enabled: true } }),
+        "--autocompact",
+        "260000",
+      ),
+    ).toBe(true);
   });
 
   it("ignores fast because Claude has no service tier flag", () => {

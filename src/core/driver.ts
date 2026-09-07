@@ -2,6 +2,7 @@ import type { AgentCapabilities } from "./capabilities.js";
 import type { AgentEvent } from "./events.js";
 import type { AgentId } from "./session.js";
 import type { ListModelsOptions, ProviderModels } from "./models.js";
+import type { AutocompactExplicit } from "./autocompact.js";
 
 export interface AgentInstallation {
   installed: boolean;
@@ -45,6 +46,12 @@ export interface StartOptions {
   cwd: string;
   model?: string;
   effort?: ReasoningEffort;
+  // Claude's native compaction setting. Other drivers ignore this field.
+  autocompact?: AutocompactExplicit;
+  // Optional model metadata used when resolving Claude's context-based default.
+  contextWindow?: number;
+  // Reserved for callers that already own a final harness passthrough.
+  passthrough?: readonly string[];
   // OpenAI "priority" service tier (1.5x speed). Codex and omp support it;
   // Claude has no equivalent flag, so its driver ignores this.
   fast?: boolean;

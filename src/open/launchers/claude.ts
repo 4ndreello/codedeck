@@ -4,7 +4,9 @@ import { promisify } from "node:util";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
+import { autocompactArgs } from "../../core/autocompact.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
+import type { RunAgentConfig } from "../../config/config.js";
 import type { Role } from "../../core/roles.js";
 import { catalogWarning, judgeModelIn, readUltra, type ModelVerdict, type OpenFlags } from "../contract.js";
 import { composeOrchestratorProse } from "../orchestrator-prose.js";
@@ -98,11 +100,13 @@ export function buildOpenArgs(
   passthrough: string[],
   cwd?: string,
   mode: OrchestratorMode = DISPATCHER_PRESET,
+  config: RunAgentConfig = {},
 ): string[] {
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
   const agent = role !== "orchestrator"
     ? `${PLUGIN_NAME}:${role}`
     : `${PLUGIN_NAME}:orchestrator${mode.tools === "dispatch" ? "" : `-${mode.tools}`}`;
+  const autocompact = flags.autocompact ?? (config.autocompact === undefined ? false : undefined);
 
   const args = [
     "--model",
@@ -128,6 +132,7 @@ export function buildOpenArgs(
     sessionName(role, cwd),
     ...(flags.resume ? ["--resume", flags.resume] : []),
     ...(flags.worktree ? ["-w"] : []),
+    ...autocompactArgs({ config, explicit: autocompact, passthrough }),
     ...passthrough,
   ];
 
