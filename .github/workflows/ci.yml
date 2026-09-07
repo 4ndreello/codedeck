@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Every job here only reads the checkout, and none of them posts back.
+permissions:
+  contents: read
+
 # A new push to the same branch makes the in-flight run pointless.
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,24 +39,11 @@ jobs:
 
       - run: npm test
 
-  pty:
-    # `open` owns the terminal so it can type `/rename` into the harness, and
-    # none of that is visible to a unit test: the size, the keystrokes and the
-    # fallback only exist once a real pty is in the picture. The gate stands a
-    # fake harness in for claude, so it needs no credential.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: npm
-
-      - run: npm ci --ignore-scripts
-
-      - run: npm run build
-
+      # `open` owns the terminal so it can type `/rename` into the harness, and
+      # none of that is visible to a unit test: the size, the keystrokes and the
+      # fallback only exist once a real pty is in the picture. The gate stands a
+      # fake harness in for claude, so it needs no credential — and running it
+      # here covers both Node versions off a checkout that is already built.
       - run: ./scripts/pty-gate.sh
 
   plugin:

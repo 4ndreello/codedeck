@@ -57,7 +57,7 @@ to own the terminal.
 
 ### Block C: the evidence
 
-- `scripts/pty-gate.sh` runs the real `open` path against a stand-in harness
+- `scripts/pty-gate.sh`, run by the test job on every supported Node version, drives the real `open` path against a stand-in harness
   and asserts the tty, the size, that the pty path was taken rather than the
   fallback, that the rename was typed, and that keys typed after it still
   arrive. No credential, no network.

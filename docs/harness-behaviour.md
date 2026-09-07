@@ -172,3 +172,78 @@ in a block that is otherwise 149 Ambiguous and 40 Neutral.
 Checked with `unicodedata.east_asian_width`, skipping code points whose
 category is `Cn`, since an unassigned one reports `N` and would otherwise read
 as a narrow character that exists.
+
+## A live session's name can only be typed
+
+Measured against `claude 2.1.263` on 2026-09-07, by reading the shipped
+binary's strings, since none of this is documented and all of it is load
+bearing for `codedeck open`.
+
+There are four ways a session name could reach Claude Code, and three of them
+are closed:
+
+1. **`-n/--name`** writes the session's *custom title*. That is the field the
+   `/resume` picker and the Claude app list, and it is fixed at launch — before
+   any prompt exists, which is the whole problem.
+2. **Claude Code's own Haiku title.** It does derive a title from the first
+   user message and push it to the Remote Control bridge
+   (`generateSessionTitle` → `saveAiGeneratedTitle` → `adoptLocalAiTitle`), but
+   the gate is:
+
+   ```js
+   let {disabled, sessionTitle, aiSessionTitle, agentTitle} = titles.getSnapshot();
+   if (!disabled && !sessionTitle && !aiSessionTitle && !agentTitle && !_haikuTitleAttempted) { … }
+   ```
+
+   where `sessionTitle` is the custom title and `agentTitle` is
+   `scope.mainThreadAgentDefinition?.agentType`. CodeDeck trips both: `-n` sets
+   the first, `--agent` sets the second. Dropping `-n` alone does not help —
+   `--agent` closes it on its own, and a session with neither falls back to the
+   Remote Control auto-name (`<host>-<adjective>-<colour>`).
+3. **The `rename_session` control request** exists — *"Sets the user-facing
+   title for the current session"* — and is reachable only from an SDK stdin
+   (`--input-format stream-json`) or a Remote Control bridge with a device
+   signature. Everything else is dropped with
+   `[bridge:attestation] DROPPING unverified control_request`. A hook has
+   neither channel.
+4. **The transcript record.** The title is persisted as
+   `{"type":"custom-title","customTitle":…,"sessionId":…}` in the session
+   `.jsonl`, and there is code that reads it back — but inside
+   `restoreSessionMetadata`/`reAppendSessionMetadata`, which runs on re-stamp
+   (start, resume, compaction). It is not a watcher, so appending that line
+   from outside does not rename a running session.
+
+What is left is `/rename`, a TUI command with no CLI equivalent (`claude
+agents|attach|logs|stop|rm|respawn|project` — none of them rename). So
+`codedeck open` owns the pty and types it, which is what `src/open/pty.ts`
+exists for.
+
+### A slash command typed during a turn still runs as a command
+
+The keystrokes land at `UserPromptSubmit`, while the turn Claude Code just
+started is still running, so they are queued rather than executed. They are
+not turned into a prompt: each queued item carries its mode
+(`ve.mode === "prompt"`, `"bash"`, …), and the drain path,
+`executeQueuedInput`, is handed the command registry and special-cases a value
+that `.trim().startsWith("/")`. The rename therefore executes when the turn
+ends.
+
+`scripts/rename-gate.sh` is the end-to-end check for exactly this half: it
+submits a first prompt to a real session and then greps the transcript for the
+matching `custom-title`.
+
+### `script(1)` hands over a pty with no size
+
+`script` only dimensions its pty when its own stdin is a terminal. CodeDeck
+feeds it a pipe, because that pipe is the injection channel, and the pty then
+comes up `0 0`:
+
+```console
+$ : | script -qec "stty size" /dev/null
+0 0
+```
+
+`stty` run *inside* the pty fixes it, and that is what `plugin/pty-shim.mjs`
+is for — Node has no ioctl, so the size can only be set by a binary that does
+the call. Writing it on the slave also raises SIGWINCH on the foreground
+group, so the TUI redraws without knowing the shim is there.

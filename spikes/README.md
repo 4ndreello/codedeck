@@ -37,7 +37,7 @@ Parser normaliza para `AgentEvent` e preserva `raw`.
 
 ## Spike PTY: renomear a sessão do Claude Code pelo 1º prompt
 
-`spikes/pty-rename.ts` + `spikes/pty-shim.mjs` + `spikes/pty-probe.mjs` + `spikes/pty-harness.py`
+`spikes/pty-rename.ts` + `spikes/pty-probe.mjs` + `spikes/pty-harness.py`, driving the shim that now ships as `plugin/pty-shim.mjs`
 
 Rodar:
 
