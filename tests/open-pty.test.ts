@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -360,5 +361,15 @@ describe("startPtySession", () => {
 
     expect(() => childStdin.emit("error", new Error("write EPIPE"))).not.toThrow();
     session.dispose();
+  });
+});
+
+// The workflow runs these as `./scripts/<name>.sh`, so a mode that lost its
+// executable bit is a red job and nothing else. It has happened once.
+describe("gate scripts", () => {
+  it.each(["pty-gate.sh", "rename-gate.sh"])("ships %s executable", (name) => {
+    const file = fileURLToPath(new URL(`../scripts/${name}`, import.meta.url));
+
+    expect(fs.statSync(file).mode & 0o111).not.toBe(0);
   });
 });
