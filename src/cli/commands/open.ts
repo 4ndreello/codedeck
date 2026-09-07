@@ -46,6 +46,7 @@ import {
   resolveBinary,
 } from "../../open/launchers/claude.js";
 import {
+  SESSION_ID_PATTERN,
   SPINNER_VERBS,
   assertPluginDirectory,
   currentWorkingDirectory,
@@ -67,6 +68,7 @@ export { buildOpenArgs, buildSettings, entitlementError, judgeModel, sessionName
 export type { ModelVerdict } from "../../open/contract.js";
 export {
   CLAUDE_RESUME_ERASE,
+  SESSION_ID_PATTERN,
   bootFrame,
   ensureCodedeckShim,
   exitCodeFor,
@@ -168,6 +170,7 @@ export type OpenHarness = "claude" | "opencode";
 export interface OpencodeSessionRow {
   id: unknown;
   created: unknown;
+  updated?: unknown;
 }
 
 /**
@@ -175,13 +178,17 @@ export interface OpencodeSessionRow {
  * is allowed to fail: no snapshot means no resume hint (OP-09), never a
  * failed launch. No daemon, no config writes (OP-10, OP-19).
  */
-export function readOpencodeSessions(bin: string): OpencodeSessionRow[] | undefined {
+export function readOpencodeSessions(
+  bin: string,
+  cwd?: string,
+): OpencodeSessionRow[] | undefined {
   try {
     const parsed: unknown = JSON.parse(
       execFileSync(bin, ["session", "list", "--format", "json", "-n", "50"], {
         encoding: "utf8",
         timeout: 10000,
         maxBuffer: 1024 * 1024,
+        ...(cwd !== undefined ? { cwd } : {}),
       }),
     );
     return Array.isArray(parsed) ? (parsed as OpencodeSessionRow[]) : undefined;
@@ -191,8 +198,10 @@ export function readOpencodeSessions(bin: string): OpencodeSessionRow[] | undefi
 }
 
 /**
- * The id of the one session that appeared between snapshots, or
- * undefined. Zero or several new sessions mean "cannot tell", and a
+ * The id of the session created or continued between snapshots, or
+ * undefined. A newly created session takes precedence; if no session was
+ * created, a single session whose updated timestamp moved forward is
+ * identified. Zero or ambiguous sessions mean "cannot tell", and a
  * missing hint beats a wrong one.
  */
 export function diffOpencodeSession(
@@ -206,8 +215,32 @@ export function diffOpencodeSession(
     (row): row is { id: string } & OpencodeSessionRow =>
       typeof row.id === "string" && !known.has(row.id),
   );
-  if (fresh.length !== 1) return undefined;
-  return fresh[0].id;
+  if (fresh.length === 1) return fresh[0].id;
+  if (fresh.length > 1) return undefined;
+
+  const beforeUpdated = new Map<string, number>();
+  for (const row of before) {
+    if (typeof row.id === "string" && typeof row.updated === "number") {
+      beforeUpdated.set(row.id, row.updated);
+    }
+  }
+
+  const touched = after.filter(
+    (row): row is { id: string; updated: number } & OpencodeSessionRow =>
+      typeof row.id === "string" &&
+      typeof row.updated === "number" &&
+      beforeUpdated.has(row.id) &&
+      row.updated > (beforeUpdated.get(row.id) ?? 0),
+  );
+
+  if (touched.length === 1) return touched[0].id;
+  if (touched.length > 1) {
+    touched.sort((a, b) => b.updated - a.updated);
+    if (touched[0].updated > touched[1].updated) {
+      return touched[0].id;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -418,7 +451,7 @@ export function registerOpenCommand(program: Command): void {
     .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
-    .option("--resume <session>", "resume a Claude Code session")
+    .option("--resume <session>", "resume an interactive session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
     .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
@@ -521,14 +554,15 @@ export function registerOpenCommand(program: Command): void {
             ? undefined
             : createEphemeralTuiDir();
           // Snapshot before the spawn so the close path can tell which
-          // session this launch created (probe-session-id-2026-09-07).
-          const sessionsBefore = readOpencodeSessions(opencodeBin);
+          // session this launch created or continued (probe-session-id-2026-09-07).
+          const sessionsBefore = readOpencodeSessions(opencodeBin, openCwd);
           const closeOpencode = async () => {
             if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
-            const after = readOpencodeSessions(opencodeBin);
-            const id = after === undefined || sessionsBefore === undefined
+            const after = readOpencodeSessions(opencodeBin, openCwd);
+            const diffedId = after === undefined || sessionsBefore === undefined
               ? undefined
               : diffOpencodeSession(sessionsBefore, after);
+            const id = diffedId ?? (opts.resume && SESSION_ID_PATTERN.test(opts.resume) ? opts.resume : undefined);
             if (id !== undefined) {
               try {
                 fs.writeFileSync(sessionFile, id);
@@ -599,6 +633,11 @@ export function registerOpenCommand(program: Command): void {
         }
 
         const closeClaude = async () => {
+          if (!fs.existsSync(sessionFile) && opts.resume && SESSION_ID_PATTERN.test(opts.resume)) {
+            try {
+              fs.writeFileSync(sessionFile, opts.resume);
+            } catch {}
+          }
           const nativeSessionId = finishOpenSession(role, sessionFile);
           try {
             if (patchPromise) await patchPromise;
