@@ -6,19 +6,33 @@ export function getHomeDir(): string {
   return os.homedir();
 }
 
+function nonEmpty(value: string | undefined): value is string {
+  return value !== undefined && value.trim() !== "";
+}
+
 export function getRunAgentDir(): string {
   // Allow override via env for testing
-  if (process.env.RUN_AGENT_DIR) return process.env.RUN_AGENT_DIR;
+  if (nonEmpty(process.env.RUN_AGENT_DIR)) return path.resolve(process.env.RUN_AGENT_DIR);
   // Respect XDG_DATA_HOME if set, otherwise ~/.run-agent as per spec
   // Spec says ~/.run-agent, we honor that
-  return path.join(getHomeDir(), ".run-agent");
+  return path.resolve(getHomeDir(), ".run-agent");
 }
 
 export function getConfigDir(): string {
-  if (process.env.RUN_AGENT_CONFIG_DIR) return process.env.RUN_AGENT_CONFIG_DIR;
+  if (nonEmpty(process.env.RUN_AGENT_CONFIG_DIR)) {
+    return path.resolve(process.env.RUN_AGENT_CONFIG_DIR);
+  }
   const xdg = process.env.XDG_CONFIG_HOME;
-  if (xdg) return path.join(xdg, "run-agent");
-  return path.join(getHomeDir(), ".config", "run-agent");
+  if (nonEmpty(xdg)) return path.resolve(xdg, "run-agent");
+  return path.resolve(getHomeDir(), ".config", "run-agent");
+}
+
+export function hasConfigOverride(env: NodeJS.ProcessEnv = process.env): boolean {
+  return nonEmpty(env.RUN_AGENT_CONFIG_DIR) || nonEmpty(env.XDG_CONFIG_HOME);
+}
+
+export function getLegacyConfigFile(): string {
+  return path.resolve(getHomeDir(), ".run-agent", "config.json");
 }
 
 export function getPaths() {
@@ -39,7 +53,8 @@ export function getPaths() {
     // session, and on Linux anyone on the box can write to /tmp.
     sessionsDir: path.join(base, "sessions"),
     modelsCache: path.join(base, "cache", "models.json"),
-    configFile: path.join(configBase, "config.json"),
+    configFile: path.resolve(configBase, "config.json"),
+    legacyConfigFile: getLegacyConfigFile(),
   };
 }
 

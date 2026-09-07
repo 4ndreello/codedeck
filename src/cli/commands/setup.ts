@@ -1,26 +1,34 @@
 import type { Command } from "commander";
 import type { DriverRegistry } from "../../core/driver.js";
 import {
+  getBatchModels,
   getCachedOrDiscoverModels,
+  type BatchDiscovery,
   type HarnessModels,
 } from "../../core/models.js";
-import type { AgentId } from "../../core/session.js";
+import { isAgentId, type AgentId } from "../../core/session.js";
 import { itemKey, type PickerItem, type Screen, type ScreenResult } from "../picker-state.js";
 import { runScreens } from "../picker.js";
 import { colors, readDimensions, type Dimensions } from "../ui.js";
 import { getCliName } from "../cli-name.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { ROLES, type Role } from "../../core/roles.js";
+import { getPaths } from "../../config/paths.js";
 import {
   BALANCED_PRESET,
   DISPATCHER_PRESET,
   EXPLORER_PRESET,
   ORCHESTRATOR_PRESETS,
+  createSetupConfigStore,
+  DEFAULT_CONFIG,
   isOrchestratorMode,
   loadConfig,
   orchestratorModeLabel,
   resolveOrchestratorMode,
   saveConfig,
+  serializeConfig,
+  type SetupConfigRead,
+  type SetupConfigStore,
   type InvestigateMode,
   type OrchestratorMode,
   type OrchestratorTools,
@@ -614,11 +622,15 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
       updatedConfig.defaultSandbox = sandboxSelection.id;
     }
   }
+  let saved = false;
   try {
     (options.save ?? saveConfig)(updatedConfig);
+    saved = true;
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
   }
+
+  if (!saved) return updatedConfig;
 
   const summary = roleScreens
     .map((screen) => {
@@ -631,19 +643,727 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   return updatedConfig;
 }
 
-export function registerSetupCommand(program: Command): void {
+export interface ParsedSetupBinding {
+  role: Role;
+  binding: RoleBinding;
+}
+
+export interface SetupCliOptions {
+  refresh: boolean;
+  nonInteractive: boolean;
+  json: boolean;
+  dryRun: boolean;
+  binds: ParsedSetupBinding[];
+  batch: boolean;
+}
+
+export class SetupUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SetupUsageError";
+  }
+}
+
+function invalidBindMessage(value: string): string {
+  return `Invalid --bind "${value}": expected role=harness:model (role: general|orchestrator|reviewer|auditor; harness: claude|codex|opencode|omp; model: non-empty and without whitespace, control characters or '=')`;
+}
+
+export function parseBind(value: string): ParsedSetupBinding {
+  const equals = value.indexOf("=");
+  const roleValue = equals < 0 ? "" : value.slice(0, equals);
+  const right = equals < 0 ? "" : value.slice(equals + 1);
+  const colon = right.indexOf(":");
+  const harnessValue = colon < 0 ? "" : right.slice(0, colon);
+  const model = colon < 0 ? "" : right.slice(colon + 1);
+  const role = (ROLES as readonly string[]).includes(roleValue) ? (roleValue as Role) : undefined;
+  const harness = isAgentId(harnessValue) ? harnessValue : undefined;
+  const modelPattern = /^[^\p{White_Space}\p{Cc}\p{Cf}=]+$/u;
+
+  if (!role || !harness || !modelPattern.test(model)) throw new SetupUsageError(invalidBindMessage(value));
+  return { role, binding: { harness, model } };
+}
+
+export const parseSetupBind = parseBind;
+
+export type SetupParseResult =
+  | { ok: true; options: SetupCliOptions }
+  | { ok: false; message: string; json: boolean };
+
+function parseError(message: string, json: boolean): SetupParseResult {
+  return { ok: false, message, json };
+}
+
+function isSetupFlag(arg: string): boolean {
+  return arg.startsWith("-");
+}
+
+export function parseSetupArgs(args: readonly string[]): SetupParseResult {
+  const json = args.some((arg) => arg === "--json" || arg.startsWith("--json="));
+  const binds: ParsedSetupBinding[] = [];
+  let refresh = false;
+  let nonInteractive = false;
+  let dryRun = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--refresh") {
+      refresh = true;
+      continue;
+    }
+    if (arg === "--non-interactive") {
+      nonInteractive = true;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (arg === "--json") {
+      continue;
+    }
+    if (arg === "--bind") {
+      const value = args[index + 1];
+      if (value === undefined || isSetupFlag(value)) {
+        return parseError('Option "--bind" expects role=harness:model.', json);
+      }
+      index += 1;
+      try {
+        binds.push(parseBind(value));
+      } catch (error) {
+        return parseError(error instanceof Error ? error.message : String(error), json);
+      }
+      continue;
+    }
+    if (arg.startsWith("--bind=")) {
+      try {
+        binds.push(parseBind(arg.slice("--bind=".length)));
+      } catch (error) {
+        return parseError(error instanceof Error ? error.message : String(error), json);
+      }
+      continue;
+    }
+
+    if (arg.startsWith("-")) return parseError(`Unknown option "${arg}".`, json);
+    return parseError(`Unexpected argument "${arg}".`, json);
+  }
+
+  return {
+    ok: true,
+    options: {
+      refresh,
+      nonInteractive,
+      json,
+      dryRun,
+      binds,
+      batch: nonInteractive || json || dryRun || binds.length > 0,
+    },
+  };
+}
+
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface SetupEnvelope {
+  proposta: RunAgentConfig | null;
+  validacoes: {
+    config: {
+      status: "not-run" | "ok" | "missing" | "invalid";
+      source: "none" | "canonical" | "legacy";
+      path: string;
+      message: string | null;
+    };
+    catalogo: {
+      status: "not-needed" | "fresh" | "offline" | "unavailable";
+      source: "none" | "cache" | "network" | "stale-cache";
+      ageMs: number | null;
+      message: string | null;
+    };
+    bindings: Array<{
+      role: Role;
+      harness: AgentId;
+      model: string;
+      status: "accepted" | "unknown-model" | "harness-unavailable" | "unverified";
+      message: string;
+    }>;
+  };
+  mudancas: Array<{
+    path: string;
+    beforePresent: boolean;
+    before: JsonValue;
+    afterPresent: boolean;
+    after: JsonValue;
+  }>;
+  resultado: {
+    status: "applied" | "dry-run" | "unchanged" | "aborted" | "error";
+    code: 0 | 1 | 2 | 10 | 11 | 12 | 13 | 14 | 15 | 130;
+    saved: boolean;
+    message: string;
+  };
+}
+
+export interface SetupBatchDependencies {
+  registry?: DriverRegistry;
+  configStore?: SetupConfigStore;
+  discoverModels?: BatchDiscovery;
+  saveCache?: (models: HarnessModels[]) => void | boolean;
+  now?: () => number;
+  timeoutMs?: number;
+  stderr?: NodeJS.WritableStream;
+}
+
+export interface SetupBatchResult {
+  code: SetupEnvelope["resultado"]["code"];
+  envelope: SetupEnvelope;
+}
+
+function writeLine(stream: NodeJS.WritableStream | undefined, message: string): void {
+  if (stream) {
+    stream.write(`${message}\n`);
+  } else {
+    console.error(message);
+  }
+}
+
+function configValidation(read: SetupConfigRead): SetupEnvelope["validacoes"]["config"] {
+  return {
+    status: read.status,
+    source: read.source,
+    path: read.path,
+    message: read.status === "invalid" ? read.message : null,
+  };
+}
+
+function notNeededCatalog(): SetupEnvelope["validacoes"]["catalogo"] {
+  return { status: "not-needed", source: "none", ageMs: null, message: null };
+}
+
+function emptyEnvelope(message: string, code: SetupEnvelope["resultado"]["code"], path: string): SetupEnvelope {
+  return {
+    proposta: null,
+    validacoes: {
+      config: { status: "not-run", source: "none", path, message: "not-run" },
+      catalogo: { status: "not-needed", source: "none", ageMs: null, message: "not-run" },
+      bindings: [],
+    },
+    mudancas: [],
+    resultado: { status: "error", code, saved: false, message },
+  };
+}
+
+function jsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function jsonValue(value: unknown): JsonValue {
+  if (value === undefined) return null;
+  if (Array.isArray(value)) return value.map(jsonValue);
+  if (jsonObject(value)) {
+    return Object.fromEntries(
+      Object.keys(value).sort((left, right) => left.localeCompare(right)).map((key) => [key, jsonValue(value[key])]),
+    ) as {
+      [key: string]: JsonValue;
+    };
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+  return null;
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(jsonValue(left)) === JSON.stringify(jsonValue(right));
+}
+
+function pointerPart(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function diffAt(
+  output: SetupEnvelope["mudancas"],
+  pathValue: string,
+  beforePresent: boolean,
+  before: unknown,
+  afterPresent: boolean,
+  after: unknown,
+  expandObjectChildren = false,
+): void {
+  const beforeObject = beforePresent && jsonObject(before) ? before : undefined;
+  const afterObject = afterPresent && jsonObject(after) ? after : undefined;
+  if (beforeObject !== undefined && afterObject !== undefined) {
+    const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
+    if (keys.length === 0) return;
+    for (const key of keys) {
+      diffAt(
+        output,
+        `${pathValue}/${pointerPart(key)}`,
+        Object.hasOwn(beforeObject, key),
+        beforeObject[key],
+        Object.hasOwn(afterObject, key),
+        afterObject[key],
+      );
+    }
+    return;
+  }
+  if (!beforePresent && afterObject !== undefined) {
+    if (expandObjectChildren) {
+      const keys = Object.keys(afterObject).sort((left, right) => left.localeCompare(right));
+      if (keys.length === 0) {
+        output.push({
+          path: pathValue,
+          beforePresent: false,
+          before: null,
+          afterPresent: true,
+          after: jsonValue(afterObject),
+        });
+        return;
+      }
+      for (const key of keys) {
+        const value = afterObject[key];
+        const childPath = `${pathValue}/${pointerPart(key)}`;
+        if (jsonObject(value)) {
+          output.push({
+            path: childPath,
+            beforePresent: false,
+            before: null,
+            afterPresent: true,
+            after: jsonValue(value),
+          });
+        } else {
+          diffAt(output, childPath, false, undefined, true, value);
+        }
+      }
+      return;
+    }
+    output.push({
+      path: pathValue,
+      beforePresent: false,
+      before: null,
+      afterPresent: true,
+      after: jsonValue(afterObject),
+    });
+    return;
+  }
+  if (beforeObject !== undefined && !afterPresent) {
+    if (expandObjectChildren) {
+      const keys = Object.keys(beforeObject).sort((left, right) => left.localeCompare(right));
+      if (keys.length === 0) {
+        output.push({
+          path: pathValue,
+          beforePresent: true,
+          before: jsonValue(beforeObject),
+          afterPresent: false,
+          after: null,
+        });
+        return;
+      }
+      for (const key of keys) {
+        const value = beforeObject[key];
+        const childPath = `${pathValue}/${pointerPart(key)}`;
+        if (jsonObject(value)) {
+          output.push({
+            path: childPath,
+            beforePresent: true,
+            before: jsonValue(value),
+            afterPresent: false,
+            after: null,
+          });
+        } else {
+          diffAt(output, childPath, true, value, false, undefined);
+        }
+      }
+      return;
+    }
+    output.push({
+      path: pathValue,
+      beforePresent: true,
+      before: jsonValue(beforeObject),
+      afterPresent: false,
+      after: null,
+    });
+    return;
+  }
+  if (beforePresent === afterPresent && (!beforePresent || jsonEqual(before, after))) return;
+  output.push({
+    path: pathValue,
+    beforePresent,
+    before: jsonValue(before),
+    afterPresent,
+    after: jsonValue(after),
+  });
+}
+
+export function diffConfig(before: RunAgentConfig, after: RunAgentConfig): SetupEnvelope["mudancas"] {
+  const output: SetupEnvelope["mudancas"] = [];
+  const beforeObject = jsonObject(before) ? before : {};
+  const afterObject = jsonObject(after) ? after : {};
+  const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
+  for (const key of keys) {
+    diffAt(
+      output,
+      `/${pointerPart(key)}`,
+      Object.hasOwn(beforeObject, key),
+      beforeObject[key],
+      Object.hasOwn(afterObject, key),
+      afterObject[key],
+      true,
+    );
+  }
+  return output.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function catalogContains(catalog: HarnessModels, model: string): boolean {
+  return catalog.providers.some((provider) =>
+    provider.models.some(
+      (candidate) =>
+        candidate.id === model || (candidate.aliases !== undefined && candidate.aliases.some((alias) => alias === model)),
+    ),
+  );
+}
+
+type BindingValidation = SetupEnvelope["validacoes"]["bindings"][number];
+
+function validateBindings(
+  bindings: readonly ParsedSetupBinding[],
+  catalog: Awaited<ReturnType<typeof getBatchModels>>,
+): { entries: BindingValidation[]; code?: 11 | 12 | 13; message: string | null } {
+  const byAgent = new Map(catalog.models.map((item) => [item.agent, item]));
+  const entries: BindingValidation[] = bindings.map(({ role, binding }) => {
+    const found = byAgent.get(binding.harness);
+    if (found?.available === false) {
+      return {
+        role,
+        harness: binding.harness,
+        model: binding.model,
+        status: "harness-unavailable",
+        message: `Cannot apply binding for role "${role}": harness "${binding.harness}" is unavailable.`,
+      };
+    }
+    if (catalog.status === "unavailable" || found === undefined) {
+      return {
+        role,
+        harness: binding.harness,
+        model: binding.model,
+        status: "unverified",
+        message: `Cannot validate model "${binding.model}" for harness "${binding.harness}": catalog unavailable.`,
+      };
+    }
+    if (catalog.status === "offline" && !catalogContains(found, binding.model)) {
+      return {
+        role,
+        harness: binding.harness,
+        model: binding.model,
+        status: "unverified",
+        message: `Cannot validate model "${binding.model}" for harness "${binding.harness}": the catalog is stale. Re-run with --refresh.`,
+      };
+    }
+    if (!catalogContains(found, binding.model)) {
+      return {
+        role,
+        harness: binding.harness,
+        model: binding.model,
+        status: "unknown-model",
+        message: `Model "${binding.model}" is not in the ${binding.harness} catalog for role "${role}".`,
+      };
+    }
+    return { role, harness: binding.harness, model: binding.model, status: "accepted", message: "" };
+  });
+
+  const failed = entries.find((entry) => entry.status !== "accepted");
+  const code = failed === undefined
+    ? undefined
+    : failed.status === "harness-unavailable"
+      ? 11
+      : failed.status === "unknown-model"
+        ? 12
+        : 13;
+  let message: string | null = null;
+  if (catalog.status === "offline") {
+    message = failed?.status === "unverified" ? failed.message : "Catalog is stale; using offline cache.";
+  } else if (catalog.status === "unavailable") {
+    message = failed?.message ?? "Catalog unavailable.";
+  }
+  return { entries, code, message };
+}
+
+function catalogValidation(
+  catalog: Awaited<ReturnType<typeof getBatchModels>> | undefined,
+  message: string | null,
+): SetupEnvelope["validacoes"]["catalogo"] {
+  if (catalog === undefined) return notNeededCatalog();
+  return {
+    status: catalog.status,
+    source: catalog.source,
+    ageMs: catalog.ageMs,
+    message,
+  };
+}
+
+function configSummary(config: RunAgentConfig): string {
+  const agents = config.agents ?? {};
+  return ROLES.map((role) => {
+    const binding = agents[role];
+    return `${role} ${binding ? `${binding.harness}:${binding.model}` : "unset"}`;
+  }).join(" · ");
+}
+
+function errorResult(
+  read: SetupConfigRead,
+  proposal: RunAgentConfig | null,
+  catalog: SetupEnvelope["validacoes"]["catalogo"],
+  bindings: BindingValidation[],
+  changes: SetupEnvelope["mudancas"],
+  code: 11 | 12 | 13 | 14 | 15,
+  message: string,
+): SetupBatchResult {
+  return {
+    code,
+    envelope: {
+      proposta: proposal,
+      validacoes: { config: configValidation(read), catalogo: catalog, bindings },
+      mudancas: changes,
+      resultado: { status: "error", code, saved: false, message },
+    },
+  };
+}
+
+export async function runSetupBatch(
+  options: SetupCliOptions,
+  dependencies: SetupBatchDependencies = {},
+): Promise<SetupBatchResult> {
+  const stderr = dependencies.stderr;
+  const store = dependencies.configStore ?? createSetupConfigStore();
+  let read: SetupConfigRead;
+  try {
+    read = store.read();
+  } catch (error) {
+    const path = getPaths().configFile;
+    const message = `Cannot save config "${path}": ${error instanceof Error ? error.message : String(error)}.`;
+    writeLine(stderr, message);
+    return {
+      code: 15,
+      envelope: emptyEnvelope(message, 15, path),
+    };
+  }
+
+  if (read.status === "invalid") {
+    const message = read.readError
+      ? `Cannot save config "${getPaths().configFile}": ${read.message}.`
+      : read.message ?? `Config file "${read.path}" contains invalid JSON; no changes were written. Repair or move it and retry.`;
+    writeLine(stderr, message);
+    return errorResult(read, null, notNeededCatalog(), [], [], read.readError ? 15 : 14, message);
+  }
+
+  const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
+  const lastByRole = new Map<Role, number>();
+  options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
+  const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
+  const existingAgents = jsonObject(current.agents) ? current.agents : {};
+  const proposed: RunAgentConfig = options.binds.length === 0
+    ? { ...current }
+    : {
+        ...current,
+        agents: {
+          ...existingAgents,
+          ...Object.fromEntries(winning.map(({ role, binding }) => [role, binding])),
+        },
+      };
+  const changes = diffConfig(current, proposed);
+
+  let catalog: Awaited<ReturnType<typeof getBatchModels>> | undefined;
+  let bindingValidations: BindingValidation[] = [];
+  let catalogMessage: string | null = null;
+  if (winning.length > 0 || options.refresh) {
+    const agents = winning.length > 0
+      ? [...new Set(winning.map(({ binding }) => binding.harness))]
+      : undefined;
+    catalog = await getBatchModels(dependencies.registry ?? getRegistry(), {
+      agents,
+      refresh: options.refresh,
+      allowNetwork: !options.dryRun || options.refresh,
+      now: dependencies.now,
+      timeoutMs: dependencies.timeoutMs,
+      discover: dependencies.discoverModels,
+      saveCache: dependencies.saveCache,
+      onDiscoveryStart: () => writeLine(stderr, "discovering models..."),
+    });
+    if (catalog.discoveryError !== undefined) {
+      writeLine(stderr, `Warning: ${catalog.discoveryError}.`);
+    }
+    if (catalog.cacheWriteFailed) writeLine(stderr, "Warning: Could not update models cache.");
+    if (winning.length > 0) {
+      const validation = validateBindings(winning, catalog);
+      bindingValidations = validation.entries;
+      catalogMessage = validation.message;
+      if (validation.code !== undefined) {
+        for (const entry of bindingValidations) {
+          if (entry.status !== "accepted") writeLine(stderr, entry.message);
+        }
+        return errorResult(
+          read,
+          proposed,
+          catalogValidation(catalog, catalogMessage),
+          bindingValidations,
+          changes,
+          validation.code,
+          bindingValidations.find((entry) => entry.status !== "accepted")?.message ?? "Setup validation failed.",
+        );
+      }
+    } else if (catalog.status === "unavailable") {
+      catalogMessage = "Catalog unavailable.";
+      const message = "Model catalog unavailable.";
+      writeLine(stderr, message);
+      return errorResult(read, proposed, catalogValidation(catalog, catalogMessage), [], changes, 13, message);
+    } else if (catalog.status === "offline") {
+      catalogMessage = "Catalog is stale; using offline cache.";
+      writeLine(stderr, catalogMessage);
+    }
+  }
+
+  const validations = {
+    config: configValidation(read),
+    catalogo: catalogValidation(catalog, catalogMessage),
+    bindings: bindingValidations,
+  };
+
+  if (winning.length === 0) {
+    const message = "Configuration unchanged.";
+    if (!options.json) writeLine(stderr, message);
+    return {
+      code: 0,
+      envelope: { proposta: proposed, validacoes: validations, mudancas: changes, resultado: { status: "unchanged", code: 0, saved: false, message } },
+    };
+  }
+
+  if (options.dryRun) {
+    const message = "Dry run; configuration not written.";
+    if (!options.json) writeLine(stderr, message);
+    return {
+      code: 0,
+      envelope: { proposta: proposed, validacoes: validations, mudancas: changes, resultado: { status: "dry-run", code: 0, saved: false, message } },
+    };
+  }
+
+  const serialized = serializeConfig(proposed);
+  let saved = false;
+  try {
+    const canonicalRaw = read.source === "canonical" ? read.raw : null;
+    if (canonicalRaw !== null && canonicalRaw === serialized) {
+      saved = false;
+    } else {
+      saved = store.save(proposed) !== false;
+    }
+  } catch (error) {
+    const message = `Cannot save config "${getPaths().configFile}": ${error instanceof Error ? error.message : String(error)}.`;
+    writeLine(stderr, message);
+    return errorResult(read, proposed, catalogValidation(catalog, catalogMessage), bindingValidations, changes, 15, message);
+  }
+
+  if (!saved) {
+    const message = "Configuration unchanged.";
+    if (!options.json) writeLine(stderr, message);
+    return {
+      code: 0,
+      envelope: { proposta: proposed, validacoes: validations, mudancas: [], resultado: { status: "unchanged", code: 0, saved: false, message } },
+    };
+  }
+
+  const message = "Configuration saved.";
+  if (!options.json) writeLine(stderr, `saved: ${configSummary(proposed)}`);
+  return {
+    code: 0,
+    envelope: { proposta: proposed, validacoes: validations, mudancas: changes, resultado: { status: "applied", code: 0, saved: true, message } },
+  };
+}
+
+export interface SetupCommandDependencies extends SetupBatchDependencies {
+  input?: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode?(value: boolean): unknown };
+  stdout?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
+  isTTY?: boolean;
+  wizardDiscoverModels?: ModelWizardOptions["discoverModels"];
+  saveConfig?: (config: RunAgentConfig) => void;
+}
+
+function commandTokens(opts: Record<string, unknown>, command: Command): string[] {
+  const tokens: string[] = [];
+  if (opts.refresh) tokens.push("--refresh");
+  if (opts.nonInteractive) tokens.push("--non-interactive");
+  if (opts.json) tokens.push("--json");
+  if (opts.dryRun) tokens.push("--dry-run");
+  const binds = Array.isArray(opts.bind) ? opts.bind : opts.bind === undefined ? [] : [opts.bind];
+  for (const bind of binds) {
+    tokens.push("--bind");
+    if (bind !== true) tokens.push(String(bind));
+  }
+  return tokens.concat(command.args.map(String));
+}
+
+export interface SetupActionResult {
+  code: SetupEnvelope["resultado"]["code"];
+  envelope?: SetupEnvelope;
+}
+
+export async function executeSetupAction(
+  args: readonly string[],
+  dependencies: SetupCommandDependencies = {},
+): Promise<SetupActionResult> {
+  const parsed = parseSetupArgs(args);
+  const stdout = dependencies.stdout ?? process.stdout;
+  const input = dependencies.input ?? process.stdin;
+  const writeError = (message: string) => writeLine(dependencies.stderr, message);
+
+  if (!parsed.ok) {
+    if (parsed.json) stdout.write(`${JSON.stringify(emptyEnvelope(parsed.message, 2, getPaths().configFile))}\n`);
+    writeError(parsed.message);
+    return { code: 2, envelope: parsed.json ? emptyEnvelope(parsed.message, 2, getPaths().configFile) : undefined };
+  }
+
+  const tty = dependencies.isTTY ?? Boolean(input.isTTY && stdout.isTTY);
+  if (!parsed.options.batch) {
+    if (!tty) {
+      const message = `${getCliName()} setup needs a terminal on both stdin and stdout.`;
+      writeError(message);
+      return { code: 1 };
+    }
+    await runModelSetupWizard({
+      registry: dependencies.registry,
+      input: dependencies.input,
+      output: dependencies.stdout,
+      refresh: parsed.options.refresh,
+      discoverModels: dependencies.wizardDiscoverModels,
+      save: dependencies.saveConfig,
+      isTTY: tty,
+    });
+    return { code: 0 };
+  }
+
+  const result = await runSetupBatch(parsed.options, dependencies);
+  if (parsed.options.json) stdout.write(`${JSON.stringify(result.envelope)}\n`);
+  return result;
+}
+
+export function registerSetupCommand(program: Command, dependencies: SetupCommandDependencies = {}): void {
   program
     .command("setup")
     .description("Choose the harness and model each agent should run on")
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
     .option("--refresh", "ignore the cached catalog and rediscover")
-    .action(async (opts: { refresh?: boolean }) => {
-      // The message lives here rather than in the wizard, because `open` calls
-      // the same function and has to stay quiet when it cannot prompt.
-      if (!isInteractiveTerminal()) {
-        console.error(`${getCliName()} setup needs a terminal on both stdin and stdout.`);
-        process.exitCode = 1;
-        return;
-      }
-      await runModelSetupWizard({ refresh: opts.refresh });
+    .option("--non-interactive", "run setup without the picker")
+    .option("--json", "output one machine-readable envelope")
+    .option("--dry-run", "show the proposed config without writing it")
+    .option(
+      "--bind [binding]",
+      "bind a role to a harness and model",
+      (value: string | true, previous: Array<string | true> = []) => [...previous, value],
+      [],
+    )
+    .action(async (opts: Record<string, unknown>, command: Command) => {
+      const result = await executeSetupAction(commandTokens(opts, command), dependencies);
+      process.exitCode = result.code;
     });
 }

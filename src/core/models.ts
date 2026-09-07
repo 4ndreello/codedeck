@@ -58,14 +58,24 @@ export function loadDiskModelsCache(): HarnessModels[] | null {
   }
 }
 
-export function saveDiskModelsCache(models: HarnessModels[]): void {
+export function saveDiskModelsCache(models: HarnessModels[]): boolean {
+  let temporary: string | undefined;
   try {
     const p = getPaths();
     fs.mkdirSync(p.cacheDir, { recursive: true });
     const tmp = `${p.modelsCache}.${process.pid}.${Date.now()}.tmp`;
+    temporary = tmp;
     fs.writeFileSync(tmp, JSON.stringify(models, null, 2), "utf-8");
     fs.renameSync(tmp, p.modelsCache);
-  } catch {}
+    return true;
+  } catch {
+    if (temporary !== undefined) {
+      try {
+        fs.unlinkSync(temporary);
+      } catch {}
+    }
+    return false;
+  }
 }
 
 export async function discoverHarnessModels(
@@ -125,11 +135,15 @@ export async function discoverHarnessModels(
 
 export async function discoverAllModels(
   registry: DriverRegistry,
-  options?: { agent?: AgentId; refresh?: boolean },
+  options?: { agent?: AgentId; agents?: readonly AgentId[]; refresh?: boolean; signal?: AbortSignal },
 ): Promise<HarnessModels[]> {
-  const drivers = options?.agent ? [registry.get(options.agent)] : registry.list();
+  const drivers = options?.agents
+    ? options.agents.map((agent) => registry.get(agent))
+    : options?.agent
+      ? [registry.get(options.agent)]
+      : registry.list();
   const results = await Promise.all(
-    drivers.map((d) => discoverHarnessModels(d, { refresh: options?.refresh })),
+    drivers.map((d) => discoverHarnessModels(d, { refresh: options?.refresh, signal: options?.signal })),
   );
   return results;
 }
@@ -173,6 +187,205 @@ export async function getCachedOrDiscoverModels(
 
   saveDiskModelsCache(merged);
   return options?.agent ? freshResults : merged;
+}
+
+export interface BatchDiscoveryRequest {
+  agents: readonly AgentId[];
+  refresh: boolean;
+  signal: AbortSignal;
+  timeoutMs: number;
+}
+
+export type BatchDiscovery = (
+  registry: DriverRegistry,
+  request: BatchDiscoveryRequest,
+) => Promise<HarnessModels[]>;
+
+export interface BatchModelsOptions {
+  agents?: readonly AgentId[];
+  refresh?: boolean;
+  allowNetwork?: boolean;
+  now?: () => number;
+  timeoutMs?: number;
+  discover?: BatchDiscovery;
+  saveCache?: (models: HarnessModels[]) => void | boolean;
+  onDiscoveryStart?: () => void;
+}
+
+export interface BatchModelsResult {
+  models: HarnessModels[];
+  status: "fresh" | "offline" | "unavailable";
+  source: "cache" | "network" | "stale-cache" | "none";
+  ageMs: number | null;
+  discoveryError?: string;
+  cacheWriteFailed: boolean;
+}
+
+interface CacheAge {
+  ageMs: number;
+  fresh: boolean;
+}
+
+function cacheAge(cachedAt: string | undefined, now: number): CacheAge {
+  const parsed = cachedAt === undefined ? Number.NaN : new Date(cachedAt).getTime();
+  const age = now - parsed;
+  if (!Number.isFinite(age) || age < 0) return { ageMs: CACHE_TTL_MS, fresh: false };
+  return { ageMs: age, fresh: age < CACHE_TTL_MS };
+}
+
+function uniqueHarnesses(models: HarnessModels[], agents: readonly AgentId[]): HarnessModels[] {
+  const byAgent = new Map<AgentId, HarnessModels>();
+  for (const model of models) {
+    if (agents.includes(model.agent) && !byAgent.has(model.agent)) byAgent.set(model.agent, model);
+  }
+  return agents.flatMap((agent) => {
+    const model = byAgent.get(agent);
+    return model === undefined ? [] : [model];
+  });
+}
+
+function maxAge(entries: Array<{ age: CacheAge }>): number | null {
+  if (entries.length === 0) return null;
+  return Math.max(...entries.map((entry) => entry.age.ageMs));
+}
+
+async function discoverWithTimeout(
+  registry: DriverRegistry,
+  request: BatchDiscoveryRequest,
+  discover: BatchDiscovery,
+): Promise<HarnessModels[]> {
+  const discovery = Promise.resolve().then(() => discover(registry, request));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`model catalog discovery timed out after ${request.timeoutMs} ms`));
+    }, request.timeoutMs);
+  });
+
+  try {
+    return await Promise.race([discovery, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Batch-only catalog access. It never writes the cache unless discovery was
+ * explicitly allowed and returned a complete result for the requested agents.
+ */
+export async function getBatchModels(
+  registry: DriverRegistry,
+  options: BatchModelsOptions = {},
+): Promise<BatchModelsResult> {
+  const requested = [...new Set(options.agents ?? registry.list().map((driver) => driver.id))];
+  const refresh = options.refresh === true;
+  const allowNetwork = options.allowNetwork === true;
+  const now = options.now ?? Date.now;
+  const disk = loadDiskModelsCache();
+  const currentTime = now();
+  const cached = requested.flatMap((agent) => {
+    const model = disk?.find((candidate) => candidate.agent === agent);
+    return model === undefined ? [] : [{ model, age: cacheAge(model.cachedAt, currentTime) }];
+  });
+  const completeCache = cached.length === requested.length;
+  const allFresh = completeCache && cached.every((entry) => entry.age.fresh);
+
+  if (!refresh && allFresh) {
+    return {
+      models: cached.map((entry) => entry.model),
+      status: "fresh",
+      source: "cache",
+      ageMs: maxAge(cached),
+      cacheWriteFailed: false,
+    };
+  }
+
+  if (!allowNetwork) {
+    return completeCache
+      ? {
+          models: cached.map((entry) => entry.model),
+          status: "offline",
+          source: "stale-cache",
+          ageMs: maxAge(cached),
+          cacheWriteFailed: false,
+        }
+      : {
+          models: cached.map((entry) => entry.model),
+          status: "unavailable",
+          source: "none",
+          ageMs: null,
+          cacheWriteFailed: false,
+        };
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 12_000;
+  const discover = options.discover ?? ((selected: DriverRegistry, request: BatchDiscoveryRequest) =>
+    discoverAllModels(selected, {
+      agents: request.agents,
+      refresh: request.refresh,
+      signal: request.signal,
+    }));
+  let discovered: HarnessModels[] | undefined;
+  let discoveryError: string | undefined;
+  try {
+    options.onDiscoveryStart?.();
+    discovered = await discoverWithTimeout(
+      registry,
+      { agents: requested, refresh: true, signal: controller.signal, timeoutMs },
+      discover,
+    );
+    const unique = uniqueHarnesses(discovered, requested);
+    const hasMissing = unique.length !== requested.length;
+    const hasFailedCatalog = unique.some((model) => model.available && model.error);
+    if (hasMissing || hasFailedCatalog) {
+      discoveryError = hasMissing
+        ? "model discovery returned an incomplete catalog"
+        : unique.find((model) => model.available && model.error)?.error ?? "model discovery failed";
+    } else {
+      const merged = (disk ?? [])
+        .filter((model) => !requested.includes(model.agent))
+        .concat(unique);
+      let cacheWriteFailed = false;
+      try {
+        const saved = (options.saveCache ?? saveDiskModelsCache)(merged);
+        cacheWriteFailed = saved === false;
+      } catch {
+        cacheWriteFailed = true;
+      }
+      return {
+        models: unique,
+        status: "fresh",
+        source: "network",
+        ageMs: 0,
+        cacheWriteFailed,
+      };
+    }
+  } catch (error) {
+    controller.abort();
+    discoveryError = error instanceof Error ? error.message : String(error);
+  }
+
+  controller.abort();
+  const fallback = cached.filter((entry) => !refresh || !entry.age.fresh);
+  if (fallback.length === requested.length) {
+    return {
+      models: fallback.map((entry) => entry.model),
+      status: "offline",
+      source: "stale-cache",
+      ageMs: maxAge(fallback),
+      ...(discoveryError === undefined ? {} : { discoveryError }),
+      cacheWriteFailed: false,
+    };
+  }
+  return {
+    models: fallback.map((entry) => entry.model),
+    status: "unavailable",
+    source: "none",
+    ageMs: null,
+    ...(discoveryError === undefined ? {} : { discoveryError }),
+    cacheWriteFailed: false,
+  };
 }
 
 export function levenshtein(a: string, b: string): number {
