@@ -1,4 +1,8 @@
 import type { Command } from "commander";
+import {
+  AUTOCOMPACT_DEFAULT_CAP,
+  AUTOCOMPACT_DEFAULT_PERCENT,
+} from "../../core/autocompact.js";
 import type { DriverRegistry } from "../../core/driver.js";
 import {
   getBatchModels,
@@ -44,6 +48,11 @@ const SANDBOX_SCREEN_ROLE = "sandbox";
 const SANDBOX_PICKER_GROUP = "sandbox";
 const SANDBOX_OFF = "workspace-write" as const;
 const SANDBOX_ON = "danger-full-access" as const;
+const AUTOCOMPACT_SCREEN_ROLE = "autocompact";
+const AUTOCOMPACT_PICKER_GROUP = "autocompact";
+const AUTOCOMPACT_OFF = "off" as const;
+const AUTOCOMPACT_ON = "on" as const;
+const AUTOCOMPACT_DESCRIPTION = `Native autocompact applies to Claude sessions. The default window is min(${AUTOCOMPACT_DEFAULT_CAP / 1000}k tokens, ${AUTOCOMPACT_DEFAULT_PERCENT * 100}% of the context window).`;
 
 const ORCHESTRATOR_PARALLELISM_NOTE_LINES = [
   "parallelism is advisory. Version 1 puts the requested cap in the",
@@ -206,6 +215,36 @@ export function buildSandboxScreen(
     pinned: true,
     known: new Set(items.map((item) => itemKey(item.harness, item.id))),
     harnesses: new Set([SANDBOX_PICKER_GROUP]),
+    next: () => [],
+  };
+}
+
+export function buildAutocompactScreen(
+  config: RunAgentConfig = {},
+  index = 0,
+  total = 1,
+): Screen {
+  const selected = config.autocompact?.enabled === true ? AUTOCOMPACT_ON : AUTOCOMPACT_OFF;
+  const values = selected === AUTOCOMPACT_ON
+    ? [AUTOCOMPACT_ON, AUTOCOMPACT_OFF]
+    : [AUTOCOMPACT_OFF, AUTOCOMPACT_ON];
+  const items = values.map((value) => ({
+    id: value,
+    label: value.toUpperCase(),
+    group: AUTOCOMPACT_PICKER_GROUP,
+    harness: AUTOCOMPACT_PICKER_GROUP,
+    ...(value === selected ? { note: "atual" } : {}),
+  }));
+
+  return {
+    role: AUTOCOMPACT_SCREEN_ROLE,
+    title: "Claude native autocompact",
+    counter: `configuração ${index + 1} de ${total}`,
+    description: [AUTOCOMPACT_DESCRIPTION],
+    items,
+    pinned: true,
+    known: new Set(items.map((item) => itemKey(item.harness, item.id))),
+    harnesses: new Set([AUTOCOMPACT_PICKER_GROUP]),
     next: () => [],
   };
 }
@@ -567,8 +606,11 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     ...roleScreens,
     buildOrchestratorScreen(config, roleScreens.length, roleScreens.length + 1),
   ];
+  const total = screens.length + 2;
+  const sandbox = buildSandboxScreen(config, screens.length, total);
+  const autocompact = buildAutocompactScreen(config, screens.length + 1, total);
   const results = await runScreens(
-    [...screens, buildSandboxScreen(config, screens.length, screens.length + 1)],
+    [...screens, sandbox, autocompact],
     { input, output, onResize: watchResize },
     paint,
   );
@@ -620,6 +662,14 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   if (sandboxSelection?.kind === "picked") {
     if (sandboxSelection.id === SANDBOX_OFF || sandboxSelection.id === SANDBOX_ON) {
       updatedConfig.defaultSandbox = sandboxSelection.id;
+    }
+  }
+  const autocompactSelection = answeredResults.find((result) => result.role === AUTOCOMPACT_SCREEN_ROLE);
+  if (autocompactSelection?.kind === "picked") {
+    if (autocompactSelection.id === AUTOCOMPACT_ON) {
+      updatedConfig.autocompact = { ...config.autocompact, enabled: true };
+    } else if (autocompactSelection.id === AUTOCOMPACT_OFF && config.autocompact !== undefined) {
+      updatedConfig.autocompact = { ...config.autocompact, enabled: false };
     }
   }
   let saved = false;
