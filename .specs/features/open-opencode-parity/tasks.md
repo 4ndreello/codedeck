@@ -427,6 +427,8 @@ check; re-propose only with a pinned keystroke consumer.
 **Tests**: build gate only
 **Gate**: build
 
+**Status**: ✅ Complete (18 verified, 5 retired; build + 178 scoped green)
+
 **Commit**: `docs(specs): mark parity requirements verified`
 
 ---
@@ -457,7 +459,7 @@ Execution is strictly sequential - there is no intra-phase parallelism. At Execu
 | T6: pty key on opencode spawn | 1 call site | ✅ Granular |
 | T7: injection entry | 1 table entry | ✅ Granular |
 | T8: inline command key | 1 config key | ✅ Granular |
-| T9: capture wiring | 1 close path | ✅ Granular |
+| T9: capture wiring | seam (2 lines, runtime) + consumer (branch) | ⚠️ Documented: unprintable apart, landed together |
 | T10: launch-time name | 1 channel | ✅ Granular |
 | T11: worktree branch | 1 flag path | ✅ Granular |
 | T12: effort map-or-warn | 1 flag path | ✅ Granular |
