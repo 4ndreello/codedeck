@@ -236,6 +236,25 @@ describe("opencode resume capture", () => {
   });
 });
 
+describe("opencode session name", () => {
+  // probe-name-2026-09-07 came back negative: no launch-time name channel
+  // on the TUI, so the open sends nothing and the banner stays the surface.
+  it("sends no name and keeps the banner as the guaranteed surface", async () => {
+    await runOpen(["reviewer", "--no-theme"]);
+
+    const [, args, opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(args).not.toContain("--title");
+    expect(Object.keys(opts.envExtra as Record<string, string>).join(" ")).not.toMatch(
+      /title/i,
+    );
+    expect(vi.mocked(runtime.renderBanner)).toHaveBeenCalledWith(
+      "reviewer",
+      "prov/m",
+      "default",
+    );
+  });
+});
+
 describe("claude dispatch", () => {
   it("omits --remote-control when config disables it", async () => {
     const configDir = process.env.RUN_AGENT_CONFIG_DIR;

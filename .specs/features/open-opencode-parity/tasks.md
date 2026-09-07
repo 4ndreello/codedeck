@@ -323,9 +323,9 @@ check; re-propose only with a pinned keystroke consumer.
 ### T10: Send session name on opencode open
 
 **What**: Send the launch-time name through the probed channel.
-**Where**: `src/open/launchers/opencode.ts`
+**Where**: `tests/open-action.test.ts` (no src change: T4 probe negative, OP-12 fallback holds, OP-11 retired with transcript)
 **Depends on**: T9
-**Reuses**: `sessionName` derivation rule; transcript T4 for the channel
+**Reuses**: `sessionName` derivation rule (reference only); transcript T4 for the negative verdict
 **Requirement**: OP-11, OP-12, OP-20
 
 **Tools**:
@@ -341,6 +341,8 @@ check; re-propose only with a pinned keystroke consumer.
 
 **Tests**: unit
 **Gate**: quick
+
+**Status**: ✅ Complete (no channel per T4; sends-nothing + banner pinned, 20/20 green)
 
 **Commit**: `feat(open): send session name on opencode open`
 
