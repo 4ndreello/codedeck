@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import { describe, expect, it } from "vitest";
 
 import { buildSettings } from "../src/cli/commands/open.js";
@@ -108,10 +110,56 @@ describe("CodeDeck plugin manifest contract", () => {
   it("names its hook script through the plugin root", () => {
     const hooks = readJson(plugin("hooks", "hooks.json"));
     const [entry] = hooks.hooks.SessionStart;
+    const [promptEntry] = hooks.hooks.UserPromptSubmit;
 
     expect(entry.hooks[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
     expect(entry.hooks[0].command).toContain("session-id.sh");
     expect(existsSync(plugin("hooks", "session-id.sh"))).toBe(true);
+    expect(promptEntry.hooks[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(promptEntry.hooks[0].command).toContain("session-name.sh");
+    expect(existsSync(plugin("hooks", "session-name.sh"))).toBe(true);
+    expect(statSync(plugin("hooks", "session-name.sh")).mode & 0o111).not.toBe(0);
+  });
+
+  it("derives a task name once, sanitizes it, and stays silent", async () => {
+    const tempDir = mkdtempSync(join(os.tmpdir(), "codedeck-session-name-"));
+    const sessionFile = join(tempDir, "session");
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const sidecar = `${sessionFile}.${sessionId}.name`;
+    const run = (prompt: string) => new Promise<{
+      status: number | null;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
+      const child = spawn("bash", [plugin("hooks", "session-name.sh")], {
+        env: { ...process.env, CODEDECK_SESSION_FILE: sessionFile },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk: Buffer | string) => { stdout += chunk.toString(); });
+      child.stderr.on("data", (chunk: Buffer | string) => { stderr += chunk.toString(); });
+      child.once("error", reject);
+      child.once("close", (status) => resolve({ status, stdout, stderr }));
+      child.stdin.end(JSON.stringify({ prompt, session_id: sessionId }));
+    });
+
+    try {
+      const first = await run(" !!! Fix API / auth retry logic withx a very long tail that must disappear !!! ");
+      expect(first.status).toBe(0);
+      expect(first.stdout).toBe("");
+      expect(first.stderr).toBe("");
+      expect(readFileSync(sidecar, "utf8")).toBe("fix-api-auth-retry-logic-withx");
+
+      writeFileSync(sidecar, "keep-this-name");
+      const second = await run("replace this name");
+      expect(second.status).toBe(0);
+      expect(second.stdout).toBe("");
+      expect(second.stderr).toBe("");
+      expect(readFileSync(sidecar, "utf8")).toBe("keep-this-name");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   // The hook runs on the startup path someone is already waiting through, so it

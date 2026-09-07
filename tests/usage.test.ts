@@ -33,6 +33,7 @@ describe("aggregateRunUsage", () => {
       cachedTokens: 320,
       costUsd: 0.5,
       sessionCount: 2,
+      activeSessionCount: 0,
       costComplete: true,
       sessionsWithoutCost: 0,
     });
@@ -57,6 +58,7 @@ describe("aggregateRunUsage", () => {
       cachedTokens: 30,
       costUsd: 0.42,
       sessionCount: 2,
+      activeSessionCount: 0,
       costComplete: false,
       sessionsWithoutCost: 1,
     });
@@ -77,6 +79,7 @@ describe("aggregateRunUsage", () => {
     ).toMatchObject({
       costUsd: 3.5,
       sessionCount: 2,
+      activeSessionCount: 0,
       costComplete: true,
       sessionsWithoutCost: 0,
     });
@@ -92,6 +95,26 @@ describe("aggregateRunUsage", () => {
       inputTokens: 20,
       costUsd: 0.02,
       sessionCount: 1,
+      activeSessionCount: 0,
+    });
+  });
+
+  it("counts only non-terminal sessions as active", () => {
+    expect(
+      aggregateRunUsage("run-example", [
+        makeSession("starting", { status: "starting" }),
+        makeSession("working", { status: "working" }),
+        makeSession("needs-input", { status: "needs_input" }),
+        makeSession("idle", { status: "idle" }),
+        makeSession("completed", { status: "completed" }),
+        makeSession("failed", { status: "failed" }),
+        makeSession("stopped", { status: "stopped" }),
+        makeSession("orphaned", { status: "orphaned" }),
+        makeSession("interrupted", { status: "interrupted" }),
+      ]),
+    ).toMatchObject({
+      sessionCount: 9,
+      activeSessionCount: 4,
     });
   });
 
@@ -103,6 +126,7 @@ describe("aggregateRunUsage", () => {
       cachedTokens: 0,
       costUsd: 0,
       sessionCount: 0,
+      activeSessionCount: 0,
       costComplete: true,
       sessionsWithoutCost: 0,
     });

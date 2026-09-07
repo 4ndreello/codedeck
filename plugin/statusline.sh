@@ -65,6 +65,26 @@ const role =
   tail(payload.agent?.name) ??
   tail(payload.session_name);
 
+const taskName = (() => {
+  const sessionFile = text(process.env.CODEDECK_SESSION_FILE);
+  const sessionId = payload.session_id;
+  if (
+    !sessionFile ||
+    typeof sessionId !== "string" ||
+    !/^[0-9a-fA-F-]{8,}$/.test(sessionId)
+  ) return undefined;
+
+  try {
+    const value = readFileSync(`${sessionFile}.${sessionId}.name`, "utf8")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 30);
+    return value || undefined;
+  } catch {
+    return undefined;
+  }
+})();
+
 const cwd = firstText(payload.workspace?.current_dir, payload.cwd) ?? process.cwd();
 const project = text(basename(cwd)) ?? (cwd === "/" ? "/" : undefined);
 
@@ -183,6 +203,8 @@ const getRunUsage = () => {
       !Number.isFinite(usage.costUsd) ||
       typeof usage.sessionCount !== "number" ||
       !Number.isFinite(usage.sessionCount) ||
+      typeof usage.activeSessionCount !== "number" ||
+      !Number.isFinite(usage.activeSessionCount) ||
       typeof usage.costComplete !== "boolean" ||
       typeof usage.sessionsWithoutCost !== "number" ||
       !Number.isFinite(usage.sessionsWithoutCost)
@@ -225,12 +247,13 @@ const projectBranch = project && branch
       : undefined;
 
 const fields = [
+  taskName && paint(EMBER, clean(taskName)),
   role && paint(EMBER, clean(role)),
   projectBranch,
   contextField(),
   tokenField(),
   runUsage ? runField() : localField(),
-  runUsage && paint(TEXT, String(Math.max(0, Math.round(runUsage.sessionCount))) + " agents"),
+  runUsage && paint(TEXT, String(Math.max(0, Math.round(runUsage.activeSessionCount))) + " agents"),
 ].filter(Boolean);
 
 writeSync(1, fields.join(paint(MUTED, " · ")));

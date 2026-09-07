@@ -15,9 +15,11 @@ interface RenderOptions {
   runId?: string;
   usage?: Record<string, unknown>;
   shimExitCode?: number;
+  sessionId?: string;
+  taskName?: string;
 }
 
-async function render({ payload, runId, usage, shimExitCode = 0 }: RenderOptions): Promise<{
+async function render({ payload, runId, usage, shimExitCode = 0, sessionId, taskName }: RenderOptions): Promise<{
   output: string;
   args: string[];
   exitCode: number | null;
@@ -43,6 +45,13 @@ async function render({ payload, runId, usage, shimExitCode = 0 }: RenderOptions
     PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ""}`,
     CODEDECK_SHIM_ARGS: argsPath,
   };
+  if (sessionId !== undefined) {
+    const sessionFile = path.join(tempDir, "session");
+    env.CODEDECK_SESSION_FILE = sessionFile;
+    if (taskName !== undefined) writeFileSync(`${sessionFile}.${sessionId}.name`, taskName);
+  } else {
+    delete env.CODEDECK_SESSION_FILE;
+  }
   if (runId === undefined) delete env.CODEDECK_RUN_ID;
   else env.CODEDECK_RUN_ID = runId;
 
@@ -96,6 +105,7 @@ describe("Claude statusline", () => {
         cachedTokens: 300,
         costUsd: 0.4,
         sessionCount: 2,
+        activeSessionCount: 2,
         costComplete: true,
         sessionsWithoutCost: 0,
       },
@@ -105,6 +115,27 @@ describe("Claude statusline", () => {
     expect(result.args).toEqual(["usage", "run-example", "--json"]);
     expect(result.output).not.toContain("▌RAGE");
     expect(result.output).not.toContain("claude-sonnet-4");
+  });
+
+  it("renders the task name from its sidecar before the role", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const result = await render({
+      payload: { ...payload(0.25), session_id: sessionId },
+      sessionId,
+      taskName: "  fix\tapi\nclient   now with more words than allowed  ",
+    });
+
+    expect(stripAnsi(result.output)).toBe(`fix api client now with more w · builder · ${project}/main · ctx 68% · $0.25`);
+  });
+
+  it("omits the task name when its sidecar is missing", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const result = await render({
+      payload: { ...payload(0.25), session_id: sessionId },
+      sessionId,
+    });
+
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $0.25`);
   });
 
   it("keeps the local cost when the run id is absent", async () => {
@@ -146,6 +177,7 @@ describe("Claude statusline", () => {
         cachedTokens: 0,
         costUsd: 0,
         sessionCount: 1,
+        activeSessionCount: 1,
         costComplete: true,
         sessionsWithoutCost: 0,
       },
@@ -173,11 +205,33 @@ describe("Claude statusline", () => {
         cachedTokens: 0,
         costUsd: 0.42,
         sessionCount: 1,
+        activeSessionCount: 0,
         costComplete: false,
         sessionsWithoutCost: 1,
       },
     });
 
     expect(stripAnsi(result.output)).toContain("0 tok · run $0.42?");
+  });
+
+  it("renders only live agents in the run summary", async () => {
+    const result = await render({
+      payload: payload(0),
+      runId: "run-live-agents",
+      usage: {
+        runId: "run-live-agents",
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        costUsd: 0.42,
+        sessionCount: 4,
+        activeSessionCount: 1,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("1 agents");
+    expect(stripAnsi(result.output)).not.toContain("4 agents");
   });
 });

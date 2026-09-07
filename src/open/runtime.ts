@@ -221,10 +221,12 @@ export function renderExit(role: Role, id: string | undefined): string {
   return hint ? `${farewell}${muted(hint)}` : farewell;
 }
 
-/** Reads what the SessionStart hook left, and takes the file with it. */
+/** Reads what the SessionStart hook left, and takes both sidecars with it. */
 function takeSessionId(file: string): string | undefined {
+  let id: string | undefined;
   try {
-    return fs.readFileSync(file, "utf8").trim() || undefined;
+    id = fs.readFileSync(file, "utf8").trim() || undefined;
+    return id;
   } catch {
     // No file means the hook never ran: an older Claude Code, a session that
     // died before startup, or a plugin the launch could not load. None of those
@@ -233,6 +235,11 @@ function takeSessionId(file: string): string | undefined {
     try {
       fs.rmSync(file, { force: true });
     } catch {}
+    if (id && /^[0-9a-fA-F-]{8,}$/.test(id)) {
+      try {
+        fs.rmSync(`${file}.${id}.name`, { force: true });
+      } catch {}
+    }
   }
 }
 

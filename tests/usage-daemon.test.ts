@@ -73,6 +73,7 @@ describe("usage daemon methods", () => {
       cachedTokens: 320,
       costUsd: 0.5,
       sessionCount: 2,
+      activeSessionCount: 1,
       costComplete: true,
       sessionsWithoutCost: 0,
     });
