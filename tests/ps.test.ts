@@ -1,4 +1,6 @@
+import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
+import { IpcClient } from "../src/daemon/ipc.js";
 import {
   fitPsRowCount,
   formatPsJson,
@@ -7,6 +9,7 @@ import {
   planPsLayout,
   psEmptyMessage,
   psMoreCount,
+  registerPsCommand,
   renderPsTable,
   resolvePsWidth,
 } from "../src/cli/commands/ps.js";
@@ -143,6 +146,41 @@ describe("ps output contract", () => {
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
   });
+
+  it("prints the overflow note after the last visible row", async () => {
+    const program = new Command();
+    registerPsCommand(program);
+
+    const ensureDaemonStarted = vi
+      .spyOn(IpcClient.prototype, "ensureDaemonStarted")
+      .mockResolvedValue(undefined);
+    const request = vi.spyOn(IpcClient.prototype, "request").mockResolvedValue({
+      sessions: [session({ id: "newest", name: "newest" }), session({ id: "oldest", name: "oldest" })],
+      hidden: 1,
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = process.stdout as { isTTY?: boolean; rows?: number };
+    const previousIsTTY = stdout.isTTY;
+    const previousRows = stdout.rows;
+    stdout.isTTY = true;
+    stdout.rows = 24;
+
+    try {
+      await program.parseAsync(["node", "codedeck", "ps"], { from: "node" });
+      const lines = log.mock.calls.flatMap(([value]) => String(value).split("\n"));
+
+      expect(lines[0]).toMatch(/^ID\s+NAME/);
+      expect(lines.at(-2)).toContain("oldest");
+      expect(lines.at(-1)).toMatch(/^\+1 older hidden — .* ps --all$/);
+      expect(request).toHaveBeenCalledWith("session.list", { all: false });
+    } finally {
+      stdout.isTTY = previousIsTTY;
+      stdout.rows = previousRows;
+      log.mockRestore();
+      request.mockRestore();
+      ensureDaemonStarted.mockRestore();
+    }
+  });
 });
 
 describe("ps fit-to-screen layout", () => {
@@ -150,13 +188,23 @@ describe("ps fit-to-screen layout", () => {
     expect(fitPsRowCount(24)).toBe(20);
   });
 
-  it("keeps the newest displayed session as the last TTY row", () => {
+  it("keeps the newest displayed session as the first TTY row", () => {
     const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
       isTTY: true,
       rows: 24,
     });
 
-    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle", "oldest"]);
+  });
+
+  it("drops the oldest rows when TTY height truncates the list", () => {
+    const layout = planPsLayout(sessions("newest", "middle", "oldest", "oldestest"), {
+      isTTY: true,
+      rows: 6,
+    });
+
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle"]);
+    expect(layout.moreCount).toBe(2);
   });
 
   it("keeps non-TTY rows newest-first without height truncation", () => {
@@ -168,7 +216,7 @@ describe("ps fit-to-screen layout", () => {
     expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle", "oldest"]);
   });
 
-  it("reverses --all on a TTY without an overflow note or height limit", () => {
+  it("keeps --all newest-first on a TTY without an overflow note or height limit", () => {
     const layout = planPsLayout(sessions("newest", "middle", "oldest"), {
       all: true,
       isTTY: true,
@@ -176,7 +224,7 @@ describe("ps fit-to-screen layout", () => {
       hiddenOlderCount: 12,
     });
 
-    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle", "oldest"]);
     expect(layout.moreCount).toBe(12);
     expect(layout.showOverflowNote).toBe(false);
   });
@@ -188,7 +236,7 @@ describe("ps fit-to-screen layout", () => {
       limit: 3,
     });
 
-    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "middle", "newest"]);
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "middle", "oldest"]);
     expect(layout.displayedCount).toBe(3);
   });
 
@@ -229,7 +277,7 @@ describe("ps fit-to-screen layout", () => {
       rows,
     });
 
-    expect(layout.sessions.map((item) => item.id)).toEqual(["oldest", "newest"]);
+    expect(layout.sessions.map((item) => item.id)).toEqual(["newest", "oldest"]);
   });
 
   it("accepts only positive integer limits", () => {

@@ -87,7 +87,6 @@ export function planPsLayout<T>(
   const displayLimit = explicitLimit ?? heightLimit;
   const displayed =
     displayLimit == null ? [...sessions] : sessions.slice(0, displayLimit);
-  const ordered = options.isTTY ? [...displayed].reverse() : displayed;
   const moreCount = psMoreCount(
     sessions.length,
     displayed.length,
@@ -95,7 +94,7 @@ export function planPsLayout<T>(
   );
 
   return {
-    sessions: ordered,
+    sessions: displayed,
     displayedCount: displayed.length,
     moreCount,
     showOverflowNote: !all && moreCount > 0,
@@ -418,8 +417,7 @@ export function registerPsCommand(program: Command): void {
       const overflowNote = layout.showOverflowNote
         ? formatPsOverflowNote(layout.moreCount, getCliName())
         : undefined;
-      if (stdout.isTTY && overflowNote) console.log(overflowNote);
       console.log(renderPsTable(layout.sessions));
-      if (!stdout.isTTY && overflowNote) console.log(overflowNote);
+      if (overflowNote) console.log(overflowNote);
     });
 }
