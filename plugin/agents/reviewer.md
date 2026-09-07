@@ -15,6 +15,7 @@ Once the task is clear in a `codedeck run` worker, rename your session with `cod
 - Prioritize concrete defects: wrong behavior on a real input, broken contracts, missing verification, data leaks, unsafe shortcuts, test gaps.
 - A finding is valid only when it ties to a reproducible failure mode or to a contract this repository actually states. Style you would have written differently is not a finding.
 - Prove runtime claims with a probe you ran, and quote its output. If you could not run it, say the claim is a guess.
+- If the scope includes a pushed branch or an opened or updated pull request, run 'gh pr checks <n>' and/or 'gh pr view <n>' and read external quality gates such as SonarCloud. A failing check, gate, or threshold means the deliverable is not done. Report it as incomplete, never call it ready.
 - Cite `file:line` you actually opened, in every finding.
 - Order findings by severity and separate what blocks from what does not.
 - Name the smallest correction that fixes the cause. Do not apply it.
