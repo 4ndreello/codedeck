@@ -21,8 +21,7 @@ trap 'rm -rf "$WORK" "$CONFIG_DIR"' EXIT
 
 ROWS="${PTY_GATE_ROWS:-41}"
 COLS="${PTY_GATE_COLS:-137}"
-SETTLE="${PTY_GATE_SETTLE:-20}"
-LIMIT="${PTY_GATE_TIMEOUT:-90}"
+LIMIT="${PTY_GATE_TIMEOUT:-120}"
 NAME="corrigir-auth-do-login"
 
 if [ ! -f "$HERE/dist/cli/index.js" ]; then
@@ -75,18 +74,22 @@ process.stdin.on("data", (chunk) => {
 FAKE
 chmod +x "$WORK/bin/claude"
 
-# The stand-in names the session on its own, so the keys here only have to
-# outlast the injection: whatever is typed after it must still arrive.
+# The stand-in names the session on its own, so the keys here only wait for the
+# injection to land and then prove the wire still carries them. Waiting on the
+# capture rather than on a fixed sleep keeps a slow runner from flaking: CLI
+# startup here ranges from 8 to 20 seconds.
+: > "$CAPTURE"
 (
-  sleep "$SETTLE"
+  for _ in $(seq 1 "$LIMIT"); do
+    grep -qF "FAKE-LINE=/rename" "$CAPTURE" && break
+    sleep 1
+  done
   printf 'quit\r'
   sleep 2
 ) | RUN_AGENT_CONFIG_DIR="$CONFIG_DIR" PATH="$WORK/bin:$PATH" FAKE_NAME="$NAME" \
   timeout "$LIMIT" script -qec \
     "sh -c 'stty rows $ROWS cols $COLS; exec node \"$HERE/dist/cli/index.js\" open general --no-theme'" \
     /dev/null > "$CAPTURE" 2>&1 || true
-
-status=$?
 
 failures=()
 grep -qF "FAKE-TTY=true" "$CAPTURE" || failures+=("the harness did not get a tty")
@@ -104,4 +107,4 @@ echo "pty path broken:" >&2
 for failure in "${failures[@]}"; do echo "  - $failure" >&2; done
 echo "--- capture ---" >&2
 tail -c 3000 "$CAPTURE" >&2
-exit "${status:-1}"
+exit 1

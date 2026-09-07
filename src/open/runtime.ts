@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomInt } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os, { constants } from "node:os";
 import path from "node:path";
@@ -572,11 +573,26 @@ export function spawnHarness(
         : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
     let child: ChildProcess | undefined;
     let pty: PtySession | undefined;
-    const sigintGuard = installSigintGuard(() => child, opts.signalHost ?? process);
+    const launch = ptyLaunchFor(opts);
+    const signalHost = opts.signalHost ?? process;
+
+    // Under a pty the terminal is in raw mode, so Ctrl+C never reaches this
+    // process as a signal: it is a byte on the way to the harness. The
+    // escalation that kills a wedged session is fed from that byte instead,
+    // through the same guard, so the escape hatch behaves as it always did.
+    const keyboard = launch ? new EventEmitter() : undefined;
+    const relayInterrupt = keyboard ? () => keyboard.emit("SIGINT") : undefined;
+    if (relayInterrupt) signalHost.on("SIGINT", relayInterrupt);
+
+    const sigintGuard = installSigintGuard(() => child, keyboard ?? signalHost);
+    const releaseKeyboard = () => {
+      if (relayInterrupt) signalHost.removeListener("SIGINT", relayInterrupt);
+    };
     const fail = (error: unknown) => {
       if (settled) return;
       settled = true;
       pty?.dispose();
+      releaseKeyboard();
       sigintGuard.childClosed();
       sigintGuard.dispose();
       reject(error);
@@ -584,7 +600,6 @@ export function spawnHarness(
 
     const spawnChild = opts.spawnChild ?? spawn;
     const env = { ...childEnv, CODEDECK_SESSION_FILE: opts.sessionFile, ...(opts.envExtra ?? {}) };
-    const launch = ptyLaunchFor(opts);
     try {
       if (launch) {
         pty = startPtySession({
@@ -593,6 +608,7 @@ export function spawnHarness(
           cwd: opts.cwd,
           env,
           spawnChild,
+          onInterrupt: relayInterrupt,
         });
         child = pty.child;
       } else {
@@ -627,6 +643,7 @@ export function spawnHarness(
       if (settled) return;
       settled = true;
       pty?.dispose();
+      releaseKeyboard();
       sigintGuard.childClosed();
 
       const entitlement = opts.entitlementError?.(opts.model ?? "", output.value);

@@ -24,6 +24,8 @@ const CONTROL_ENV = "CODEDECK_PTY_CONTROL";
 const ROWS_ENV = "CODEDECK_PTY_ROWS";
 const COLS_ENV = "CODEDECK_PTY_COLS";
 const NAME_SUFFIX = ".name";
+/** ETX, which is what Ctrl+C is once the terminal stops turning it into SIGINT. */
+const INTERRUPT_KEY = 0x03;
 const FALLBACK_ROWS = 24;
 const FALLBACK_COLUMNS = 80;
 
@@ -105,6 +107,12 @@ export function ptyUnavailableReason(options: PtyPreconditions): string | undefi
  * `plugin/hooks/session-name.sh` writes the first prompt's slug next to the
  * session file. Watching for it keeps this side ignorant of Claude Code
  * internals: the hook decides the name, the wrapper only types it, once.
+ *
+ * Anything already sitting there belongs to a dead session: the watcher starts
+ * before the harness does, and the hook only writes once a prompt is
+ * submitted. The session file is named after a pid, which the kernel reuses,
+ * so a leaked sidecar would otherwise have this session rename itself after
+ * someone else's prompt. They are removed rather than read.
  */
 export function watchNameSidecar(sessionFile: string, onName: (name: string) => void): () => void {
   const dir = path.dirname(sessionFile);
@@ -112,8 +120,10 @@ export function watchNameSidecar(sessionFile: string, onName: (name: string) => 
   let delivered = false;
   let watcher: fs.FSWatcher | undefined;
 
+  const isSidecar = (file: string): boolean => file.startsWith(prefix) && file.endsWith(NAME_SUFFIX);
+
   const read = (file: string): void => {
-    if (delivered || !file.startsWith(prefix) || !file.endsWith(NAME_SUFFIX)) return;
+    if (delivered || !isSidecar(file)) return;
     let name: string;
     try {
       name = fs.readFileSync(path.join(dir, file), "utf8");
@@ -127,8 +137,9 @@ export function watchNameSidecar(sessionFile: string, onName: (name: string) => 
 
   try {
     fs.mkdirSync(dir, { recursive: true });
-    for (const file of fs.readdirSync(dir)) read(file);
-    if (delivered) return () => {};
+    for (const file of fs.readdirSync(dir)) {
+      if (isSidecar(file)) fs.rmSync(path.join(dir, file), { force: true });
+    }
     watcher = fs.watch(dir, (_event, file) => {
       if (typeof file === "string") read(file);
     });
@@ -159,6 +170,12 @@ export interface PtyStartOptions {
   spawnChild?: typeof nodeSpawn;
   stdin?: NodeJS.ReadStream;
   stdout?: NodeJS.WriteStream;
+  /**
+   * Called for every Ctrl+C typed. Raw mode means the terminal no longer turns
+   * that key into a signal for anyone up here, so the escape hatch that kills
+   * a wedged harness has to be fed from the keystroke itself.
+   */
+  onInterrupt?: () => void;
 }
 
 export interface PtySession {
@@ -198,8 +215,21 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   // exactly as it would in a terminal talking to Claude Code directly.
   const wasRaw = stdin.isTTY ? stdin.isRaw : false;
   if (stdin.isTTY) stdin.setRawMode(true);
+  // A write to a pipe whose reader died raises EPIPE asynchronously, and an
+  // unhandled one takes the CLI down before it can print the farewell. The
+  // window is small — script gone, `close` not yet fired — and real: a
+  // keystroke lands in it whenever a session dies under someone's hands.
+  child.stdin?.on("error", () => {});
+  child.stdout?.on("error", () => {});
+
+  const write = (chunk: Buffer | string): void => {
+    if (child.stdin?.writable !== true) return;
+    child.stdin.write(chunk);
+  };
+
   const forward = (chunk: Buffer): void => {
-    child.stdin?.write(chunk);
+    if (options.onInterrupt && chunk.includes(INTERRUPT_KEY)) options.onInterrupt();
+    write(chunk);
   };
   stdin.on("data", forward);
   stdin.resume();
@@ -228,7 +258,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   stdout.on("resize", sendResize);
 
   const inject = (keystrokes: string): void => {
-    child.stdin?.write(keystrokes);
+    write(keystrokes);
   };
 
   const keystrokesForName = options.launch.keystrokesForName;
