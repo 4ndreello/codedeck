@@ -1,5 +1,5 @@
 import { computeSessionCost } from "./pricing.js";
-import type { Session } from "./session.js";
+import { isActiveStatus, type Session } from "./session.js";
 
 export interface RunUsageSummary {
   runId: string;
@@ -8,6 +8,7 @@ export interface RunUsageSummary {
   cachedTokens: number;
   costUsd: number;
   sessionCount: number;
+  activeSessionCount: number;
   costComplete: boolean;
   sessionsWithoutCost: number;
 }
@@ -30,6 +31,7 @@ export function aggregateRunUsage(
     cachedTokens: 0,
     costUsd: 0,
     sessionCount: uniqueSessions.size,
+    activeSessionCount: [...uniqueSessions.values()].filter((session) => isActiveStatus(session.status)).length,
     costComplete: true,
     sessionsWithoutCost: 0,
   };
