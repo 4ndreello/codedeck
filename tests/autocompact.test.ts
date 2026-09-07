@@ -67,9 +67,26 @@ describe("resolveAutocompactTokens", () => {
     })).toBe(200_000);
   });
 
+  it("lets bare enable override a disabled default", () => {
+    expect(resolveAutocompactTokens({
+      explicit: true,
+      config: { autocompact: { enabled: false } },
+    })).toBe(260_000);
+  });
+
+  it("clamps explicit numeric values to Claude's accepted range", () => {
+    expect(resolveAutocompactTokens({ explicit: 1 })).toBe(AUTOCOMPACT_MIN_TOKENS);
+    expect(resolveAutocompactTokens({ explicit: 2_000_000 })).toBe(AUTOCOMPACT_MAX_TOKENS);
+  });
+
   it("does not duplicate a passthrough override", () => {
     expect(resolveAutocompactTokens({ passthrough: ["--autocompact", "auto"] })).toBeUndefined();
     expect(autocompactArgs({ passthrough: ["--autocompact", "auto"] })).toEqual([]);
+  });
+
+  it("keeps both passthrough disable spellings authoritative", () => {
+    expect(autocompactArgs({ passthrough: ["--autocompact=200000"] })).toEqual([]);
+    expect(autocompactArgs({ passthrough: ["--no-autocompact"] })).toEqual([]);
   });
 });
 
@@ -87,6 +104,10 @@ describe("autocompact CLI values", () => {
 });
 
 describe("Claude autocompact argument builders", () => {
+  it("leaves default driver args silent", () => {
+    expect(buildClaudeArgs(base)).not.toContain("--autocompact");
+  });
+
   it("adds the resolved flag to the run driver before its passthrough", () => {
     const args = buildClaudeArgs(
       { ...base, autocompact: 180_000, passthrough: ["--add-dir", "/tmp/work"] },

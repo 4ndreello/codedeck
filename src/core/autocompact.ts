@@ -74,7 +74,7 @@ export function resolveAutocompactTokens(
   if (explicit !== undefined && explicit !== true) return explicit;
 
   const config = options.config?.autocompact;
-  if (config?.enabled === false) return undefined;
+  if (config?.enabled === false && explicit !== true) return undefined;
   if (typeof config?.tokens === "number" && Number.isFinite(config.tokens)) {
     return clampTokens(config.tokens);
   }
