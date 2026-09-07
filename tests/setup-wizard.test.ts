@@ -243,6 +243,36 @@ describe("runModelSetupWizard", () => {
     expect(orchestratorDisplayLabel(result)).toBe("custom");
   });
 
+  it("shows an error and keeps the existing cap for invalid parallelism text", async () => {
+    const { input, output, seen } = io();
+    const existing: OrchestratorMode = {
+      investigate: "none",
+      selfWork: "none",
+      tools: "dispatch",
+      parallelism: 4,
+    };
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\x1b[B", "\x1b[B", "\r",
+      "\x07", "\x07", "\x07",
+      ...[..."orchestrator:0"], "\r", "\r",
+      "\x07",
+    ]);
+
+    const result = await runModelSetupWizard({
+      ...base(),
+      config: { ...base().config, orchestrator: existing },
+      input,
+      output,
+      save,
+    });
+
+    expect(seen.join("")).toContain("parallelism must be a positive finite number");
+    expect(result.orchestrator).toEqual(existing);
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
   // Two harnesses on one screen, so the answer for an agent can come from
   // either. Picking the pin every time would prove nothing about the second.
   it("binds an agent to a harness other than the default one", async () => {

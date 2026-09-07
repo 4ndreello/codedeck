@@ -179,7 +179,7 @@ function buildOrchestratorParameterScreen(
   parameter: OrchestratorParameter,
   mode: OrchestratorMode,
   index: number,
-  chain = true,
+  error?: string,
 ): Screen {
   const items = parameterItems(parameter, mode);
   const description =
@@ -190,33 +190,39 @@ function buildOrchestratorParameterScreen(
     role: `${ORCHESTRATOR_SCREEN_ROLE}.${parameter}`,
     title: `orchestrator (${orchestratorModeLabel(mode)}) · ${parameter}`,
     counter: `parametro ${index + 1} de ${ORCHESTRATOR_PARAMETERS.length}`,
+    ...(error === undefined ? {} : { error }),
     description,
     items,
     pinned: false,
     known: new Set(items.map((item) => itemKey(item.harness, item.id))),
     harnesses: new Set([ORCHESTRATOR_PICKER_GROUP]),
-    ...(chain && index + 1 < ORCHESTRATOR_PARAMETERS.length
-      ? {
-          next: (result: ScreenResult) => {
-            const nextIndex = index + 1;
-            return [
-              buildOrchestratorParameterScreen(
-                ORCHESTRATOR_PARAMETERS[nextIndex],
-                modeAfterParameter(mode, result),
-                nextIndex,
-              ),
-            ];
-          },
-        }
-      : {}),
+    next: (result: ScreenResult) => {
+      if (
+        parameter === "parallelism" &&
+        result.kind === "picked" &&
+        result.id !== PARALLELISM_NONE &&
+        numericParallelism(result.id) === undefined
+      ) {
+        return [
+          buildOrchestratorParameterScreen(
+            parameter,
+            mode,
+            index,
+            "parallelism must be a positive finite number",
+          ),
+        ];
+      }
+      if (index + 1 >= ORCHESTRATOR_PARAMETERS.length) return [];
+      const nextIndex = index + 1;
+      return [
+        buildOrchestratorParameterScreen(
+          ORCHESTRATOR_PARAMETERS[nextIndex],
+          modeAfterParameter(mode, result),
+          nextIndex,
+        ),
+      ];
+    },
   };
-}
-
-/** A static snapshot for callers that need all four parameter screens at once. */
-export function buildOrchestratorParameterScreens(mode: OrchestratorMode): Screen[] {
-  return ORCHESTRATOR_PARAMETERS.map((parameter, index) =>
-    buildOrchestratorParameterScreen(parameter, mode, index, false),
-  );
 }
 
 function numericParallelism(value: string): number | undefined {
