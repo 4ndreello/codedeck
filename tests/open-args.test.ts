@@ -10,6 +10,7 @@ import type { HarnessModels } from "../src/core/models.js";
 import { LOGO } from "../src/cli/ui.js";
 import {
   ROLES,
+  CLAUDE_RESUME_ERASE,
   bootFrame,
   buildOpenArgs,
   renderExit,
@@ -501,6 +502,54 @@ describe("open command pure helpers", () => {
     expect(renderExit("general", "92d88cce-bdbc-46db-8573-916afd32f6f7")).toContain("╔╗ ╦ ╦╔═╗");
     expect(renderExit("general", undefined)).toContain("╔╗ ╦ ╦╔═╗");
     expect(renderExit("general", undefined)).not.toContain("--resume");
+  });
+
+  // Claude Code prints its own resume hint on exit with no way to turn it
+  // off, so the farewell erases those two rows first on a tty, leaving only
+  // the BYE resume line.
+  it("erases Claude's own resume hint before signing off on a tty", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-test-"));
+    const sessionFile = path.join(tempDir, "session");
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    fs.writeFileSync(sessionFile, sessionId);
+    const writes: string[] = [];
+
+    try {
+      finishOpenSession("reviewer", sessionFile, (text) => {
+        writes.push(text);
+      }, true);
+
+      expect(writes[0]).toBe(CLAUDE_RESUME_ERASE);
+      expect(writes.join("")).toContain(`codedeck open reviewer --resume ${sessionId}`);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // Off-tty Claude skips its hint too, and without an id there is no hint on
+  // either side, so escape codes would only pollute redirected output.
+  it("skips the erase off-tty or without an id to offer", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-test-"));
+    const sessionFile = path.join(tempDir, "session");
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    fs.writeFileSync(sessionFile, sessionId);
+
+    try {
+      const piped: string[] = [];
+      finishOpenSession("reviewer", sessionFile, (text) => {
+        piped.push(text);
+      }, false);
+      expect(piped.join("")).not.toContain("\x1b[2A");
+
+      fs.writeFileSync(sessionFile, sessionId);
+      const noId: string[] = [];
+      finishOpenSession("reviewer", path.join(tempDir, "missing"), (text) => {
+        noId.push(text);
+      }, true);
+      expect(noId.join("")).not.toContain("\x1b[2A");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   // A real tty signal test would need to own the foreground process group. The

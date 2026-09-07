@@ -336,14 +336,32 @@ export function writeStdoutSync(text: string): void {
   } catch {}
 }
 
+/**
+ * Claude Code prints its own resume hint on exit
+ * ("Resume this session with: claude --resume ..."), with no setting to turn
+ * it off. It always lands right above the farewell — a leading blank line
+ * plus its two hint rows — so when there is an id to offer, which is the same
+ * condition under which Claude printed its hint, this backs the cursor over
+ * those two rows and clears down before the farewell goes out, leaving only
+ * the BYE resume line. A wrapped hint (narrow terminal, long title) leaves
+ * its top row behind, still strictly less noise than the duplicate.
+ *
+ * A pipe gets nothing: Claude skips its hint off-tty too, so there is nothing
+ * to erase and escape codes would only pollute redirected output.
+ */
+export const CLAUDE_RESUME_ERASE = "\x1b[2A\x1b[J";
+
 /** Takes the session id and writes the farewell while the SIGINT guard is live. */
 export function finishOpenSession(
   role: Role,
   sessionFile: string,
   write: (text: string) => void = writeStdoutSync,
+  stdoutIsTty: boolean = process.stdout.isTTY === true,
 ): void {
   try {
-    write(renderExit(role, takeSessionId(sessionFile)));
+    const id = takeSessionId(sessionFile);
+    if (resumeHint(role, id) !== undefined && stdoutIsTty) write(CLAUDE_RESUME_ERASE);
+    write(renderExit(role, id));
   } catch {}
 }
 
