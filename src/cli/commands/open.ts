@@ -63,6 +63,7 @@ export { effectiveModel };
 export { buildOpenArgs, buildSettings, entitlementError, judgeModel, sessionName } from "../../open/launchers/claude.js";
 export type { ModelVerdict } from "../../open/contract.js";
 export {
+  CLAUDE_RESUME_ERASE,
   bootFrame,
   ensureCodedeckShim,
   exitCodeFor,
