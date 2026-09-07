@@ -43,6 +43,35 @@ describe("computeSessionCost", () => {
     ).toBe(price.cached);
   });
 
+  it("keeps OMP-harness model prices exact", () => {
+    expect(MODEL_PRICES["meta/muse-spark-1.3-contributor"]).toEqual({
+      input: 0.1,
+      output: 0.2,
+      cached: 0.002,
+    });
+    expect(MODEL_PRICES["openrouter/z-ai/glm-5.3-flash"]).toEqual({
+      input: 0.075,
+      output: 0.25,
+      cached: 0.015,
+    });
+    expect(MODEL_PRICES["openai-codex/gpt-5.6-luna"]).toEqual(MODEL_PRICES["gpt-5.6-luna"]);
+  });
+
+  it("returns a cost for each OMP-harness model id", () => {
+    for (const model of [
+      "meta/muse-spark-1.3-contributor",
+      "openrouter/z-ai/glm-5.3-flash",
+      "openai-codex/gpt-5.6-luna",
+    ]) {
+      expect(
+        computeSessionCost({
+          model,
+          usage: { inputTokens: 1_000_000 },
+        }),
+      ).not.toBeNull();
+    }
+  });
+
   it("returns null for an unknown model without a reported cost", () => {
     expect(
       computeSessionCost({

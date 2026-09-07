@@ -19,6 +19,9 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "gpt-5.5": { input: 1, output: 5 },
   "gpt-5.6-luna": { input: 1, output: 5 },
   "gpt-5.7": { input: 1, output: 5 },
+  "meta/muse-spark-1.3-contributor": { input: 0.1, output: 0.2, cached: 0.002 },
+  "openrouter/z-ai/glm-5.3-flash": { input: 0.075, output: 0.25, cached: 0.015 },
+  "openai-codex/gpt-5.6-luna": { input: 1, output: 5 },
 
   // Claude's current CodeDeck default and model examples. Claude normally
   // reports its own cost, but these entries keep the fallback table complete.
