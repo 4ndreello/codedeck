@@ -102,6 +102,16 @@ describe("codedeck run --role", () => {
     expect(params.name).toBe("fix-oauth-login");
   });
 
+  it("derives the session name from the raw prompt before role composition", async () => {
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--role", "reviewer", "--bg"]))
+      .rejects.toThrow(Exited);
+
+    const [, params] = request.mock.calls[0];
+    expect(params.name).toBe("fix-oauth-login");
+    expect(params.prompt).toMatch(/^You are the CodeDeck reviewer\./);
+    expect(params.name).not.toContain("reviewer");
+  });
+
   it("keeps an explicitly supplied session name verbatim", async () => {
     await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--name", "OAuth / v2", "--bg"]))
       .rejects.toThrow(Exited);

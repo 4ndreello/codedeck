@@ -45,4 +45,46 @@ describe("session.rename IPC", () => {
     const response = await request("session.get", { id: "session-a" });
     expect(response.result.session.name).toBe("oauth-login");
   });
+
+  it("rejects an empty name without changing the session", async () => {
+    daemon = new Daemon();
+    seed(daemon, "session-a", "working", { name: "raw task" });
+
+    expect(await request("session.rename", { id: "session-a", name: "" }))
+      .toMatchObject({ error: { code: "INVALID" } });
+
+    const response = await request("session.get", { id: "session-a" });
+    expect(response.result.session.name).toBe("raw task");
+  });
+
+  it("rejects whitespace-only and missing names without changing the session", async () => {
+    daemon = new Daemon();
+    seed(daemon, "session-a", "working", { name: "raw task" });
+
+    for (const params of [{ id: "session-a", name: "   " }, { id: "session-a" }]) {
+      expect(await request("session.rename", params))
+        .toMatchObject({ error: { code: "INVALID" } });
+    }
+
+    const response = await request("session.get", { id: "session-a" });
+    expect(response.result.session.name).toBe("raw task");
+  });
+
+  it("keeps surrounding whitespace on a nonblank name", async () => {
+    daemon = new Daemon();
+    seed(daemon, "session-a", "working", { name: "raw task" });
+
+    expect(await request("session.rename", { id: "session-a", name: "  oauth-login  " }))
+      .toMatchObject({ result: { ok: true } });
+
+    const response = await request("session.get", { id: "session-a" });
+    expect(response.result.session.name).toBe("  oauth-login  ");
+  });
+
+  it("rejects an unknown session", async () => {
+    daemon = new Daemon();
+
+    expect(await request("session.rename", { id: "missing", name: "new name" }))
+      .toMatchObject({ error: { code: "SESSION_NOT_FOUND" } });
+  });
 });

@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { IpcClient } from "../src/daemon/ipc.js";
+import * as claudeLauncher from "../src/open/launchers/claude.js";
 import * as opencodeLauncher from "../src/open/launchers/opencode.js";
 import * as runtime from "../src/open/runtime.js";
 import { setupOpenHarness } from "./helpers/open-harness.js";
@@ -114,6 +115,22 @@ describe("opencode dispatch", () => {
     expect(create).not.toHaveBeenCalled();
     expect(opts.envExtra as Record<string, string>).not.toHaveProperty("OPENCODE_CONFIG_DIR");
     expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("claude dispatch", () => {
+  it("omits --remote-control when config disables it", async () => {
+    const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+    if (!configDir) throw new Error("test config directory is missing");
+    fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remoteControl: false }));
+    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
+    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
+    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+
+    await runOpen(["general", "--no-theme"]);
+
+    const [, args] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(args).not.toContain("--remote-control");
   });
 });
 
