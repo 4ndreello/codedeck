@@ -6,7 +6,7 @@ import { renderSparkline } from "../src/cli/charts/sparkline.js";
 describe("bar-chart", () => {
   it("renders an empty notice when no data is provided", () => {
     const lines = renderBarChart([]);
-    expect(lines[0]).toContain("sem dados");
+    expect(lines[0]).toContain("no data");
   });
 
   it("renders a vertical histogram with axes and unicode block characters", () => {

@@ -25,7 +25,7 @@ function centerText(text: string, width: number): string {
 }
 
 export function renderBarChart(data: BarDatum[], options: BarChartOptions = {}): string[] {
-  if (data.length === 0) return ["  (sem dados para o período)"];
+  if (data.length === 0) return ["  (no data for this period)"];
 
   const height = Math.max(3, options.height ?? 6);
   const maxWidth = options.maxWidth ?? 80;

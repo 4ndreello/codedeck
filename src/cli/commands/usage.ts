@@ -183,7 +183,7 @@ export function registerUsageCommand(program: Command): void {
         const printLive = async () => {
           const res = await fetchUsageQuery(queryParams);
           const snap = renderSnapshot(res, { plain: false, by: opts.by });
-          process.stdout.write(`\x1b[H\x1b[2J${snap}\n\n  \x1b[2mAtualizando a cada ${intervalSec}s... (Ctrl+C para sair)\x1b[0m\n`);
+          process.stdout.write(`\x1b[H\x1b[2J${snap}\n\n  \x1b[2mUpdating every ${intervalSec}s... (Ctrl+C to quit)\x1b[0m\n`);
         };
         await printLive();
         const timer = setInterval(() => { void printLive(); }, intervalSec * 1000);

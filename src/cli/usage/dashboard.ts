@@ -15,14 +15,14 @@ export interface DashboardIO {
 
 const PERIODS: UsagePeriod[] = ["today", "3d", "7d", "30d", "all"];
 const PERIOD_LABELS: Record<UsagePeriod, string> = {
-  today: "Hoje",
-  "3d": "3 Dias",
-  "7d": "7 Dias",
-  "30d": "30 Dias",
-  all: "Tudo",
+  today: "Today",
+  "3d": "3 Days",
+  "7d": "7 Days",
+  "30d": "30 Days",
+  all: "All",
 };
 
-const TABS = ["1: Geral", "2: Projetos", "3: Modelos", "4: Runs"];
+const TABS = ["1: Overview", "2: Projects", "3: Models", "4: Runs"];
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
@@ -112,19 +112,19 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
       const label = PERIOD_LABELS[p];
       return idx === currentPeriodIdx ? c.bold(`[${label}]`) : c.dim(` ${label} `);
     }).join("  ");
-    lines.push(`  Período: ${periodLine}`);
+    lines.push(`  Period: ${periodLine}`);
     lines.push(`  ${c.dim("─".repeat(Math.max(10, width - 4)))}`);
 
     if (loading) {
       lines.push("");
-      lines.push("  Carregando métricas de consumo...");
+      lines.push("  Loading usage metrics...");
       return lines.map((l) => truncate(l, width));
     }
 
     if (errorMessage) {
       lines.push("");
-      lines.push(`  ${c.bold("Erro ao carregar dados:")} ${errorMessage}`);
-      lines.push(`  Pressione 'r' para tentar novamente ou 'q' para sair.`);
+      lines.push(`  ${c.bold("Error loading data:")} ${errorMessage}`);
+      lines.push(`  Press 'r' to retry or 'q' to quit.`);
       return lines.map((l) => truncate(l, width));
     }
 
@@ -134,23 +134,23 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
     const totalCost = totals.costUsd || 0.01;
     const totalTok = totals.totalTokens || 1;
 
-    // Tab 0: Overview (Geral)
+    // Tab 0: Overview
     if (currentTab === 0) {
       // Executive KPI Box
       const boxWidth = Math.min(width - 6, 120);
       const costText = `${c.bold(formatCurrency(totals.costUsd, totals.costComplete))} USD`;
       const tokText = `${formatTokens(totals.totalTokens)} (${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cachedTokens)} cached)`;
-      const sessText = `${totals.sessionCount} (${totals.completedSessionCount} concluídas, ${totals.failedSessionCount} falhas${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} ativas` : ""})`;
+      const sessText = `${totals.sessionCount} (${totals.completedSessionCount} completed, ${totals.failedSessionCount} failed${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} active` : ""})`;
 
-      lines.push(`  ┌── RESUMO EXECUTIVO ${"─".repeat(Math.max(0, boxWidth - 22))}┐`);
-      lines.push(`  │  ${c.bold("Custo Total:")} ${padToWidth(costText, 24)}  ${c.bold("Sessões:")} ${padToWidth(sessText, 38)} │`);
+      lines.push(`  ┌── EXECUTIVE SUMMARY ${"─".repeat(Math.max(0, boxWidth - 24))}┐`);
+      lines.push(`  │  ${c.bold("Total Cost:")} ${padToWidth(costText, 24)}  ${c.bold("Sessions:")} ${padToWidth(sessText, 38)} │`);
       lines.push(`  │  ${c.bold("Tokens:")}      ${padToWidth(tokText, 66)} │`);
       lines.push(`  └──${"─".repeat(Math.max(0, boxWidth - 4))}┘`);
       lines.push("");
 
       // Bar Chart for daily cost
       if (byDay.length > 0) {
-        lines.push(`  ${c.dim("-- TIMELINE DE CUSTO DIÁRIO (USD) " + "-".repeat(Math.max(0, width - 45)))}`);
+        lines.push(`  ${c.dim("-- DAILY COST TIMELINE (USD) " + "-".repeat(Math.max(0, width - 45)))}`);
         const chartData: BarDatum[] = byDay.map((d) => ({
           label: d.key,
           value: d.costUsd,
@@ -170,7 +170,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
       const distWidth = Math.max(30, Math.min(width - 6, 100));
 
       if (byRepository.length > 0) {
-        lines.push(`  ${c.dim("-- DISTRIBUIÇÃO POR PROJETO " + "-".repeat(Math.max(0, width - 36)))}`);
+        lines.push(`  ${c.dim("-- PROJECT DISTRIBUTION " + "-".repeat(Math.max(0, width - 36)))}`);
         const projSegments = byRepository.slice(0, 6).map((p) => ({
           key: p.key,
           label: p.label || p.key,
@@ -183,7 +183,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
       }
 
       if (byModel.length > 0) {
-        lines.push(`  ${c.dim("-- DISTRIBUIÇÃO DE TOKENS POR MODELO " + "-".repeat(Math.max(0, width - 45)))}`);
+        lines.push(`  ${c.dim("-- TOKEN DISTRIBUTION BY MODEL " + "-".repeat(Math.max(0, width - 45)))}`);
         const modelSegments = byModel.slice(0, 6).map((m) => ({
           key: m.key,
           label: m.key.replace("claude-", "").replace("gemini-", "").replace("meta/", ""),
@@ -198,7 +198,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
 
     // Tab 1: Projects (Clean Normalized Repositories)
     if (currentTab === 1) {
-      lines.push(`  ${c.dim(padToWidth("PROJETO", 32) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("PARTICIPAÇÃO", 24))}`);
+      lines.push(`  ${c.dim(padToWidth("PROJECT", 32) + "  " + padToWidth("SESSIONS", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("COST", 12) + "  " + padToWidth("SHARE", 24))}`);
       lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 100)))}`);
 
       const maxScroll = Math.max(0, byRepository.length - 5);
@@ -220,7 +220,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
 
     // Tab 2: Models
     if (currentTab === 2) {
-      lines.push(`  ${c.dim(padToWidth("MODELO", 34) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("IN / OUT / CACHED", 26) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("TOKENS %", 24))}`);
+      lines.push(`  ${c.dim(padToWidth("MODEL", 34) + "  " + padToWidth("SESSIONS", 9) + "  " + padToWidth("IN / OUT / CACHED", 26) + "  " + padToWidth("COST", 12) + "  " + padToWidth("TOKENS %", 24))}`);
       lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 110)))}`);
 
       const maxScroll = Math.max(0, byModel.length - 5);
@@ -238,7 +238,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
 
     // Tab 3: Runs
     if (currentTab === 3) {
-      lines.push(`  ${c.dim(padToWidth("RUN ID / NOME", 36) + "  " + padToWidth("SESSÕES", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("CUSTO", 12) + "  " + padToWidth("PARTICIPAÇÃO", 24))}`);
+      lines.push(`  ${c.dim(padToWidth("RUN ID / NAME", 36) + "  " + padToWidth("SESSIONS", 9) + "  " + padToWidth("TOKENS", 18) + "  " + padToWidth("COST", 12) + "  " + padToWidth("SHARE", 24))}`);
       lines.push(`  ${c.dim("─".repeat(Math.min(width - 4, 105)))}`);
 
       const maxScroll = Math.max(0, byRun.length - 5);
@@ -259,7 +259,7 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
     }
 
     // Footer Help Bar
-    lines.push(`  ${c.dim("1-4: Abas   ←/→: Mudar Período   ↑/↓: Rolar   r: Atualizar   q: Sair")}`);
+    lines.push(`  ${c.dim("1-4: Tabs   ←/→: Change Period   ↑/↓: Scroll   r: Refresh   q: Quit")}`);
 
     return lines.map((l) => truncate(l, width));
   };
