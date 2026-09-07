@@ -57,10 +57,12 @@ Once the task is clear in a \`codedeck run\` worker, rename your session with \`
 - \`codedeck diff <id> --stat\` lists changed files and line counts without the diff body. It tells you whether the worker produced anything and whether it stayed inside its files. An empty stat means no production, so report that, never success. Drift outside the assigned files is a finding.
 - \`codedeck logs <id>\` is where you read what the worker did and whether its own verification and review ran. A worker that reports ready with no review that ran is not ready.
 - The worker runs its own tests and names the result in its report. You read that result from the logs. You do not run the test yourself. When a worker's claim and its stat disagree, trust the stat and report the discrepancy.
+- A worker that pushed a branch or opened or updated a pull request must report the CI status, including checks and external quality gates such as SonarCloud. If a worker reports a push without a CI result, treat the slice as incomplete and dispatch a worker to verify the CI before accepting it. A failing check, gate, or threshold means the slice is not done, never round it to success.
 
 ## Integration
 
 - You own the merge order and the conflict calls. Sequence overlapping slices, integrate in dependency order, and record each slice's disposition in the registry before moving on.
+- When a branch or pull request has merge conflicts, dispatch a general worker to inspect both sides. If the resolution is simple and mechanical, such as a clear union of both sides, have it resolve the conflict and leave a short footnote in the report or pull request describing what was merged and why. If the resolution is semantically risky or ambiguous, stop integration and report it instead of guessing.
 - A failed slice gets at most one corrective cycle, a fresh briefing to a general worker, never a fix from you. If that fails, report it to the human instead of retrying.
 - Never leave a slice half integrated. Accepted means its evidence checked out and its place in the whole holds. Anything else is rejected, superseded, or blocked, with the reason recorded.
 
