@@ -21,11 +21,11 @@ The user invokes `/autonomous` in an already running interactive orchestrator se
 
 ### Mechanics conclusion
 
-The realistic MVP injection point is option (a), a plugin slash-command asset whose expansion is the autonomous contract. It is the only candidate that can satisfy an explicit command in a session that is already running. The command must carry the contract prose, or use a shared prose file only if the supported command mechanism proves that it can include one.
+The realistic MVP injection point is option (a), a plugin slash-command asset whose expansion is the autonomous contract. It is the only candidate that can satisfy an explicit command in a session that is already running. Under the confirmed Claude Code convention, plugin commands are auto-discovered from a plugin-root `commands/` directory. The filename maps to the command name, so `plugin/commands/autonomous.md` provides `/autonomous`. Command frontmatter may use `description`, `argument-hint`, `allowed-tools`, and `model`. The command body is injected into the current session when invoked.
 
 Option (b) alone is not wired. No current loader references a shared autonomous file. `ultra.md` and the role file are startup inputs, so changing either would affect newly launched sessions, not the current session. Option (c) would require new runtime support and is outside this MVP.
 
-The exact command directory, frontmatter, and whether Claude Code expands the command body into the current session are open questions below. The implementation must resolve those questions before adding a command file. It must not infer a command format from the agent frontmatter.
+The implementation checklist below covers the remaining command file checks. It must not infer a command format from the agent frontmatter.
 
 ## Behavior contract
 
@@ -37,30 +37,34 @@ The orchestrator must never ask the human a question, request a choice, wait for
 
 ### Decision rubric
 
-Use this master test first: can the decision be undone with `git revert`?
+Use this as a heuristic, not a guarantee: can the decision be undone with `git revert`? A revert does not undo dependency installation, network fetches, transitive code execution, shared-state changes, or external side effects.
 
-1. Reversible and cheap decisions are made immediately. This includes picking a library or name, writing a test, refactoring, creating a file, and editing code. Record the assumption in the running notes and final report.
-2. Irreversible or destructive actions are never taken without the human. This includes deleting data, force pushing, touching production, spending money, making external side-effecting calls, and applying a database migration. Defer the action and record it in the report. Do not ask for permission.
+1. Bucket 1 covers reversible and cheap decisions that may be made immediately. This includes naming a candidate library in notes or prose, choosing a name, writing a test, refactoring, creating a file, and editing code. Record the assumption in the running notes and final report. Installing, fetching, or vendoring a dependency is not bucket 1. Treat it as bucket 2, including the lockfile change, network fetch, and transitive code execution.
+2. Bucket 2 covers irreversible or destructive actions. The orchestrator and workers must never take them without the human. This includes deleting data, deleting untracked files, `git clean`, `git reset --hard`, force-pushing an already-shared branch, publishing or sharing commits, touching production, sending network writes or other external side-effecting calls, spending money, applying a migration to a shared database, and installing, fetching, or vendoring a dependency. Defer the action and record it in the report. Do not ask for permission.
 3. An ambiguous product decision that genuinely matters is deferred as a pending question. Record the question, then route around it by doing independent work that does not depend on the answer.
 
 The rubric governs the orchestrator's decisions. A worker's question is evidence of a blocker, not permission to ask the human.
 
-For this MVP, choosing a library is explicitly bucket 1 work even when it has follow-up cost. Record the assumption. The separate ban on external side effects still applies.
+For this MVP, naming a candidate library in notes or prose is bucket 1. Installing, fetching, or vendoring that library is bucket 2.
 
 ### Route around blockers
 
-When a task is deferred or blocked, the orchestrator records the reason, keeps a running notes entry, and continues dispatching or doing every independent task. One blocker must not halt the whole run. Work that depends on the deferred decision remains listed as deferred.
+When a task is deferred or blocked, the orchestrator records the reason, keeps a running notes entry, and continues dispatching or doing every independent task. Independent means the task needs no output, file, or decision from the deferred or blocked item. When in doubt, list it as deferred rather than dispatch it. One blocker must not halt the whole run. Work that depends on the deferred decision remains listed as deferred.
+
+### Risks / limitations
+
+This is a prompt-level instruction, not process enforcement. It cannot guarantee that the orchestrator or a worker follows the no-question or bucket-2 rules. Workers run under permission bypass, including Claude's `--dangerously-skip-permissions` in `src/drivers/claude/driver.ts:12-23`, so destructive commands remain technically executable.
 
 ## Report and notes
 
-Use these repository paths for an autonomous run. `<slug>` is the feature slug from the active work item, lowercased with every run of non-alphanumeric characters replaced by one hyphen and leading or trailing hyphens removed. If the work item has no feature slug, use `autonomous-mode`. The orchestrator creates the directory and both files when the mode activates, before writing the first note.
+Use these repository paths for an autonomous run. `<slug>` is the feature slug from the active work item, lowercased with every run of non-alphanumeric characters replaced by one hyphen and leading or trailing hyphens removed. If the work item has no feature slug, use `autonomous-mode`. On activation, the orchestrator dispatches a worker (or, if the session is an edit-capable harness, directs the session) to create the slug directory and both files immediately. No note-taking is valid before they exist.
 
-- Running notes: `.specs/features/<slug>/run-notes.md`
-- Final report: `.specs/features/<slug>/run-report.md`
+- Running notes: `.specs/features/<slug>/run-notes.md`. This file is append-only per run and is never rewritten.
+- Final report: `.specs/features/<slug>/run-report.md`. It must be self-contained. Do not write `see run-notes.md`; fold the notes into the report as content.
 
-The notes log is append-only during the run. Each entry records the time or sequence, the decision or blocker, its category, the reason, and the independent work taken around it. At the end, fold the notes into `run-report.md` rather than leaving the report dependent on a separate log.
+An assumption note is an append-only entry in `run-notes.md` carrying time-or-sequence, decision, category (bucket), and reason. Blocker entries also record the independent work taken around the blocker. At the end, fold the notes into `run-report.md` rather than leaving the report dependent on a separate log.
 
-The final report contains these sections, in this order. `Done` includes these Markdown links when a web remote is available: `- Branch: [<branch-name>](<remote>/tree/<branch-name>)` and `- Commit: [<full-sha>](<remote>/commit/<full-sha>)`. If no web remote is available, include the exact branch name and full commit SHA and state that links are unavailable.
+The final-report rule is explicit. The report lives at `.specs/features/<slug>/run-report.md`, is self-contained, contains the five sections below in this order, and uses the `Done` link formats or the links-unavailable fallback below. The `Done` section derives the branch by running `git branch --show-current` and the commit by running `git rev-parse HEAD`. With a web remote, it includes these Markdown links: `- Branch: [<branch-name>](<remote>/tree/<branch-name>)` and `- Commit: [<full-sha>](<remote>/commit/<full-sha>)`. Without a web remote, it includes the exact branch name and full commit SHA and states that links are unavailable.
 
 1. `Done`, including commit and branch links.
 2. `Assumptions I made`, covering reversible calls recorded during the run.
@@ -70,24 +74,22 @@ The final report contains these sections, in this order. `Done` includes these M
 
 ## Acceptance criteria
 
-1. A user must explicitly invoke `/autonomous` in a running interactive orchestrator session before the contract can apply.
-2. The command expansion must contain the no-question rule, the definition of blocked work, the three decision buckets, the `git revert` master test, the route-around rule, the running-notes rule, and the final-report rule.
-3. The contract must state that neither the orchestrator nor a worker may turn a blocker into a question for the human. The orchestrator records the blocker or pending question instead.
-4. The contract must classify reversible, cheap work as allowed with an assumption note, and irreversible or destructive work as deferred without human approval.
-5. The contract must require independent work to continue after a defer or block. A single blocked task must not stop the run.
-6. The contract must name `.specs/features/<slug>/run-notes.md` and `.specs/features/<slug>/run-report.md`, and the final report must contain all five required sections.
-7. No startup file, configuration setting, worker question, or other implicit event may activate autonomous mode.
-8. The MVP must not add blocker detection, live answer injection, timeouts, scheduling, a dependency graph, structured report IPC or CLI, or automatic activation.
+1. Check `.specs/features/autonomous-mode/testing/activation/without-autonomous.md` and `.specs/features/autonomous-mode/testing/activation/with-autonomous.md`. Pass iff `rg -n '^User: /autonomous$'` finds no match in the first fixture and one match in the second, `rg -n 'must never ask the human|Bucket 1|run-notes.md'` finds no match in the first fixture, and an `awk` check finds `must never ask the human` and `Bucket 1` only after that invocation in the second fixture.
+2. Check `.specs/features/autonomous-mode/testing/contract-expansion.md`, copied from `plugin/commands/autonomous.md`. Pass iff one `rg` marker check finds `must never ask the human`, `or a worker would need to ask the human`, `that work is blocked`, `can the decision be undone with \`git revert\``, `heuristic, not a guarantee`, `Bucket 1`, `Bucket 2`, `ambiguous product decision`, `route around`, `append-only per run`, `run-notes.md`, `run-report.md`, `Done`, `Assumptions I made`, `Deferred / waiting for you`, `Blocked / failed`, and `Not covered`, plus the explicit final-report path, remote link formats, and links-unavailable fallback, and an ordered-heading check matches `Done`, `Assumptions I made`, `Deferred / waiting for you`, `Blocked / failed`, `Not covered` in that order.
+3. Check `.specs/features/autonomous-mode/testing/behavior/no-human-question.md`. Pass iff `rg` finds `BLOCKER:` and `PENDING QUESTION:` records, and finds no `ASK HUMAN:`, `REQUEST APPROVAL:`, or `WAIT FOR HUMAN:` action in the fixture.
+4. Check `.specs/features/autonomous-mode/testing/behavior/decision-buckets.md`. Pass iff `rg` finds candidate-library naming in notes or prose as bucket 1, dependency install/fetch/vendor work as bucket 2 and deferred, destructive work as bucket 2 and deferred, and an assumption note matching the fields `time-or-sequence`, `decision`, `category (bucket)`, and `reason`.
+5. Check `.specs/features/autonomous-mode/testing/behavior/route-around.md`. Pass iff `rg` finds the independent definition, a blocker record, an independent task dispatched after the blocker, and a dependent task recorded as deferred, while an exact-match check finds no dispatch for the dependent task.
+6. Check `.specs/features/autonomous-mode/testing/report/activation-files.md`, `.specs/features/autonomous-mode/testing/report/run-notes-before.md`, `.specs/features/autonomous-mode/testing/report/run-notes.md`, `.specs/features/autonomous-mode/testing/report/run-report-with-remote.md`, and `.specs/features/autonomous-mode/testing/report/run-report-no-remote.md`. Pass iff an `awk` check finds the activation followed immediately by either `DISPATCH WORKER: create slug directory and both files` or `EDIT-CAPABLE SESSION: create slug directory and both files`, finds both file markers before the first `NOTE:`, and finds no `NOTE:` before either marker; a prefix comparison proves the notes file only appends to the before snapshot; each report fixture has the five required headings in order; each report contains the note content without `see run-notes.md`; the remote fixture matches both stated Markdown link formats; and the no-remote fixture contains the exact branch, full SHA, and `links are unavailable`.
+7. Check `.specs/features/autonomous-mode/testing/activation/implicit-events.md`. Pass iff `rg` finds `STARTUP: no activation`, `CONFIGURATION: no activation`, `WORKER QUESTION: no activation`, and `OTHER AUTOMATIC EVENT: no activation`, and an exact-match check finds no `User: /autonomous` line.
+8. Check `.specs/features/autonomous-mode/spec.md` and `.specs/features/autonomous-mode/testing/scope.md`. Pass iff `rg` finds every Phase 2 exclusion, including blocker detection, live answer injection, timeouts, scheduling, a dependency graph, structured report IPC or CLI, automatic activation, deferred-question persistence, auto-answer / auto-defer policy on run options or configuration, and process-level enforcement, and `rg -n '^MVP IMPLEMENTS: (blocker detection|live answer injection|timeouts|scheduling|dependency graph|structured report IPC|structured report CLI|automatic activation|deferred-question persistence|auto-answer|auto-defer|process-level enforcement)$'` returns no matches in the scope fixture.
 
 ## Testing notes
 
 This feature is mainly plugin and prompt content, so verification is bounded and textual.
 
-- Check the command asset in the command location confirmed by the open question. Read its frontmatter and body, then use `rg` to verify these literal markers: `must never ask the human`, `or a worker would need to ask the human`, `can the decision be undone with \`git revert\``, `Reversible and cheap`, `Irreversible or destructive`, `ambiguous product decision`, `route around`, `run-notes.md`, `run-report.md`, `Done`, `Assumptions I made`, `Deferred / waiting for you`, `Blocked / failed`, and `Not covered`. A pass requires every marker. If the command location or syntax is still unconfirmed, record that as a failed prerequisite instead of treating a guessed file as a passing test.
+- Check `plugin/commands/autonomous.md`. Read its frontmatter and body, then use `rg` to verify the markers listed in acceptance criterion 2. A pass requires every marker and the final-report path, section order, link formats, and no-remote fallback.
 - After any plugin change, run `npm run build:plugin` and verify that the corresponding file exists under `dist/plugin` with the same content. `scripts/copy-plugin.mjs:7-11` is the copy path.
-- Run a simulated dry-run narrative with at least these cases: choose a library and write a test, record the assumption; encounter a production change or database migration, defer it without asking; encounter an important product ambiguity, record a pending question and continue an independent task; encounter a worker question, record the blocker and dispatch unrelated work.
-- Test explicit activation with two simulated transcripts. One transcript starts and continues without `/autonomous` and must not use the contract. The second invokes `/autonomous` and must apply it on subsequent decisions. No automatic activation path may appear in either transcript.
-- Inspect a sample `run-notes.md` and final `run-report.md` to confirm the notes were folded into the required report sections. With a web remote, `Done` must match `Branch: [<branch-name>](<remote>/tree/<branch-name>)` and `Commit: [<full-sha>](<remote>/commit/<full-sha>)`. Without one, it must contain the exact branch name, full commit SHA, and an explicit links-unavailable note.
+- Use the concrete fixtures named in acceptance criteria 1 and 3 through 8. The decision-buckets fixture covers candidate-library naming, test writing, dependency installation or fetching, a production change or database migration, product ambiguity, and a worker question. The route-around fixture covers the independent task and the deferred dependent task. The activation fixtures cover the before and after states. The report fixtures cover append-only notes, folded report content, remote links, and the no-remote fallback. Each fixture passes only when its stated `rg`, `awk`, or exact-match judge passes.
 - No source-code or full-suite test is required for this spec-only artifact. Runtime guarantees beyond the command expansion are not proven by prompt checks and remain outside this MVP.
 
 ## Explicit OUT OF SCOPE
@@ -99,12 +101,18 @@ All Phase 2 infrastructure is out of scope:
 - inactivity or deadline timeouts;
 - a run-level scheduler or dependency graph;
 - a structured or persisted report schema with IPC or CLI;
+- deferred-question persistence (store/table/JSON);
+- auto-answer / auto-defer policy on run options or configuration;
+- No process-level enforcement in the MVP; destructive commands remain technically executable under permission bypass. Enforcement is Phase 2.
 - any automatic, non-explicit activation.
 
-## Open questions
+## Implementation checklist
 
-1. Does this plugin and the supported Claude Code version discover slash commands from `plugin/commands/`? The current tree has no command directory or example, and `plugin/.claude-plugin/plugin.json:1-11` does not declare one.
-2. What frontmatter and body format does a supported plugin slash command require? The repository only proves the agent frontmatter format at `plugin/agents/orchestrator.md:1-5`; it does not prove that commands use the same format.
-3. When a user invokes the command, does Claude Code inject its body into the current conversation and keep the contract active for later turns? The current CodeDeck launcher only supplies startup prompt and agent arguments at `src/open/launchers/claude.ts:108-119`.
-4. Can a command reference a shared Markdown contract file? If not, the MVP command must carry the complete contract prose itself.
-5. `analysis.md:68-79` recommends `src/open/orchestrator-prose.ts` or an agent variant, but `src/open/orchestrator-prose.ts` is absent on this branch. Should implementation add a new runtime composer, or remain plugin-only after the slash-command mechanism is confirmed? Adding runtime support would change the MVP scope and needs an explicit decision.
+1. Add the plugin-root `commands/` directory and confirm that the plugin build copies it.
+2. Add `plugin/commands/autonomous.md`. Its filename maps to `/autonomous`. Use optional command frontmatter only as needed: `description`, `argument-hint`, `allowed-tools`, and `model`.
+3. Confirm in the supported Claude Code version that invoking the command injects its body into the current session and keeps the contract active for later turns. Do not use startup files for this behavior.
+4. Confirm whether the command can reference a shared Markdown contract file. If it cannot, keep the complete contract prose in `autonomous.md`.
+
+## Resolved decision (OQ5)
+
+The MVP is PLUGIN-ONLY. Use `plugin/commands/autonomous.md`, whose body contains or references the autonomous contract, plus an optional shared contract Markdown file. Do not build `src/open/orchestrator-prose.ts` or any new runtime prose composer for this MVP.
