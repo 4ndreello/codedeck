@@ -46,7 +46,10 @@ export class AntigravityDriver extends SessionDriver {
   private detectedPath?: string;
 
   protected override getCommand(): string {
-    return this.detectedPath || "agy";
+    if (this.detectedPath) return this.detectedPath;
+    const localBin = path.join(os.homedir(), ".local", "bin", "agy");
+    if (fs.existsSync(localBin)) return localBin;
+    return "agy";
   }
 
   protected override getEnv(_options: StartOptions): NodeJS.ProcessEnv {

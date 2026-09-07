@@ -79,7 +79,12 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
     if (update.step_type === "tool" && (update.state === "DONE" || update.state === "ERROR")) {
       const isError = update.state === "ERROR" || Boolean(update.tool_info?.error);
       const output = update.tool_info?.output ?? update.output;
-      const errorMsg = isError ? String(update.tool_info?.error || output || "Tool execution failed") : undefined;
+      const rawError = update.tool_info?.error || output || "Tool execution failed";
+      const errorMsg = isError
+        ? typeof rawError === "string"
+          ? rawError
+          : JSON.stringify(rawError)
+        : undefined;
 
       events.push({
         type: "tool.completed",

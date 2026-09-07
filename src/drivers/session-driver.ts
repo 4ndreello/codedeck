@@ -33,9 +33,7 @@ export function createRuntimeHooks(options: SessionDriverHookOptions): RuntimeHo
       const parsedEvents = options.parse(line, sessionId);
       for (const event of parsedEvents) {
         const native =
-          event.type === "session.started" && event.nativeSessionId
-            ? event.nativeSessionId
-            : nativeIdFrom(event.raw, options.nativeKeys);
+          (event as any).nativeSessionId || nativeIdFrom(event.raw, options.nativeKeys);
         if (native) setNativeId(native);
         push(event);
       }
