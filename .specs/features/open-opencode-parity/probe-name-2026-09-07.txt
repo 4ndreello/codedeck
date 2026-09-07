@@ -1,0 +1,26 @@
+T4 probe: opencode launch-time name channel (NEGATIVE)
+Date: 2026-09-07
+Binary: opencode 1.18.21
+Spec: OP-11 (send through probed channel), fallback OP-12 (open
+without it), OP-20 (banner as guaranteed surface)
+
+Method
+1. `opencode --help` full options tail (recorded 2026-09-07): the TUI
+   command accepts -m/--model, -c/--continue, -s/--session, --fork,
+   --prompt, --agent, --auto, --mini, --no-replay, --replay-limit.
+   No --title. `--title` exists ONLY on `opencode run` ("title for the
+   session"), which is the non-interactive path `open` does not launch.
+2. T1 transcript (probe-rename-2026-09-07.txt): no `/rename` or
+   retitle in 1.18.21, so there is no post-launch keystroke target
+   either. One absent mechanism, not two: OP-11's "channel" and OP-01's
+   "command" are the same missing rename capability.
+3. Observed titles in `session list` ("Agent claims board spec",
+   "New session - 2026-09-06T21:58:04.030Z") show the server
+   model-generates titles from the first prompt. That generation is
+   model-side and not settable from the CLI in this version.
+
+Verdict: NEGATIVE for opencode 1.18.21. No launch-time name channel.
+Consequences per spec: OP-12 fallback active (open without it), banner
+stays the surface (OP-20), T10 keeps the banner guarantee by test and
+sends nothing. Oracle for any future re-probe: exact match in
+`opencode session list --format json` (shape verified in T3).
