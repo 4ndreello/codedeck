@@ -428,6 +428,15 @@ describe("open command pure helpers", () => {
     );
   });
 
+  // probe-session-id-2026-09-07: opencode ids are `ses_` shaped, and the
+  // farewell prints them through the same `--resume` CLI flag.
+  it("prints opencode session ids through the same resume flag", () => {
+    expect(resumeHint("reviewer", "ses_f87425ee9ffejNZXkRaHKoEc3G")).toContain(
+      "codedeck open reviewer --resume ses_f87425ee9ffejNZXkRaHKoEc3G",
+    );
+    expect(resumeHint("general", "ses_abc")).toBeUndefined();
+  });
+
   it("names the renamed CLI in the resume line, tips and mismatch hint", () => {
     process.env.CODEDECK_CLI_NAME = "codedeck-dev";
 

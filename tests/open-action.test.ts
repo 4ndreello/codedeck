@@ -1,13 +1,20 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { IpcClient } from "../src/daemon/ipc.js";
+import { diffOpencodeSession } from "../src/cli/commands/open.js";
 import * as claudeLauncher from "../src/open/launchers/claude.js";
 import * as opencodeLauncher from "../src/open/launchers/opencode.js";
 import * as runtime from "../src/open/runtime.js";
 import { setupOpenHarness } from "./helpers/open-harness.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("node:child_process")>();
+  return { ...mod, execFileSync: vi.fn() };
+});
 
 const originalCwd = process.cwd();
 const { runOpen } = setupOpenHarness({ prefix: "codedeck-action-", restoreCwd: true });
@@ -121,6 +128,111 @@ describe("opencode dispatch", () => {
     expect(create).not.toHaveBeenCalled();
     expect(opts.envExtra as Record<string, string>).not.toHaveProperty("OPENCODE_CONFIG_DIR");
     expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("diffOpencodeSession", () => {
+  it("returns the one session that appeared between snapshots", () => {
+    expect(
+      diffOpencodeSession(
+        [{ id: "ses_old1", created: 1 }],
+        [
+          { id: "ses_old1", created: 1 },
+          { id: "ses_f87425ee9ffejNZXkRaHKoEc3G", created: 2 },
+        ],
+      ),
+    ).toBe("ses_f87425ee9ffejNZXkRaHKoEc3G");
+  });
+
+  it("returns undefined when zero or several sessions are new", () => {
+    const same = [{ id: "ses_old1", created: 1 }];
+    expect(diffOpencodeSession(same, same)).toBeUndefined();
+    expect(
+      diffOpencodeSession(same, [
+        ...same,
+        { id: "ses_new1", created: 2 },
+        { id: "ses_new2", created: 3 },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("ignores rows without string ids on either side", () => {
+    expect(
+      diffOpencodeSession(
+        [{ id: 42, created: 1 }],
+        [{ id: 42, created: 1 }, { id: "ses_new1", created: 2 }],
+      ),
+    ).toBe("ses_new1");
+    expect(diffOpencodeSession([], [{ created: 2 }])).toBeUndefined();
+  });
+});
+
+describe("opencode resume capture", () => {
+  // sessionsDir() derives from RUN_AGENT_DIR, so the temp dir must cover
+  // runOpen (which computes sessionFile) as well as onClose (which writes).
+  async function withTempRunAgentDir(body: () => Promise<void>): Promise<void> {
+    const previous = process.env.RUN_AGENT_DIR;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-run-agent-"));
+    process.env.RUN_AGENT_DIR = dir;
+    try {
+      await body();
+    } finally {
+      if (previous === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previous;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // probe-session-id-2026-09-07: snapshot before spawn, diff after close,
+  // exactly one new session or no hint.
+  it("leaves the captured id where the farewell reads it", async () => {
+    vi.mocked(execFileSync)
+      .mockReturnValueOnce(JSON.stringify([{ id: "ses_old1", created: 1 }]))
+      .mockReturnValueOnce(
+        JSON.stringify([
+          { id: "ses_old1", created: 1 },
+          { id: "ses_f87425ee9ffejNZXkRaHKoEc3G", created: 2 },
+        ]),
+      );
+
+    await withTempRunAgentDir(async () => {
+      await runOpen(["reviewer", "--no-theme"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      opts.onClose();
+      const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
+      expect(fs.readFileSync(sessionFile, "utf8")).toBe("ses_f87425ee9ffejNZXkRaHKoEc3G");
+    });
+  });
+
+  it("opens normally when the snapshot itself fails", async () => {
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw new Error("no opencode here");
+    });
+
+    await withTempRunAgentDir(async () => {
+      await runOpen(["reviewer", "--no-theme"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      opts.onClose();
+      expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
+      const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
+      expect(fs.existsSync(sessionFile)).toBe(false);
+    });
+  });
+
+  it("leaves no id behind when the diff is ambiguous", async () => {
+    const same = JSON.stringify([{ id: "ses_old1", created: 1 }]);
+    vi.mocked(execFileSync).mockReturnValueOnce(same).mockReturnValueOnce(same);
+
+    await withTempRunAgentDir(async () => {
+      await runOpen(["reviewer", "--no-theme"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      opts.onClose();
+      const sessionFile = vi.mocked(runtime.finishOpenSession).mock.calls[0][1] as string;
+      expect(fs.existsSync(sessionFile)).toBe(false);
+    });
   });
 });
 

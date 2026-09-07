@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import * as readline from "node:readline";
 import type { Command } from "commander";
@@ -158,6 +159,51 @@ export function harnessMismatch(role: Role, binding: RoleBinding | undefined): s
 }
 
 export type OpenHarness = "claude" | "opencode";
+
+export interface OpencodeSessionRow {
+  id: unknown;
+  created: unknown;
+}
+
+/**
+ * Best-effort snapshot of `opencode session list`, or undefined. Capture
+ * is allowed to fail: no snapshot means no resume hint (OP-09), never a
+ * failed launch. No daemon, no config writes (OP-10, OP-19).
+ */
+export function readOpencodeSessions(bin: string): OpencodeSessionRow[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(
+      execFileSync(bin, ["session", "list", "--format", "json", "-n", "50"], {
+        encoding: "utf8",
+        timeout: 10000,
+        maxBuffer: 1024 * 1024,
+      }),
+    );
+    return Array.isArray(parsed) ? (parsed as OpencodeSessionRow[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The id of the one session that appeared between snapshots, or
+ * undefined. Zero or several new sessions mean "cannot tell", and a
+ * missing hint beats a wrong one.
+ */
+export function diffOpencodeSession(
+  before: OpencodeSessionRow[],
+  after: OpencodeSessionRow[],
+): string | undefined {
+  const known = new Set(
+    before.map((row) => (typeof row.id === "string" ? row.id : "")),
+  );
+  const fresh = after.filter(
+    (row): row is { id: string } & OpencodeSessionRow =>
+      typeof row.id === "string" && !known.has(row.id),
+  );
+  if (fresh.length !== 1) return undefined;
+  return fresh[0].id;
+}
 
 /**
  * The one dispatch decision: the binding owns the harness, and an unbound
@@ -439,8 +485,20 @@ export function registerOpenCommand(program: Command): void {
         const tuiDir = opts.theme === false || !ensureOpencodeTheme(pluginDir)
           ? undefined
           : createEphemeralTuiDir();
+        // Snapshot before the spawn so the close path can tell which
+        // session this launch created (probe-session-id-2026-09-07).
+        const sessionsBefore = readOpencodeSessions(opencodeBin);
         const closeOpencode = () => {
           if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
+          const after = readOpencodeSessions(opencodeBin);
+          const id = after === undefined || sessionsBefore === undefined
+            ? undefined
+            : diffOpencodeSession(sessionsBefore, after);
+          if (id !== undefined) {
+            try {
+              fs.writeFileSync(sessionFile, id);
+            } catch {}
+          }
           finishOpenSession(role, sessionFile);
         };
 

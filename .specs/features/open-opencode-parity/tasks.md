@@ -294,9 +294,9 @@ check; re-propose only with a pinned keystroke consumer.
 ### T9: Capture opencode session id for resume hint
 
 **What**: Wire the probed capture mechanism into the opencode close path.
-**Where**: `src/cli/commands/open.ts`
+**Where**: `src/cli/commands/open.ts` plus the two-line id-shape seam in `src/open/runtime.ts` (seam and consumer must land together or the hint is unprintable; no split point)
 **Depends on**: T8
-**Reuses**: `finishOpenSession` unchanged; transcript T3 for the mechanism
+**Reuses**: `finishOpenSession` signature unchanged; transcript T3 for the mechanism
 **Requirement**: OP-08, OP-09, OP-10, OP-19
 
 **Tools**:
@@ -313,6 +313,8 @@ check; re-propose only with a pinned keystroke consumer.
 
 **Tests**: unit
 **Gate**: quick
+
+**Status**: ✅ Complete (list-diff live, 103 green across both files)
 
 **Commit**: `feat(open): capture opencode session id for resume hint`
 
