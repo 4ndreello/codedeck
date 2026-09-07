@@ -38,6 +38,13 @@ export interface RunAgentConfig {
   defaultModel?: string;
   remoteControl?: boolean;
   /**
+   * Run interactive sessions under a pty CodeDeck owns, which is what lets it
+   * type harness commands — today the `/rename` that names a Claude Code
+   * session after the first prompt. Defaults to true; unset it to keep the
+   * plain spawn.
+   */
+  pty?: boolean;
+  /**
    * Per harness, and the fallback for whatever `agents` does not answer: a run
    * with no role, or one whose role nobody bound. Setup no longer writes it.
    */
@@ -84,6 +91,7 @@ const DEFAULT_CONFIG: RunAgentConfig = {
   defaultAgent: "claude",
   worktree: false,
   remoteControl: true,
+  pty: true,
 };
 
 export function loadConfig(): RunAgentConfig {

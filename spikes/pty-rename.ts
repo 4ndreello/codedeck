@@ -35,7 +35,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const SHIM = fileURLToPath(new URL("./pty-shim.mjs", import.meta.url));
+const SHIM = fileURLToPath(new URL("../plugin/pty-shim.mjs", import.meta.url));
 const PROBE = fileURLToPath(new URL("./pty-probe.mjs", import.meta.url));
 
 export interface PtyTarget {

@@ -19,6 +19,7 @@ export interface OpenFlags {
   bypass?: boolean;
   theme?: boolean;
   remoteControl?: boolean;
+  pty?: boolean;
 }
 
 export interface OpenModelInput {

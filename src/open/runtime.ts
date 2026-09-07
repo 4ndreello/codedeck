@@ -8,6 +8,7 @@ import { getPaths } from "../config/paths.js";
 import { getCliName } from "../cli/cli-name.js";
 import { INDENT, LOGO, renderFarewell, renderLogo } from "../cli/ui.js";
 import type { Role } from "../core/roles.js";
+import { ptyUnavailableReason, startPtySession, type PtyLaunch, type PtySession } from "./pty.js";
 
 /**
  * "replace" drops Claude Code's own hundred-odd verbs instead of adding to
@@ -493,6 +494,28 @@ function relayStderr(child: ChildProcess, output: { value: string }): void {
 }
 
 /**
+ * How much of a pty session's output is kept for the entitlement check. Under
+ * a pty the harness's stderr is merged into stdout, so the tagged refusal
+ * arrives in the same stream the TUI paints with — and that stream never ends.
+ * The refusal is written before the first frame, so a small window is enough
+ * and the session does not accumulate its own transcript in memory.
+ */
+const PTY_SCAN_LIMIT = 64 * 1024;
+
+/**
+ * The pty variant of relayStderr: bytes are written through to the terminal
+ * untouched, and only the opening window is remembered.
+ */
+function relayPtyOutput(child: ChildProcess, output: { value: string }, stdout: NodeJS.WriteStream): void {
+  child.stdout?.pipe(stdout, { end: false });
+  child.stdout?.on("data", (chunk: string | Buffer) => {
+    if (output.value.length >= PTY_SCAN_LIMIT) return;
+    output.value += typeof chunk === "string" ? chunk : chunk.toString();
+  });
+  relayStderr(child, output);
+}
+
+/**
  * A signalled death carries no exit code, and collapsing it to 1 tells a caller
  * the session failed rather than that it was killed. Shells report this as
  * 128 plus the signal number, so Ctrl+C stays 130 and a SIGKILL stays 137.
@@ -514,6 +537,24 @@ export interface SpawnHarnessOptions {
   onClose: () => void;
   spawnChild?: typeof spawn;
   signalHost?: SignalHost;
+  /**
+   * Ask for the session to run under a pty CodeDeck owns, so it can type into
+   * the harness. Dropped whenever the terminal, the platform or the plugin
+   * cannot support it — a session that opens without renaming itself beats a
+   * session that does not open.
+   */
+  pty?: PtyLaunch;
+}
+
+/** Left as a seam so a test can assert the fallback without a real terminal. */
+export function ptyLaunchFor(opts: SpawnHarnessOptions): PtyLaunch | undefined {
+  if (!opts.pty) return undefined;
+  const reason = ptyUnavailableReason({
+    shim: opts.pty.shim,
+    stdinIsTty: process.stdin.isTTY === true,
+    stdoutIsTty: process.stdout.isTTY === true,
+  });
+  return reason === undefined ? opts.pty : undefined;
 }
 
 export function spawnHarness(
@@ -530,31 +571,47 @@ export function spawnHarness(
         ? sanitizeEnv(process.env)
         : withCodedeckOnPath(sanitizeEnv(process.env), binDir);
     let child: ChildProcess | undefined;
+    let pty: PtySession | undefined;
     const sigintGuard = installSigintGuard(() => child, opts.signalHost ?? process);
     const fail = (error: unknown) => {
       if (settled) return;
       settled = true;
+      pty?.dispose();
       sigintGuard.childClosed();
       sigintGuard.dispose();
       reject(error);
     };
 
     const spawnChild = opts.spawnChild ?? spawn;
+    const env = { ...childEnv, CODEDECK_SESSION_FILE: opts.sessionFile, ...(opts.envExtra ?? {}) };
+    const launch = ptyLaunchFor(opts);
     try {
-      child = spawnChild(bin, args, {
-        cwd: opts.cwd,
-        env: { ...childEnv, CODEDECK_SESSION_FILE: opts.sessionFile, ...(opts.envExtra ?? {}) },
-        // Keep Claude in the foreground process group so the terminal sends
-        // the first Ctrl+C to it as well as to this parent guard.
-        detached: false,
-        stdio: ["inherit", "inherit", "pipe"],
-      });
+      if (launch) {
+        pty = startPtySession({
+          target: { bin, args },
+          launch,
+          cwd: opts.cwd,
+          env,
+          spawnChild,
+        });
+        child = pty.child;
+      } else {
+        child = spawnChild(bin, args, {
+          cwd: opts.cwd,
+          env,
+          // Keep Claude in the foreground process group so the terminal sends
+          // the first Ctrl+C to it as well as to this parent guard.
+          detached: false,
+          stdio: ["inherit", "inherit", "pipe"],
+        });
+      }
     } catch (error) {
       fail(error);
       return;
     }
 
-    relayStderr(child, output);
+    if (pty) relayPtyOutput(child, output, process.stdout);
+    else relayStderr(child, output);
 
     child.once("error", (error) => {
       if (settled) return;
@@ -569,6 +626,7 @@ export function spawnHarness(
     child.once("close", (code, signal) => {
       if (settled) return;
       settled = true;
+      pty?.dispose();
       sigintGuard.childClosed();
 
       const entitlement = opts.entitlementError?.(opts.model ?? "", output.value);
