@@ -51,6 +51,26 @@ export function agentName(role: Role): string {
   return `codedeck-${role}`;
 }
 
+const AUTONOMOUS_COMMAND = "autonomous";
+
+/**
+ * The /autonomous slash command for opencode, read from the same file
+ * Claude serves via --plugin-dir. Body means the md minus frontmatter,
+ * the same strip rule resolveRoleContract applies to agent files, so
+ * the contract text stays identical on both harnesses.
+ */
+export function autonomousCommand(pluginDir: string): { template: string; description: string } {
+  const raw = fs.readFileSync(path.join(pluginDir, "commands", `${AUTONOMOUS_COMMAND}.md`), "utf8");
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
+  const frontmatter = match ? match[0] : "";
+  const description = /^description:\s*(.+)$/m.exec(frontmatter)?.[1]?.trim() ??
+    "Continue this autonomous orchestrator session";
+  return {
+    template: (match ? raw.slice(match[0].length) : raw).trim(),
+    description,
+  };
+}
+
 /**
  * The whole opencode contract as one `OPENCODE_CONFIG_CONTENT` value: global
  * instructions from ultra plus the role agent carrying its prompt and
@@ -73,6 +93,9 @@ export function buildInlineConfig(
         prompt: orchestratorProse ? `${agentBody}\n\n${orchestratorProse}` : agentBody,
         permission: rolePermission(role, mode),
       },
+    },
+    command: {
+      [AUTONOMOUS_COMMAND]: autonomousCommand(pluginDir),
     },
   });
 }

@@ -35,7 +35,7 @@ describe("opencode dispatch", () => {
     expect(bin).toBe("/bin/opencode");
     expect(args.slice(0, 5)).toEqual(["--agent", "codedeck-reviewer", "--model", "prov/m", "--auto"]);
     const inline = JSON.parse((opts.envExtra as Record<string, string>).OPENCODE_CONFIG_CONTENT);
-    expect(Object.keys(inline).sort()).toEqual(["agent", "instructions"]);
+    expect(Object.keys(inline).sort()).toEqual(["agent", "command", "instructions"]);
     expect(typeof opts.onClose).toBe("function");
 
     opts.onClose();
@@ -59,7 +59,7 @@ describe("opencode dispatch", () => {
 
     const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
     const inline = JSON.parse((opts.envExtra as Record<string, string>).OPENCODE_CONFIG_CONTENT);
-    expect(Object.keys(inline).sort()).toEqual(["agent", "instructions"]);
+    expect(Object.keys(inline).sort()).toEqual(["agent", "command", "instructions"]);
   });
 
   it("never spawns when the contract cannot be built", async () => {

@@ -285,6 +285,8 @@ check; re-propose only with a pinned keystroke consumer.
 **Tests**: unit
 **Gate**: quick
 
+**Status**: ✅ Complete (command key live, 32/32 + 13/13 green)
+
 **Commit**: `feat(open): deliver autonomous command to opencode`
 
 ---
