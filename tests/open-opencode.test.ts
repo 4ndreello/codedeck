@@ -139,6 +139,24 @@ describe("buildInlineConfig", () => {
     );
   });
 
+  it("selects orchestrator tier agent body according to mode tools", () => {
+    const editConfig = JSON.parse(
+      buildInlineConfig(pluginDir, "orchestrator", mode({ tools: "edit" })),
+    ) as any;
+    expect(editConfig.agent["codedeck-orchestrator"].prompt).not.toContain("Bash is your dispatch console");
+    expect(editConfig.agent["codedeck-orchestrator"].prompt).toContain("You are the CodeDeck orchestrator");
+
+    const dispatchConfig = JSON.parse(
+      buildInlineConfig(pluginDir, "orchestrator", mode({ tools: "dispatch" })),
+    ) as any;
+    expect(dispatchConfig.agent["codedeck-orchestrator"].prompt).toContain("Bash is your dispatch console");
+
+    const readConfig = JSON.parse(
+      buildInlineConfig(pluginDir, "orchestrator", mode({ tools: "read" })),
+    ) as any;
+    expect(readConfig.agent["codedeck-orchestrator"].prompt).not.toContain("Bash is your dispatch console");
+  });
+
   it("leaves non-orchestrator prompts unchanged for a richer mode", () => {
     expect(
       buildInlineConfig(

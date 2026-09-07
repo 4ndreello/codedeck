@@ -82,7 +82,7 @@ export function buildInlineConfig(
   role: Role,
   mode: OrchestratorMode = DISPATCHER_PRESET,
 ): string {
-  const { agentBody, ultra } = resolveRoleContract(pluginDir, role);
+  const { agentBody, ultra } = resolveRoleContract(pluginDir, role, mode);
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
   return JSON.stringify({
     instructions: [ultra],

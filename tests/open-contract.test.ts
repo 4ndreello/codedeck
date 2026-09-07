@@ -39,6 +39,29 @@ describe("resolveRoleContract", () => {
     expect(ultra).toContain("Never round failure to success");
   });
 
+  it("selects orchestrator variant according to tools mode", () => {
+    const dispatch = resolveRoleContract(pluginDir, "orchestrator", {
+      investigate: "none",
+      selfWork: "none",
+      tools: "dispatch",
+    });
+    expect(dispatch.agentBody).toContain("Bash is your dispatch console");
+
+    const read = resolveRoleContract(pluginDir, "orchestrator", {
+      investigate: "none",
+      selfWork: "none",
+      tools: "read",
+    });
+    expect(read.agentBody).not.toContain("Bash is your dispatch console");
+
+    const edit = resolveRoleContract(pluginDir, "orchestrator", {
+      investigate: "none",
+      selfWork: "none",
+      tools: "edit",
+    });
+    expect(edit.agentBody).not.toContain("Bash is your dispatch console");
+  });
+
   it("fails loud when the agent file is missing", () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-contract-"));
     try {

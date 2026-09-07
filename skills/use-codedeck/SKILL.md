@@ -37,7 +37,7 @@ json="$(codedeck run --role general --worktree "<briefing>" --bg --json)"
 id="$(jq -er '.id' <<<"$json")"
 ```
 
-`--bg --json` prints the session object and exits, so capture `.id` at once. Then background one `codedeck wait <id> --json` per worker rather than waiting in the foreground. Each wait returns only when its own worker reaches a terminal state, which frees your turn for the merge, the verification, and the next briefing. Launch independent workers in one message so they actually run in parallel.
+`--bg --json` prints the session object and exits, so capture `.id` at once. Always dispatch workers in the background with `--bg --json` so your turn stays free. Launch independent workers in one message so they actually run in parallel. Then wait on each worker with `codedeck wait <id> --json` (or inspect them with `codedeck ps`). Never background `wait` with `&` expecting to be reinvoked; shell background jobs do not notify the chat session.
 
 `wait` loops until a terminal state, so it blocks straight through `needs_input`, which is not terminal. A worker parked on input hangs the waiter indefinitely. When a wait returns, take one `codedeck ps` snapshot (or `codedeck show <id>`) to catch any other worker stuck on input, answer it with `codedeck send <id> "<reply>"`, then wait again. That snapshot is discovery, not a polling loop.
 
