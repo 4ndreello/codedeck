@@ -13,7 +13,7 @@ vi.mock("../src/daemon/ipc.js", () => ({
   },
 }));
 
-const { registerRunCommand } = await import("../src/cli/commands/run.js");
+const { registerRunCommand, runIdFromEnvironment } = await import("../src/cli/commands/run.js");
 
 class Exited extends Error {
   constructor(readonly code: number) {
@@ -51,6 +51,26 @@ afterEach(() => {
 // is that `run` actually calls them and sends the result: dropping the wiring
 // leaves every helper test green.
 describe("codedeck run --role", () => {
+  it("passes the inherited run id to session.create", async () => {
+    const previousRunId = process.env.CODEDECK_RUN_ID;
+    process.env.CODEDECK_RUN_ID = "run-from-open";
+
+    try {
+      await expect(runProgram(["do the thing", "--agent", "codex", "--bg"]))
+        .rejects.toThrow(Exited);
+    } finally {
+      if (previousRunId === undefined) delete process.env.CODEDECK_RUN_ID;
+      else process.env.CODEDECK_RUN_ID = previousRunId;
+    }
+
+    const [, params] = request.mock.calls[0];
+    expect(params.runId).toBe("run-from-open");
+  });
+
+  it("maps a missing run id to null", () => {
+    expect(runIdFromEnvironment({})).toBeNull();
+  });
+
   it("sends the composed prompt to session.create", async () => {
     await expect(runProgram(["do the thing", "--agent", "codex", "--role", "reviewer", "--bg"]))
       .rejects.toThrow(Exited);

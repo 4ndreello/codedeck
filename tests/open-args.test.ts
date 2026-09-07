@@ -140,7 +140,9 @@ describe("open command argument builder", () => {
     expect(settings.statusLine).toEqual({
       type: "command",
       command: "bash '/opt/codedeck/plugin/statusline.sh'",
+      refreshInterval: 2,
     });
+    expect(settings.statusLine.refreshInterval).toBe(2);
     expect(JSON.stringify(settings)).not.toContain("CLAUDE_PLUGIN_ROOT");
   });
 
@@ -214,6 +216,7 @@ describe("open command argument builder", () => {
       statusLine: {
         type: "command",
         command: "bash '/opt/codedeck/plugin/statusline.sh'",
+        refreshInterval: 2,
       },
     });
   });

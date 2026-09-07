@@ -23,6 +23,7 @@ import type { AgentEvent } from "../core/events.js";
 import { loadConfig } from "../config/config.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
+import { aggregateRunUsage } from "../core/run-usage.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -286,6 +287,7 @@ class Daemon {
         const now = new Date();
         const session: any = {
           id: sessionId,
+          runId: p.runId ?? undefined,
           name: p.name,
           agent,
           model: p.model,
@@ -710,6 +712,17 @@ class Daemon {
         }
         const agents = await this.fetchModels(p.agent, p.refresh);
         send({ result: { agents } });
+        break;
+      }
+
+      case "usage.get": {
+        const p = (params || {}) as { runId?: unknown };
+        if (typeof p.runId !== "string" || p.runId.length === 0) {
+          send({ error: { code: "INVALID", message: "runId required" } });
+          return;
+        }
+        const sessions = this.sessions.getByRunId(p.runId);
+        send({ result: aggregateRunUsage(p.runId, sessions) });
         break;
       }
 

@@ -3,6 +3,7 @@ import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
 import type { HarnessModels } from "../core/models.js";
 import type { Claim } from "../store/claims.js";
+import type { RunUsageSummary } from "../core/run-usage.js";
 
 export type RequestMethod =
   | "session.create"
@@ -19,10 +20,12 @@ export type RequestMethod =
   | "daemon.status"
   | "daemon.stop"
   | "doctor"
-  | "models.list";
+  | "models.list"
+  | "usage.get";
 
 export interface RunOptions {
   prompt: string;
+  runId?: string | null;
   agent?: AgentId;
   model?: string;
   effort?: ReasoningEffort;
@@ -101,6 +104,11 @@ export interface ListModelsRequest {
   params: { agent?: AgentId; refresh?: boolean };
 }
 
+export interface GetUsageRequest {
+  method: "usage.get";
+  params: { runId: string };
+}
+
 export interface ListModelsResult {
   agents: HarnessModels[];
 }
@@ -118,7 +126,10 @@ export type RequestParams =
   | QueryClaimsRequest
   | ReleaseClaimRequest
   | DaemonStatusRequest
-  | ListModelsRequest;
+  | ListModelsRequest
+  | GetUsageRequest;
+
+export type UsageGetResult = RunUsageSummary;
 
 export interface IpcRequest {
   id: string;

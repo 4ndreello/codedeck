@@ -10,6 +10,10 @@ import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/mo
 import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
 import { getCliInvocation, getCliName } from "../cli-name.js";
 
+export function runIdFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.CODEDECK_RUN_ID ?? null;
+}
+
 export function registerRunCommand(program: Command): void {
   program
     .command("run")
@@ -157,6 +161,7 @@ Resume with: ${getCliName()} send <id> "continue"
       const background = !!opts.detach;
       const params: any = {
         prompt: rolePrompt,
+        runId: runIdFromEnvironment(),
         agent,
         model,
         effort,
