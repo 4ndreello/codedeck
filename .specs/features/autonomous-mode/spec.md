@@ -109,7 +109,7 @@ All Phase 2 infrastructure is out of scope:
 ## Implementation checklist
 
 1. Add the plugin-root `commands/` directory and confirm that the plugin build copies it.
-2. Add `plugin/commands/autonomous.md`. Its filename maps to `/autonomous`. Use optional command frontmatter only as needed: `description`, `argument-hint`, `allowed-tools`, and `model`.
+2. Add `plugin/commands/autonomous.md`. Its filename maps to `/autonomous`. Use optional command frontmatter only as needed: `description`, `argument-hint`, `allowed-tools`, `model`, and `disable-model-invocation`.
 3. Confirm in the supported Claude Code version that invoking the command injects its body into the current session and keeps the contract active for later turns. Do not use startup files for this behavior.
 4. Confirm whether the command can reference a shared Markdown contract file. If it cannot, keep the complete contract prose in `autonomous.md`.
 

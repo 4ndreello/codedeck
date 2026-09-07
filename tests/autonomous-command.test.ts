@@ -27,6 +27,9 @@ describe("/autonomous command contract", () => {
 
     expect(existsSync(defaultCommandPath)).toBe(true);
     expect(frontmatter).toMatch(/^description:\s+[^\r\n]+$/m);
+    expect(frontmatter).toContain(
+      "description: Continue this autonomous orchestrator session without human input and write a run report.",
+    );
     expect(frontmatter).toMatch(/^disable-model-invocation:\s*true\s*$/m);
   });
 
@@ -47,6 +50,7 @@ describe("/autonomous command contract", () => {
       "The orchestrator and workers must never take them without the human.",
       "Defer the action and record it in the report. Do not ask for permission.",
       "For this MVP, naming a candidate library in notes or prose is bucket 1. Installing, fetching, or vendoring that library is bucket 2.",
+      "A revert does not undo dependency installation, network fetches, transitive code execution, shared-state changes, or external side effects.",
     ]) {
       expect(body, `missing contract marker: ${marker}`).toContain(marker);
     }
@@ -71,9 +75,9 @@ describe("/autonomous command contract", () => {
     const { body } = commandParts();
 
     for (const marker of [
-      "The orchestrator cannot write files itself.",
-      "On activation, the orchestrator dispatches a worker to create the slug directory, `run-notes.md`, and `run-report.md` immediately.",
+      "On activation, the orchestrator dispatches a worker (or, if the session is an edit-capable harness, directs the session) to create the slug directory and both files immediately.",
       "`<slug>` is the feature slug from the active work item, lowercased with every run of non-alphanumeric characters replaced by one hyphen and leading or trailing hyphens removed.",
+      "If the work item has no feature slug, use `autonomous-mode`.",
       "`.specs/features/<slug>/run-notes.md`",
       "`.specs/features/<slug>/run-report.md`",
       "No note-taking is valid before they exist.",
@@ -84,6 +88,16 @@ describe("/autonomous command contract", () => {
     ]) {
       expect(body, `missing report-workflow marker: ${marker}`).toContain(marker);
     }
+  });
+
+  it("pins the revert limitation and rejects approval prompts", () => {
+    const { body } = commandParts();
+
+    expect(body).toContain(
+      "A revert does not undo dependency installation, network fetches, transitive code execution, shared-state changes, or external side effects.",
+    );
+    expect(body).toContain("If the work item has no feature slug, use `autonomous-mode`.");
+    expect(body).not.toContain("ASK HUMAN:");
   });
 
   it("keeps the five final-report sections and link rules in order", () => {

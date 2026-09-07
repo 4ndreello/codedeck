@@ -1,5 +1,5 @@
 ---
-description: Continue this orchestrator session without human input and write a run report.
+description: Continue this autonomous orchestrator session without human input and write a run report.
 disable-model-invocation: true
 ---
 
@@ -35,7 +35,7 @@ When a task is deferred or blocked, the orchestrator records the reason, keeps a
 
 Use these repository paths for an autonomous run. `<slug>` is the feature slug from the active work item, lowercased with every run of non-alphanumeric characters replaced by one hyphen and leading or trailing hyphens removed. If the work item has no feature slug, use `autonomous-mode`.
 
-The orchestrator cannot write files itself. On activation, the orchestrator dispatches a worker to create the slug directory, `run-notes.md`, and `run-report.md` immediately. No note-taking is valid before they exist.
+On activation, the orchestrator dispatches a worker (or, if the session is an edit-capable harness, directs the session) to create the slug directory and both files immediately. No note-taking is valid before they exist.
 
 - Running notes: `.specs/features/<slug>/run-notes.md`. This file is append-only per run and is never rewritten.
 - Final report: `.specs/features/<slug>/run-report.md`. It must be self-contained. Do not write `see run-notes.md`; fold the notes into the report as content.
