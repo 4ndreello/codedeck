@@ -149,7 +149,7 @@ describe("daemon session.create sandbox resolution", () => {
     expect(startSandboxes).toEqual([undefined]);
   });
 
-  it.each(["claude", "opencode", "omp"]) (
+  it.each(["claude", "opencode", "omp", "antigravity"]) (
     "does not persist request or config sandbox for %s",
     async (agent) => {
       saveConfig({ defaultSandbox: "danger-full-access" });
@@ -161,7 +161,7 @@ describe("daemon session.create sandbox resolution", () => {
     },
   );
 
-  it.each(["claude", "opencode", "omp"]) (
+  it.each(["claude", "opencode", "omp", "antigravity"]) (
     "does not persist a config-only sandbox for %s",
     async (agent) => {
       saveConfig({ defaultSandbox: "danger-full-access" });

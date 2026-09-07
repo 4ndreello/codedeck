@@ -115,7 +115,7 @@ describe("codedeck run sandbox resolution", () => {
     expect(errors.join("\n")).toContain("implies --sandbox danger-full-access");
   });
 
-  it.each(["claude", "opencode", "omp"])("clears a global sandbox for %s and warns", async (agent) => {
+  it.each(["claude", "opencode", "omp", "antigravity"])("clears a global sandbox for %s and warns", async (agent) => {
     writeConfig({ defaultAgent: agent, defaultSandbox: "danger-full-access" });
 
     const params = await created(["do the thing", "--agent", agent]);

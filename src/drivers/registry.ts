@@ -4,6 +4,7 @@ import { ClaudeDriver } from "./claude/driver.js";
 import { CodexDriver } from "./codex/driver.js";
 import { OpencodeDriver } from "./opencode/driver.js";
 import { OmpDriver } from "./omp/driver.js";
+import { AntigravityDriver } from "./antigravity/driver.js";
 
 export class DriverRegistry {
   private drivers: Map<AgentId, AgentDriver>;
@@ -14,6 +15,7 @@ export class DriverRegistry {
     this.register(new CodexDriver());
     this.register(new OpencodeDriver());
     this.register(new OmpDriver());
+    this.register(new AntigravityDriver());
   }
 
   register(driver: AgentDriver): void {

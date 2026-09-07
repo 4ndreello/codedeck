@@ -57,7 +57,7 @@ describe("harness injection contract", () => {
   });
 
   it("lists every harness so none is silently forgotten", () => {
-    expect(Object.keys(HARNESS_INJECTION).sort()).toEqual(["claude", "codex", "omp", "opencode"]);
+    expect(Object.keys(HARNESS_INJECTION).sort()).toEqual(["antigravity", "claude", "codex", "omp", "opencode"]);
   });
 
   // A guess typed into someone's session would land as a prompt, so a harness
@@ -67,6 +67,7 @@ describe("harness injection contract", () => {
     expect(supportsInjection("opencode")).toBe(false);
     expect(supportsInjection("codex")).toBe(false);
     expect(supportsInjection("omp")).toBe(false);
+    expect(supportsInjection("antigravity")).toBe(false);
   });
 
   // probe-rename-2026-09-07 came back negative for opencode 1.18.21, so the

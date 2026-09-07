@@ -63,6 +63,7 @@ export const HARNESS_INJECTION: Record<AgentId, HarnessInjection> = {
   codex: {},
   opencode: {},
   omp: {},
+  antigravity: {},
 };
 
 export function harnessInjection(harness: AgentId): HarnessInjection {

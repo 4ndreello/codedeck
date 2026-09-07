@@ -5,7 +5,7 @@ import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding } f
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
-import { isTerminalStatus, type AgentId, type Session } from "../../core/session.js";
+import { isTerminalStatus, normalizeAgentId, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
 import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
 import { slugify } from "../../git/worktree.js";
@@ -20,7 +20,7 @@ export function registerRunCommand(program: Command): void {
     .command("run")
     .description("Start a new agent session (creates a CodeDeck session, not a raw harness call)")
     .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
-    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp (ignored for a role with a binding; default: claude or config.defaultAgent)")
+    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp | antigravity (ignored for a role with a binding; default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5; ignored for a role with a binding)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
     .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
@@ -69,7 +69,8 @@ Resume with: ${getCliName()} send <id> "continue"
           );
         }
       } else {
-        agent = (opts.agent || cfg.defaultAgent || "claude") as AgentId;
+        const resolvedAgent = opts.agent ? normalizeAgentId(opts.agent) ?? opts.agent : undefined;
+        agent = (resolvedAgent || cfg.defaultAgent || "claude") as AgentId;
         model = resolveModel(agent, opts.model, cfg);
       }
 

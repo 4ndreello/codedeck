@@ -129,6 +129,7 @@ export class SessionRuntime {
     // sessions table); discovered ids refine it as lines are parsed.
     nativeSessionId?: string;
     hooks: RuntimeHooks;
+    env?: NodeJS.ProcessEnv;
   }): SessionRuntime {
     const rt = new SessionRuntime(opts.sessionId, opts.hooks);
     if (opts.nativeSessionId) rt.nativeSessionId = opts.nativeSessionId;
@@ -137,7 +138,7 @@ export class SessionRuntime {
       cmd: opts.cmd,
       args: opts.args,
       cwd: opts.cwd,
-      env: { CODEDECK_SESSION_ID: opts.sessionId },
+      env: { CODEDECK_SESSION_ID: opts.sessionId, ...opts.env },
       stdoutPath: paths.stdoutPath,
       stderrPath: paths.stderrPath,
     });

@@ -1,7 +1,14 @@
 import type { CodexSandbox, ReasoningEffort } from "./driver.js";
 import type { FailureInfo } from "./errors.js";
-export const AGENT_IDS = ["claude", "codex", "opencode", "omp"] as const;
+export const AGENT_IDS = ["claude", "codex", "opencode", "omp", "antigravity"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
+
+export function normalizeAgentId(value: unknown): AgentId | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "agy") return "antigravity";
+  return isAgentId(normalized) ? normalized : undefined;
+}
 
 /** Narrows a string read off disk or off a flag to a harness CodeDeck drives. */
 export function isAgentId(value: unknown): value is AgentId {
