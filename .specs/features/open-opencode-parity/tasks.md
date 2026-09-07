@@ -371,7 +371,9 @@ check; re-propose only with a pinned keystroke consumer.
 **Tests**: unit
 **Gate**: quick
 
-**Commit**: `feat(open): CodeDeck-side worktree for opencode open`
+**Status**: ✅ Complete (isolates, aborts pre-spawn, 22/22 green)
+
+**Commit**: `feat(open): codedeck-side worktree for opencode open`
 
 ---
 

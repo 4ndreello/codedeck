@@ -15,6 +15,8 @@ import {
 } from "../../config/config.js";
 import type { AgentId } from "../../core/session.js";
 import { harnessInjection } from "../../open/injection.js";
+import { getGitInfo } from "../../git/repository.js";
+import { createWorktree } from "../../git/worktree.js";
 import { ptyShimPath, type PtyLaunch } from "../../open/pty.js";
 import { isInteractiveTerminal } from "./setup.js";
 import { sessionsDir } from "../../open/pty.js";
@@ -461,10 +463,26 @@ export function registerOpenCommand(program: Command): void {
             `Agent "${role}" has no model bound. Run \`${getCliName()} setup\` to bind one.`,
           );
         }
+        // OO-20 (warn-and-continue) is retired: --worktree now isolates
+        // through a CodeDeck-side checkout, the same machinery as
+        // `run --worktree`. The harness has no native flag; CodeDeck does.
+        let openCwd = cwd;
         if (opts.worktree) {
-          console.error(
-            "Warning: --worktree has no effect on opencode (no native worktree); continuing without it.",
-          );
+          const gitInfo = await getGitInfo(cwd);
+          if (!gitInfo) {
+            throw new Error(
+              `--worktree needs a git repository, and the current directory is outside one.`,
+            );
+          }
+          // A creation failure propagates before the spawn: OP-14 would
+          // rather fail than open in the wrong cwd.
+          const wt = await createWorktree({
+            repoRoot: gitInfo.root,
+            sessionId: runId,
+            prompt: role,
+            name: role,
+          });
+          openCwd = wt.path;
         }
         const model = passthroughModel ?? boundModel;
         await preflightOpencode(model, fromConfig);
@@ -506,7 +524,7 @@ export function registerOpenCommand(program: Command): void {
           opencodeBin,
           buildOpencodeArgs(role, { ...opts, model: boundModel }, invocation.passthrough),
           {
-            cwd,
+            cwd: openCwd,
             envExtra: {
               CODEDECK_RUN_ID: runId,
               OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),

@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { IpcClient } from "../src/daemon/ipc.js";
 import { diffOpencodeSession } from "../src/cli/commands/open.js";
+import * as repository from "../src/git/repository.js";
+import * as worktree from "../src/git/worktree.js";
 import * as claudeLauncher from "../src/open/launchers/claude.js";
 import * as opencodeLauncher from "../src/open/launchers/opencode.js";
 import * as runtime from "../src/open/runtime.js";
@@ -52,13 +54,42 @@ describe("opencode dispatch", () => {
     );
   });
 
-  it("warns on --worktree and still spawns", async () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  // OP-13 retires OO-20: --worktree isolates through a CodeDeck-side
+  // checkout instead of warning and continuing.
+  it("isolates --worktree in a fresh checkout", async () => {
+    vi.spyOn(repository, "getGitInfo").mockResolvedValue({ root: "/repo", head: "abc", branch: "main", isDirty: false });
+    const create = vi
+      .spyOn(worktree, "createWorktree")
+      .mockResolvedValue({ path: "/wt/123", branch: "ra/reviewer-x", baseCommit: "abc" });
 
     await runOpen(["reviewer", "--no-theme", "--worktree"]);
 
-    expect(err).toHaveBeenCalledWith(expect.stringContaining("no effect on opencode"));
-    expect(runtime.spawnHarness).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ repoRoot: "/repo", name: "reviewer" }),
+    );
+    const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(opts.cwd).toBe("/wt/123");
+  });
+
+  it("aborts before spawn when the checkout fails", async () => {
+    vi.spyOn(repository, "getGitInfo").mockResolvedValue({ root: "/repo", head: "abc", branch: "main", isDirty: false });
+    vi.spyOn(worktree, "createWorktree").mockRejectedValue(new Error("git blew up"));
+
+    await expect(runOpen(["reviewer", "--no-theme", "--worktree"])).rejects.toThrow(
+      "git blew up",
+    );
+    expect(runtime.spawnHarness).not.toHaveBeenCalled();
+  });
+
+  it("aborts before spawn when outside a git repository", async () => {
+    vi.spyOn(repository, "getGitInfo").mockResolvedValue(null);
+    const create = vi.spyOn(worktree, "createWorktree");
+
+    await expect(runOpen(["reviewer", "--no-theme", "--worktree"])).rejects.toThrow(
+      /git repository/,
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(runtime.spawnHarness).not.toHaveBeenCalled();
   });
 
   it("accepts --no-theme without touching the inline contract", async () => {
