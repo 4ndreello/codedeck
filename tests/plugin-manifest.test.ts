@@ -183,7 +183,14 @@ describe("CodeDeck plugin manifest contract", () => {
       .map((f) => f.replace(/\.md$/, ""))
       .sort();
 
-    expect(agents).toEqual(["auditor", "general", "orchestrator", "reviewer"]);
+    expect(agents).toEqual([
+      "auditor",
+      "general",
+      "orchestrator",
+      "orchestrator-edit",
+      "orchestrator-read",
+      "reviewer",
+    ]);
     for (const agent of agents) {
       expect(field(frontmatter(plugin("agents", `${agent}.md`)), "name")).toBe(agent);
     }
