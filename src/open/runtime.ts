@@ -203,8 +203,15 @@ export function withCodedeckOnPath(env: NodeJS.ProcessEnv, binDir: string): Node
  * A SessionStart hook is the one thing that sees it, and it can only leave it
  * in a file for afterwards.
  */
+/**
+ * Session ids CodeDeck prints back as resume hints: Claude UUIDs and
+ * opencode `ses_` ids (probe-session-id-2026-09-07). One check so the
+ * farewell and the sidecar cleanup agree on what counts as an id.
+ */
+export const SESSION_ID_PATTERN = /^(?:[0-9a-fA-F-]{8,}|ses_[A-Za-z0-9]{16,})$/;
+
 export function resumeHint(role: Role, id: string | undefined): string | undefined {
-  if (id === undefined || !/^[0-9a-fA-F-]{8,}$/.test(id)) return undefined;
+  if (id === undefined || !SESSION_ID_PATTERN.test(id)) return undefined;
   return `${INDENT}resume: ${getCliName()} open ${role} --resume ${id}\n`;
 }
 
@@ -237,7 +244,7 @@ function takeSessionId(file: string): string | undefined {
     try {
       fs.rmSync(file, { force: true });
     } catch {}
-    if (id && /^[0-9a-fA-F-]{8,}$/.test(id)) {
+    if (id && SESSION_ID_PATTERN.test(id)) {
       try {
         fs.rmSync(`${file}.${id}.name`, { force: true });
       } catch {}

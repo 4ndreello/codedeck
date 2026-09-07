@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import * as readline from "node:readline";
 import type { Command } from "commander";
@@ -14,6 +15,8 @@ import {
 } from "../../config/config.js";
 import type { AgentId } from "../../core/session.js";
 import { harnessInjection } from "../../open/injection.js";
+import { getGitInfo } from "../../git/repository.js";
+import { createWorktree } from "../../git/worktree.js";
 import { ptyShimPath, type PtyLaunch } from "../../open/pty.js";
 import { isInteractiveTerminal } from "./setup.js";
 import { sessionsDir } from "../../open/pty.js";
@@ -159,6 +162,51 @@ export function harnessMismatch(role: Role, binding: RoleBinding | undefined): s
 }
 
 export type OpenHarness = "claude" | "opencode";
+
+export interface OpencodeSessionRow {
+  id: unknown;
+  created: unknown;
+}
+
+/**
+ * Best-effort snapshot of `opencode session list`, or undefined. Capture
+ * is allowed to fail: no snapshot means no resume hint (OP-09), never a
+ * failed launch. No daemon, no config writes (OP-10, OP-19).
+ */
+export function readOpencodeSessions(bin: string): OpencodeSessionRow[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(
+      execFileSync(bin, ["session", "list", "--format", "json", "-n", "50"], {
+        encoding: "utf8",
+        timeout: 10000,
+        maxBuffer: 1024 * 1024,
+      }),
+    );
+    return Array.isArray(parsed) ? (parsed as OpencodeSessionRow[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The id of the one session that appeared between snapshots, or
+ * undefined. Zero or several new sessions mean "cannot tell", and a
+ * missing hint beats a wrong one.
+ */
+export function diffOpencodeSession(
+  before: OpencodeSessionRow[],
+  after: OpencodeSessionRow[],
+): string | undefined {
+  const known = new Set(
+    before.map((row) => (typeof row.id === "string" ? row.id : "")),
+  );
+  const fresh = after.filter(
+    (row): row is { id: string } & OpencodeSessionRow =>
+      typeof row.id === "string" && !known.has(row.id),
+  );
+  if (fresh.length !== 1) return undefined;
+  return fresh[0].id;
+}
 
 /**
  * The one dispatch decision: the binding owns the harness, and an unbound
@@ -416,16 +464,39 @@ export function registerOpenCommand(program: Command): void {
             `Agent "${role}" has no model bound. Run \`${getCliName()} setup\` to bind one.`,
           );
         }
+        // OO-20 (warn-and-continue) is retired: --worktree now isolates
+        // through a CodeDeck-side checkout, the same machinery as
+        // `run --worktree`. The harness has no native flag; CodeDeck does.
+        let openCwd = cwd;
         if (opts.worktree) {
-          console.error(
-            "Warning: --worktree has no effect on opencode (no native worktree); continuing without it.",
-          );
+          const gitInfo = await getGitInfo(cwd);
+          if (!gitInfo) {
+            throw new Error(
+              `--worktree needs a git repository, and the current directory is outside one.`,
+            );
+          }
+          // A creation failure propagates before the spawn: OP-14 would
+          // rather fail than open in the wrong cwd.
+          const wt = await createWorktree({
+            repoRoot: gitInfo.root,
+            sessionId: runId,
+            prompt: role,
+            name: role,
+          });
+          openCwd = wt.path;
         }
         const model = passthroughModel ?? boundModel;
         await preflightOpencode(model, fromConfig);
         const opencodeBin = await resolveOpencodeBinary();
-        // Effort has no opencode flag; the banner names the fallback.
-        const effort = opts.effort ?? "default";
+        // No opencode effort reader (probe-effort-2026-09-07): an explicit
+        // flag warns instead of dying silently, and the banner keeps
+        // naming "default" (OP-16, OP-23).
+        const effort = "default";
+        if (opts.effort !== undefined) {
+          console.error(
+            'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
+          );
+        }
 
         // --no-theme asks for no CodeDeck styling, and an animation is styling.
         if (opts.theme === false) {
@@ -440,8 +511,20 @@ export function registerOpenCommand(program: Command): void {
         const tuiDir = opts.theme === false || !ensureOpencodeTheme(pluginDir)
           ? undefined
           : createEphemeralTuiDir();
+        // Snapshot before the spawn so the close path can tell which
+        // session this launch created (probe-session-id-2026-09-07).
+        const sessionsBefore = readOpencodeSessions(opencodeBin);
         const closeOpencode = () => {
           if (tuiDir !== undefined) removeEphemeralTuiDir(tuiDir);
+          const after = readOpencodeSessions(opencodeBin);
+          const id = after === undefined || sessionsBefore === undefined
+            ? undefined
+            : diffOpencodeSession(sessionsBefore, after);
+          if (id !== undefined) {
+            try {
+              fs.writeFileSync(sessionFile, id);
+            } catch {}
+          }
           finishOpenSession(role, sessionFile);
         };
 
@@ -449,7 +532,7 @@ export function registerOpenCommand(program: Command): void {
           opencodeBin,
           buildOpencodeArgs(role, { ...opts, model: boundModel }, invocation.passthrough),
           {
-            cwd,
+            cwd: openCwd,
             envExtra: {
               CODEDECK_RUN_ID: runId,
               OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),

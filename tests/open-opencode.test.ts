@@ -11,6 +11,7 @@ vi.mock("../src/drivers/helpers.js", async (importOriginal) => {
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../src/config/orchestrator-mode.js";
 import {
   agentName,
+  autonomousCommand,
   buildArgs,
   buildInlineConfig,
   buildTuiConfig,
@@ -92,7 +93,23 @@ describe("buildInlineConfig", () => {
     expect(agent.prompt).toContain("CodeDeck reviewer");
     expect(agent.prompt).not.toContain("tools:");
     expect(agent.permission).toEqual(rolePermission("reviewer"));
-    expect(Object.keys(parsed).sort()).toEqual(["agent", "instructions"]);
+    expect(Object.keys(parsed).sort()).toEqual(["agent", "command", "instructions"]);
+  });
+
+  // probe-command-2026-09-07 pinned the `command` key as the delivery
+  // channel, so the inline config carries /autonomous from the same file
+  // Claude serves via --plugin-dir.
+  it("delivers /autonomous with the command-file body minus frontmatter", () => {
+    const parsed = JSON.parse(buildInlineConfig(pluginDir, "general")) as any;
+    const command = parsed.command.autonomous;
+
+    expect(command.description).toBe(
+      "Continue this autonomous orchestrator session without human input and write a run report.",
+    );
+    expect(command.template.startsWith("# Autonomous mode")).toBe(true);
+    expect(command.template).toContain("run-report.md");
+    expect(command.template).not.toContain("disable-model-invocation");
+    expect(autonomousCommand(pluginDir)).toEqual(command);
   });
 
   it("embeds each role's own permission map", () => {
