@@ -69,6 +69,13 @@ describe("harness injection contract", () => {
     expect(supportsInjection("omp")).toBe(false);
   });
 
+  // probe-rename-2026-09-07 came back negative for opencode 1.18.21, so the
+  // entry stays declared-but-empty until a transcript pins its command.
+  it("keeps the opencode entry empty while its command is unprobed", () => {
+    expect(HARNESS_INJECTION.opencode).toEqual({});
+    expect(harnessInjection("opencode").rename).toBeUndefined();
+  });
+
   it("flattens what a terminal would read as an instruction", () => {
     expect(sanitizeInjectedArgument("primeira\rlinha\nsegunda")).toBe("primeira linha segunda");
     expect(sanitizeInjectedArgument("nome\u001b[31m")).toBe("nome [31m");

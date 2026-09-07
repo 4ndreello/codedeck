@@ -257,6 +257,8 @@ check; re-propose only with a pinned keystroke consumer.
 **Tests**: unit
 **Gate**: quick
 
+**Status**: ✅ Complete (entry pinned empty by test, 38/38 green)
+
 **Commit**: `feat(open): add opencode rename injection`
 
 ---
