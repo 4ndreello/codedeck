@@ -1,41 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { RequestMethod } from "../src/daemon/protocol.js";
-import { fakeSocket, seed, seam } from "./helpers/daemon-seam.js";
+import {
+  fakeSocket,
+  makeDaemonTestContext,
+  registerDaemonTestHooks,
+  seed,
+  seam,
+} from "./helpers/daemon-seam.js";
 
-let runAgentDir: string;
 let daemon: Daemon | undefined;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-let requestNumber = 0;
-
-beforeEach(() => {
-  runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "claims-daemon-"));
-  process.env.RUN_AGENT_DIR = runAgentDir;
-  requestNumber = 0;
-});
-
-afterEach(() => {
-  try { daemon && seam(daemon).db.close(); } catch {}
-  daemon = undefined;
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  fs.rmSync(runAgentDir, { recursive: true, force: true });
-});
+const testContext = makeDaemonTestContext("claims-daemon-");
+registerDaemonTestHooks(testContext, () => daemon, () => { daemon = undefined; });
 
 async function request(method: RequestMethod, params: unknown): Promise<Record<string, any>> {
   const { writes, socket } = fakeSocket();
   await seam(daemon!).handleRequest(
-    { id: `claims-${++requestNumber}`, method, params },
+    { id: testContext.nextRequestId("claims"), method, params },
     socket,
   );
   return JSON.parse(writes[0]);
 }
 
 function seedSession(id: string): void {
-  seed(daemon!, id, "working", { cwd: runAgentDir, repository: runAgentDir });
+  seed(daemon!, id, "working", { cwd: testContext.runAgentDir, repository: testContext.runAgentDir });
 }
 
 describe("claims daemon methods", () => {
@@ -95,7 +83,7 @@ describe("claims daemon methods", () => {
     expect(invalidPathError.error).toMatchObject({
       code: "INVALID_PATH",
       message: 'Claim path "../outside/*" escapes the session root',
-      details: { path: "../outside/*", root: runAgentDir },
+      details: { path: "../outside/*", root: testContext.runAgentDir },
     });
 
     const addResponse = await request("claims.add", {
