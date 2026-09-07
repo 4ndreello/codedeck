@@ -30,6 +30,7 @@ describe("default sandbox config", () => {
       worktree: true,
       defaultModel: "gpt-5.6-luna",
       remoteControl: false,
+      pty: true,
       defaultSandbox,
       models: {
         claude: "claude-opus-5",
@@ -60,6 +61,7 @@ describe("default sandbox config", () => {
       defaultAgent: "claude",
       worktree: false,
       remoteControl: true,
+      pty: true,
     });
     expect(Object.hasOwn(loadConfig(), "defaultSandbox")).toBe(false);
     expect(resolveDefaultSandbox(loadConfig())).toBeUndefined();
