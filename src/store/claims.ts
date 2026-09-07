@@ -116,9 +116,9 @@ export class ClaimsStore {
 
   query(sessionId: string, path?: string): Claim[] {
     return this.withOperation(() => {
+      const session = this.getSession(sessionId);
       let normalizedPath: string | undefined;
       if (path !== undefined) {
-        const session = this.getSession(sessionId);
         normalizedPath = normalizeRepoPath(path, sessionRoot(session));
       }
 
@@ -135,6 +135,9 @@ export class ClaimsStore {
       return rows
         .filter((row) => {
           if (!queryIsGlob) return minimatch(normalizedPath, row.path_glob, MATCH_OPTIONS);
+          // Glob-vs-glob overlap is a best-effort literal-pattern heuristic.
+          // It can miss overlaps that share only an unenumerated third path;
+          // concrete-path queries remain exact.
           return minimatch(row.path_glob, normalizedPath, MATCH_OPTIONS) || minimatch(normalizedPath, row.path_glob, MATCH_OPTIONS);
         })
         .map(rowToClaim);

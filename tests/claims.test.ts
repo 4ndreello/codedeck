@@ -90,6 +90,24 @@ describe("ClaimsStore add and release", () => {
 });
 
 describe("ClaimsStore query", () => {
+  it("validates list-all callers and preserves valid cross-session queries", () => {
+    withStore((claims, sessions, _db, root) => {
+      sessions.create(makeSession("owner", root));
+      sessions.create(makeSession("reader", root));
+      const claim = claims.add("owner", "src/auth/*", "auth files");
+
+      expect(claims.query("reader")).toEqual([claim]);
+
+      let error: unknown;
+      try {
+        claims.query("missing");
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: "SESSION_NOT_FOUND" });
+    });
+  });
+
   it("matches concrete paths and glob overlap with minimatch semantics", () => {
     withStore((claims, sessions, _db, root) => {
       sessions.create(makeSession("owner", root));
