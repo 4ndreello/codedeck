@@ -2,7 +2,7 @@ import { InvalidArgumentError, type Command } from "commander";
 import { isActiveStatus, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
 import { getCliName } from "../cli-name.js";
-import { truncate, visibleWidth } from "../ui.js";
+import { truncate, visibleWidth, padToWidth, ellipsizeEnd, ellipsizeStart } from "../ui.js";
 
 function formatAge(date: string | Date): string {
   const d = new Date(date);
@@ -114,35 +114,6 @@ export function parsePsLimit(value: string): number {
     throw new InvalidArgumentError("--limit must be a positive integer");
   }
   return limit;
-}
-
-function padToWidth(s: string, w: number): string {
-  const v = visibleWidth(s);
-  if (v >= w) return s;
-  return s + " ".repeat(w - v);
-}
-
-function ellipsizeEnd(s: string, w: number): string {
-  if (w <= 0) return "";
-  if (visibleWidth(s) <= w) return padToWidth(s, w);
-  if (w === 1) return "…";
-  return padToWidth(`${truncate(s, w - 1)}…`, w);
-}
-
-function ellipsizeStart(s: string, w: number): string {
-  if (w <= 0) return "";
-  if (visibleWidth(s) <= w) return padToWidth(s, w);
-  if (w === 1) return "…";
-  const chars = Array.from(s);
-  let width = 0;
-  let take = 0;
-  for (let i = chars.length - 1; i >= 0; i--) {
-    const cw = visibleWidth(chars[i]);
-    if (width + cw > w - 1) break;
-    width += cw;
-    take++;
-  }
-  return padToWidth(`…${chars.slice(chars.length - take).join("")}`, w);
 }
 
 type PsColumnKey =

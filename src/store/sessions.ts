@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Session, SessionStatus, AgentId } from "../core/session.js";
+import { type Session, type SessionStatus, type AgentId, isActiveStatus } from "../core/session.js";
 import type { FailureInfo } from "../core/errors.js";
+import { computeSessionCost } from "../core/pricing.js";
+import type { UsageQueryParams, UsageQueryResult, UsageMetricBucket, UsageTotals } from "../daemon/protocol.js";
 
 export interface SessionRow {
   id: string;
@@ -264,4 +266,202 @@ export class SessionStore {
     const row = this.db.prepare(`SELECT * FROM sessions WHERE native_session_id = ? LIMIT 1`).get(nativeId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
   }
+
+  queryUsage(params: UsageQueryParams = {}): UsageQueryResult {
+    const { since, until } = resolveUsageDateRange(params);
+
+    const rows = this.db.prepare(`
+      SELECT 
+        id, run_id, name, agent, model, status,
+        repository, cwd, worktree,
+        created_at, updated_at, completed_at,
+        usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost
+      FROM sessions
+      WHERE created_at >= ? AND created_at <= ?
+      ORDER BY created_at ASC
+    `).all(since, until) as Array<{
+      id: string;
+      run_id: string | null;
+      name: string | null;
+      agent: string;
+      model: string | null;
+      status: string;
+      repository: string | null;
+      cwd: string;
+      worktree: string | null;
+      created_at: string;
+      updated_at: string;
+      completed_at: string | null;
+      usage_input_tokens: number | null;
+      usage_output_tokens: number | null;
+      usage_cached_tokens: number | null;
+      usage_cost: number | null;
+    }>;
+
+    const totals: UsageTotals = {
+      sessionCount: 0,
+      activeSessionCount: 0,
+      completedSessionCount: 0,
+      failedSessionCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+      costComplete: true,
+      sessionsWithoutCost: 0,
+    };
+
+    const byDayMap = new Map<string, UsageMetricBucket>();
+    const byRepoMap = new Map<string, UsageMetricBucket>();
+    const byModelMap = new Map<string, UsageMetricBucket>();
+    const byAgentMap = new Map<string, UsageMetricBucket>();
+    const byRunMap = new Map<string, UsageMetricBucket>();
+
+    const repoFilter = params.repository?.toLowerCase();
+    const modelFilter = params.model?.toLowerCase();
+    const agentFilter = params.agent;
+    const runIdFilter = params.runId;
+
+    for (const row of rows) {
+      if (runIdFilter && row.run_id !== runIdFilter) continue;
+      if (agentFilter && row.agent !== agentFilter) continue;
+      if (modelFilter && (!row.model || !row.model.toLowerCase().includes(modelFilter))) continue;
+
+      if (repoFilter) {
+        const repoStr = [row.repository, row.cwd, row.worktree].filter(Boolean).join(" ").toLowerCase();
+        if (!repoStr.includes(repoFilter)) continue;
+      }
+
+      const inputTokens = row.usage_input_tokens ?? 0;
+      const outputTokens = row.usage_output_tokens ?? 0;
+      const cachedTokens = row.usage_cached_tokens ?? 0;
+      const totalTokens = inputTokens + outputTokens + cachedTokens;
+
+      const cost = computeSessionCost({
+        model: row.model,
+        reportedCost: row.usage_cost,
+        usage: { inputTokens, outputTokens, cachedTokens },
+      });
+
+      totals.sessionCount++;
+      if (isActiveStatus(row.status as SessionStatus)) totals.activeSessionCount++;
+      if (row.status === "completed") totals.completedSessionCount++;
+      if (row.status === "failed") totals.failedSessionCount++;
+
+      totals.inputTokens += inputTokens;
+      totals.outputTokens += outputTokens;
+      totals.cachedTokens += cachedTokens;
+      totals.totalTokens += totalTokens;
+
+      if (cost === null) {
+        totals.costComplete = false;
+        totals.sessionsWithoutCost++;
+      } else {
+        totals.costUsd += cost;
+      }
+
+      const accumulate = (map: Map<string, UsageMetricBucket>, key: string, label?: string) => {
+        let bucket = map.get(key);
+        if (!bucket) {
+          bucket = {
+            key,
+            label: label ?? key,
+            sessionCount: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedTokens: 0,
+            totalTokens: 0,
+            costUsd: 0,
+            costComplete: true,
+          };
+          map.set(key, bucket);
+        }
+        bucket.sessionCount++;
+        bucket.inputTokens += inputTokens;
+        bucket.outputTokens += outputTokens;
+        bucket.cachedTokens += cachedTokens;
+        bucket.totalTokens += totalTokens;
+        if (cost === null) {
+          bucket.costComplete = false;
+        } else {
+          bucket.costUsd += cost;
+        }
+      };
+
+      // Day (local date string YYYY-MM-DD)
+      const d = new Date(row.created_at);
+      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      accumulate(byDayMap, dayKey);
+
+      // Repo
+      const repoKey = row.repository || row.cwd;
+      accumulate(byRepoMap, repoKey);
+
+      // Model
+      accumulate(byModelMap, row.model || "unknown");
+
+      // Agent
+      accumulate(byAgentMap, row.agent);
+
+      // Run
+      if (row.run_id) {
+        accumulate(byRunMap, row.run_id, row.name ? `${row.name} (${row.run_id.slice(0, 8)})` : row.run_id.slice(0, 8));
+      }
+    }
+
+    const sortDescending = (a: UsageMetricBucket, b: UsageMetricBucket) => {
+      if (b.costUsd !== a.costUsd) return b.costUsd - a.costUsd;
+      return b.totalTokens - a.totalTokens;
+    };
+
+    const byDay = [...byDayMap.values()].sort((a, b) => a.key.localeCompare(b.key));
+    const byRepository = [...byRepoMap.values()].sort(sortDescending);
+    const byModel = [...byModelMap.values()].sort(sortDescending);
+    const byAgent = [...byAgentMap.values()].sort(sortDescending);
+    const byRun = [...byRunMap.values()].sort(sortDescending);
+
+    return {
+      range: {
+        period: params.period,
+        since,
+        until,
+      },
+      totals,
+      byDay,
+      byRepository,
+      byModel,
+      byAgent,
+      byRun,
+    };
+  }
 }
+
+export function resolveUsageDateRange(params: UsageQueryParams = {}): { since: string; until: string } {
+  const now = new Date();
+  let sinceDate: Date;
+  const untilDate: Date = params.until ? new Date(params.until) : now;
+
+  if (params.since) {
+    sinceDate = new Date(params.since);
+  } else if (params.period === "today") {
+    sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  } else if (params.period === "3d") {
+    sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2, 0, 0, 0, 0);
+  } else if (params.period === "7d") {
+    sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+  } else if (params.period === "30d") {
+    sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0, 0);
+  } else if (params.period === "all") {
+    sinceDate = new Date(0);
+  } else {
+    // Default to today
+    sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  }
+
+  return {
+    since: sinceDate.toISOString(),
+    until: untilDate.toISOString(),
+  };
+}
+

@@ -9,7 +9,7 @@ import { EventStore } from "../store/events.js";
 import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
-import type { IpcRequest, IpcResponse } from "./protocol.js";
+import type { IpcRequest, IpcResponse, UsageQueryParams } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
 import { isTerminalStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
@@ -922,6 +922,17 @@ class Daemon {
         }
         const sessions = this.sessions.getByRunId(p.runId);
         send({ result: aggregateRunUsage(p.runId, sessions) });
+        break;
+      }
+
+      case "usage.query": {
+        const p = (params || {}) as UsageQueryParams;
+        try {
+          const result = this.sessions.queryUsage(p);
+          send({ result });
+        } catch (error) {
+          send({ error: { code: "USAGE_QUERY_ERROR", message: error instanceof Error ? error.message : String(error) } });
+        }
         break;
       }
 

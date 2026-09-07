@@ -3,18 +3,34 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getPaths, ensureDirs } from "../config/paths.js";
 
+export interface DatabaseOptions {
+  readOnly?: boolean;
+}
+
 export class Database {
   private db: DatabaseSync;
   private dbPath: string;
+  private readOnly: boolean;
 
-  constructor(dbPath?: string) {
+  constructor(dbPath?: string, options?: DatabaseOptions) {
     const p = getPaths();
     this.dbPath = dbPath ?? p.db;
-    ensureDirs();
-    // Ensure parent dir exists
-    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    this.db = new DatabaseSync(this.dbPath);
-    this.migrate();
+    this.readOnly = options?.readOnly ?? false;
+    if (!this.readOnly) {
+      ensureDirs();
+      // Ensure parent dir exists
+      fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
+    }
+    this.db = new DatabaseSync(this.dbPath, { readOnly: this.readOnly });
+    if (!this.readOnly) {
+      this.migrate();
+    } else {
+      try {
+        this.db.exec(`PRAGMA busy_timeout = 5000;`);
+      } catch {
+        // Best-effort in read-only mode
+      }
+    }
   }
 
   private migrate(): void {
@@ -111,9 +127,12 @@ export class Database {
     const eventColumns = new Set(
       (this.db.prepare(`PRAGMA table_info(events)`).all() as any[]).map((c) => c.name as string),
     );
-    if (!eventColumns.has("source_key")) this.db.exec(`ALTER TABLE events ADD COLUMN source_key TEXT`);
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_key ON events(session_id, source_key) WHERE source_key IS NOT NULL`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_run_id ON sessions(run_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_usage_created ON sessions(created_at DESC, repository, agent, model)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_repo_created ON sessions(repository, created_at DESC)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_model_created ON sessions(model, created_at DESC)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_agent_created ON sessions(agent, created_at DESC)`);
   }
 
   getHandle(): DatabaseSync {
@@ -121,10 +140,12 @@ export class Database {
   }
 
   close(): void {
-    try {
-      this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
-    } catch {
-      // Best-effort: checkpoint must never block closing.
+    if (!this.readOnly) {
+      try {
+        this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
+      } catch {
+        // Best-effort: checkpoint must never block closing.
+      }
     }
     this.db.close();
   }
@@ -136,9 +157,10 @@ export class Database {
 
 let singleton: Database | null = null;
 
-export function getDatabase(dbPath?: string): Database {
-  if (dbPath) return new Database(dbPath);
-  if (!singleton) singleton = new Database();
+export function getDatabase(dbPath?: string, options?: DatabaseOptions): Database {
+  if (options?.readOnly) return new Database(dbPath, options);
+  if (dbPath) return new Database(dbPath, options);
+  if (!singleton) singleton = new Database(undefined, options);
   return singleton;
 }
 
@@ -148,3 +170,4 @@ export function closeDatabase(): void {
     singleton = null;
   }
 }
+

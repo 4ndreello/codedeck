@@ -25,7 +25,8 @@ export type RequestMethod =
   | "daemon.stop"
   | "doctor"
   | "models.list"
-  | "usage.get";
+  | "usage.get"
+  | "usage.query";
 
 export interface RunOptions {
   prompt: string;
@@ -154,6 +155,64 @@ export interface GetUsageRequest {
   params: { runId: string };
 }
 
+export type UsagePeriod = "today" | "3d" | "7d" | "30d" | "all";
+
+export interface UsageQueryParams {
+  period?: UsagePeriod;
+  since?: string;
+  until?: string;
+  repository?: string;
+  model?: string;
+  agent?: AgentId;
+  runId?: string;
+}
+
+export interface UsageMetricBucket {
+  key: string;
+  label?: string;
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  costComplete: boolean;
+  trend?: number[];
+}
+
+export interface UsageTotals {
+  sessionCount: number;
+  activeSessionCount: number;
+  completedSessionCount: number;
+  failedSessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  costComplete: boolean;
+  sessionsWithoutCost: number;
+}
+
+export interface UsageQueryResult {
+  range: {
+    period?: UsagePeriod;
+    since: string;
+    until: string;
+  };
+  totals: UsageTotals;
+  byDay: UsageMetricBucket[];
+  byRepository: UsageMetricBucket[];
+  byModel: UsageMetricBucket[];
+  byAgent: UsageMetricBucket[];
+  byRun: UsageMetricBucket[];
+}
+
+export interface QueryUsageRequest {
+  method: "usage.query";
+  params?: UsageQueryParams;
+}
+
 export interface ListModelsResult {
   agents: HarnessModels[];
 }
@@ -176,9 +235,11 @@ export type RequestParams =
   | ReleaseClaimRequest
   | DaemonStatusRequest
   | ListModelsRequest
-  | GetUsageRequest;
+  | GetUsageRequest
+  | QueryUsageRequest;
 
 export type UsageGetResult = RunUsageSummary;
+
 
 export interface IpcRequest {
   id: string;
