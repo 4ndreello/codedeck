@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { getPaths } from "./paths.js";
 import { isAgentId, type AgentId } from "../core/session.js";
+import { parseSandbox } from "../core/driver.js";
+import type { CodexSandbox } from "../core/driver.js";
 import type { Role } from "../core/roles.js";
 import type { OrchestratorMode } from "./orchestrator-mode.js";
 
@@ -37,6 +39,7 @@ export interface RunAgentConfig {
   worktree?: boolean;
   defaultModel?: string;
   remoteControl?: boolean;
+  defaultSandbox?: CodexSandbox;
   /**
    * Per harness, and the fallback for whatever `agents` does not answer: a run
    * with no role, or one whose role nobody bound. Setup no longer writes it.
@@ -78,6 +81,20 @@ export function resolveModel(
   config: RunAgentConfig = {},
 ): string | undefined {
   return explicit ?? config.models?.[agent] ?? config.defaultModel;
+}
+
+/**
+ * Resolve a hand-edited sandbox value without allowing an invalid value to
+ * reach a driver. An invalid value is treated as absent, so the driver keeps
+ * its own fallback.
+ */
+export function resolveDefaultSandbox(config: RunAgentConfig = {}): CodexSandbox | undefined {
+  try {
+    const value = config?.defaultSandbox;
+    return typeof value === "string" ? parseSandbox(value) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const DEFAULT_CONFIG: RunAgentConfig = {
