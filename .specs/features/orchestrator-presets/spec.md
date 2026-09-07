@@ -99,7 +99,7 @@ The Claude `--agent` selection must resolve the orchestrator to `codedeck:orches
 
 ## Setup behavior
 
-Extend the existing setup flow with an orchestrator screen through `buildScreens` in `src/cli/commands/setup.ts`. The screen exposes the three fixed presets and the individual parameters, derives the `custom` label for any non-matching bundle, and saves only the `orchestrator` parameters through the existing `loadConfig` and `saveConfig` flow.
+Extend the existing setup flow with an orchestrator screen appended after the role screens in the wizard driver, with its parameter screens chained via `Screen.next` in `src/cli/commands/setup.ts`. The screen exposes the three fixed presets and the individual parameters, derives the `custom` label for any non-matching bundle, and saves only the `orchestrator` parameters through the existing `loadConfig` and `saveConfig` flow.
 
 The screen must describe `parallelism` as advisory. It must say that version 1 places the requested cap in the orchestrator prompt for review verification and does not enforce the cap in code. Saving a fixed preset writes its parameter values without a preset-name or label field. Changing any parameter displays `custom`.
 
