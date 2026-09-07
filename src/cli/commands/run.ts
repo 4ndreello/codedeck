@@ -11,7 +11,7 @@ import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../cor
 import { getCliInvocation, getCliName } from "../cli-name.js";
 
 export function runIdFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | null {
-  return env.CODEDECK_RUN_ID ?? null;
+  return env.CODEDECK_RUN_ID || null;
 }
 
 export function registerRunCommand(program: Command): void {

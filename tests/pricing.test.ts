@@ -51,4 +51,14 @@ describe("computeSessionCost", () => {
       }),
     ).toBeNull();
   });
+
+  it("returns null for a negative reported cost", () => {
+    expect(
+      computeSessionCost({
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 1_000_000 },
+        reportedCost: -0.01,
+      }),
+    ).toBeNull();
+  });
 });

@@ -71,6 +71,10 @@ describe("codedeck run --role", () => {
     expect(runIdFromEnvironment({})).toBeNull();
   });
 
+  it("maps an empty run id to null", () => {
+    expect(runIdFromEnvironment({ CODEDECK_RUN_ID: "" })).toBeNull();
+  });
+
   it("sends the composed prompt to session.create", async () => {
     await expect(runProgram(["do the thing", "--agent", "codex", "--role", "reviewer", "--bg"]))
       .rejects.toThrow(Exited);

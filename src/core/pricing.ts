@@ -70,6 +70,7 @@ export function computeSessionCost({
   usage,
   reportedCost,
 }: ComputeSessionCostInput): number | null {
+  if (isFiniteNumber(reportedCost) && reportedCost < 0) return null;
   // Zero is a valid reported cost and must win over every table entry.
   if (isFiniteNumber(reportedCost) && reportedCost >= 0) return reportedCost;
 

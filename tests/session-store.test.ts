@@ -63,6 +63,32 @@ describe("SessionStore restart metadata", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("restores usage when only cached tokens are stored", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-store-cached-"));
+    const db = new Database(path.join(dir, "test.db"));
+    const store = new SessionStore(db.getHandle());
+    const createdAt = new Date("2026-08-27T00:00:00.000Z");
+
+    try {
+      store.create({
+        id: "cached-only",
+        agent: "omp",
+        status: "completed",
+        cwd: dir,
+        usage: { cachedTokens: 512 },
+        createdAt,
+        updatedAt: createdAt,
+      });
+
+      const loaded = store.get("cached-only");
+      expect(loaded?.usage).toBeDefined();
+      expect(loaded?.usage?.cachedTokens).toBe(512);
+    } finally {
+      db.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("returns only the sessions stored for the requested run", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-store-run-"));
     const db = new Database(path.join(dir, "test.db"));

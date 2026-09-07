@@ -72,6 +72,7 @@ function rowToSession(row: SessionRow): Session {
     usage:
       row.usage_input_tokens != null ||
       row.usage_output_tokens != null ||
+      row.usage_cached_tokens != null ||
       row.usage_cost != null
         ? {
             inputTokens: row.usage_input_tokens ?? undefined,

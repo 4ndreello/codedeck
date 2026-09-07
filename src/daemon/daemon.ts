@@ -287,7 +287,7 @@ class Daemon {
         const now = new Date();
         const session: any = {
           id: sessionId,
-          runId: p.runId ?? undefined,
+          runId: typeof p.runId === "string" ? p.runId : undefined,
           name: p.name,
           agent,
           model: p.model,
