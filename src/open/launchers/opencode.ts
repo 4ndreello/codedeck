@@ -10,7 +10,9 @@ import {
   resolveRoleContract,
   type OpenFlags,
 } from "../contract.js";
+import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
 import type { Role } from "../../core/roles.js";
+import { composeOrchestratorProse } from "../orchestrator-prose.js";
 
 export type PermissionValue = "allow" | "ask" | "deny";
 
@@ -22,12 +24,22 @@ export type PermissionValue = "allow" | "ask" | "deny";
  * on user defaults, so `general` stays unrestricted and the restricted three
  * stay restricted whatever the user configured globally.
  */
-export function rolePermission(role: Role): Record<string, PermissionValue> {
+export function rolePermission(
+  role: Role,
+  mode: OrchestratorMode = DISPATCHER_PRESET,
+): Record<string, PermissionValue> {
   switch (role) {
     case "general":
       return { "*": "allow" };
     case "orchestrator":
-      return { read: "deny", edit: "deny", write: "deny", task: "deny", bash: "allow" };
+      switch (mode.tools) {
+        case "dispatch":
+          return { read: "deny", edit: "deny", write: "deny", task: "deny", bash: "allow" };
+        case "read":
+          return { read: "allow", edit: "deny", write: "deny", task: "deny", bash: "allow" };
+        case "edit":
+          return { read: "allow", edit: "allow", write: "allow", task: "deny", bash: "allow" };
+      }
     case "reviewer":
       return { edit: "deny", write: "deny", task: "deny", bash: "allow" };
     case "auditor":
@@ -45,16 +57,21 @@ export function agentName(role: Role): string {
  * permission map. Pure and file-free: nothing lands in `~/.config/opencode`
  * or tmp, so there is nothing to clean up and concurrent opens share nothing.
  */
-export function buildInlineConfig(pluginDir: string, role: Role): string {
+export function buildInlineConfig(
+  pluginDir: string,
+  role: Role,
+  mode: OrchestratorMode = DISPATCHER_PRESET,
+): string {
   const { agentBody, ultra } = resolveRoleContract(pluginDir, role);
+  const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
   return JSON.stringify({
     instructions: [ultra],
     agent: {
       [agentName(role)]: {
         mode: "primary",
         description: `CodeDeck ${role}`,
-        prompt: agentBody,
-        permission: rolePermission(role),
+        prompt: orchestratorProse ? `${agentBody}\n\n${orchestratorProse}` : agentBody,
+        permission: rolePermission(role, mode),
       },
     },
   });

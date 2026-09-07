@@ -56,6 +56,7 @@ export function roleBody(pluginDir: string, role: Role): string {
   // The closing delimiter may be the last bytes of the file. Requiring a
   // newline after it used to leave the whole block in the body, which is how
   // `tools:` reached a prompt as if it were prose.
+  // v1 boundary: this run-path strip removes frontmatter but does not scope tools.
   const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
   return (match ? raw.slice(match[0].length) : raw).trim();
 }

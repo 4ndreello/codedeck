@@ -9,6 +9,7 @@ import { IpcClient } from "../../daemon/ipc.js";
 import {
   loadConfig,
   resolveRoleBinding,
+  resolveOrchestratorMode,
   type RoleBinding,
 } from "../../config/config.js";
 import { isInteractiveTerminal } from "./setup.js";
@@ -360,6 +361,7 @@ export function registerOpenCommand(program: Command): void {
       // wrong question to greet someone with, and `codedeck setup` is the place
       // to answer it deliberately.
       const config = loadConfig();
+      const orchestratorMode = resolveOrchestratorMode(config);
 
       const binding = resolveRoleBinding(role, config);
       const launcher = launcherFor(role, binding);
@@ -419,7 +421,7 @@ export function registerOpenCommand(program: Command): void {
             cwd,
             envExtra: {
               CODEDECK_RUN_ID: runId,
-              OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role),
+              OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),
               ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
             },
             sessionFile,
@@ -438,6 +440,7 @@ export function registerOpenCommand(program: Command): void {
         pluginDir,
         invocation.passthrough,
         cwd,
+        orchestratorMode,
       );
       const model = passthroughModel ?? resolved;
 

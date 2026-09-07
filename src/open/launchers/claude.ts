@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
 import type { Role } from "../../core/roles.js";
 import { catalogWarning, judgeModelIn, type ModelVerdict, type OpenFlags } from "../contract.js";
+import { composeOrchestratorProse } from "../orchestrator-prose.js";
 import {
   errorDetails,
   sanitizeEnv,
@@ -95,7 +97,13 @@ export function buildOpenArgs(
   pluginDir: string,
   passthrough: string[],
   cwd?: string,
+  mode: OrchestratorMode = DISPATCHER_PRESET,
 ): string[] {
+  const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
+  const agent = role !== "orchestrator"
+    ? `${PLUGIN_NAME}:${role}`
+    : `${PLUGIN_NAME}:orchestrator${mode.tools === "dispatch" ? "" : `-${mode.tools}`}`;
+
   const args = [
     "--model",
     flags.model ?? DEFAULT_MODEL,
@@ -109,6 +117,7 @@ export function buildOpenArgs(
     pluginDir,
     "--append-system-prompt-file",
     path.join(pluginDir, "ultra.md"),
+    ...(orchestratorProse ? ["--append-system-prompt", orchestratorProse] : []),
     "--settings",
     JSON.stringify(buildSettings(pluginDir, flags)),
     // `--agent` layers on top of Claude's own system prompt rather than
@@ -116,7 +125,7 @@ export function buildOpenArgs(
     // toolset. So `general` carries its contract the same way the others do,
     // with nothing taken away.
     "--agent",
-    `${PLUGIN_NAME}:${role}`,
+    agent,
     "-n",
     sessionName(role, cwd),
     ...(flags.resume ? ["--resume", flags.resume] : []),
