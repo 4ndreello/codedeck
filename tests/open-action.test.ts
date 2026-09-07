@@ -286,6 +286,34 @@ describe("opencode session name", () => {
   });
 });
 
+describe("opencode effort", () => {
+  // probe-effort-2026-09-07 came back negative: no reader on the TUI, so
+  // an explicit flag warns with the exact string and the banner stays
+  // on "default" (OP-16, OP-23).
+  it("warns on explicit --effort and keeps banner default", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runOpen(["reviewer", "--no-theme", "--effort", "high"]);
+
+    expect(err).toHaveBeenCalledWith(
+      'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
+    );
+    expect(vi.mocked(runtime.renderBanner)).toHaveBeenCalledWith(
+      "reviewer",
+      "prov/m",
+      "default",
+    );
+  });
+
+  it("stays silent without an explicit --effort", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runOpen(["reviewer", "--no-theme"]);
+
+    expect(err).not.toHaveBeenCalled();
+  });
+});
+
 describe("claude dispatch", () => {
   it("omits --remote-control when config disables it", async () => {
     const configDir = process.env.RUN_AGENT_CONFIG_DIR;

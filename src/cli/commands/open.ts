@@ -487,8 +487,15 @@ export function registerOpenCommand(program: Command): void {
         const model = passthroughModel ?? boundModel;
         await preflightOpencode(model, fromConfig);
         const opencodeBin = await resolveOpencodeBinary();
-        // Effort has no opencode flag; the banner names the fallback.
-        const effort = opts.effort ?? "default";
+        // No opencode effort reader (probe-effort-2026-09-07): an explicit
+        // flag warns instead of dying silently, and the banner keeps
+        // naming "default" (OP-16, OP-23).
+        const effort = "default";
+        if (opts.effort !== undefined) {
+          console.error(
+            'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
+          );
+        }
 
         // --no-theme asks for no CodeDeck styling, and an animation is styling.
         if (opts.theme === false) {

@@ -399,6 +399,8 @@ check; re-propose only with a pinned keystroke consumer.
 **Tests**: unit
 **Gate**: quick
 
+**Status**: ✅ Complete (exact warning, banner forced default, 24/24 green)
+
 **Commit**: `feat(open): map or warn effort on opencode open`
 
 ---
