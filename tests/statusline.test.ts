@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const statusline = path.join(root, "plugin", "statusline.sh");
+const project = path.basename(root);
 const stripAnsi = (value: string) => value.replace(/\u001b\[[0-9;]*m/g, "");
 
 interface RenderOptions {
@@ -100,7 +101,7 @@ describe("Claude statusline", () => {
       },
     });
 
-    expect(stripAnsi(result.output)).toBe("builder · codedeck/main · ctx 68% · 2.3k tok · run $0.65 · 2 agents");
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2.3k tok · run $0.65 · 2 agents`);
     expect(result.args).toEqual(["usage", "run-example", "--json"]);
     expect(result.output).not.toContain("▌RAGE");
     expect(result.output).not.toContain("claude-sonnet-4");
@@ -109,8 +110,8 @@ describe("Claude statusline", () => {
   it("keeps the local cost when the run id is absent", async () => {
     const result = await render({ payload: payload(0.25) });
 
-    expect(stripAnsi(result.output)).toBe("builder · codedeck/main · ctx 68% · $0.25");
-    expect(stripAnsi(result.output)).not.toContain("run");
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $0.25`);
+    expect(stripAnsi(result.output)).not.toContain(" · run ");
     expect(stripAnsi(result.output)).not.toContain("agents");
   });
 
@@ -119,7 +120,7 @@ describe("Claude statusline", () => {
       payload: payload(0.25, { total_input_tokens: 1_200, total_output_tokens: 800 }),
     });
 
-    expect(stripAnsi(result.output)).toBe("builder · codedeck/main · ctx 68% · 2k tok · $0.25");
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $0.25`);
   });
 
   it("keeps the local token snapshot when the usage CLI fails", async () => {
@@ -129,8 +130,8 @@ describe("Claude statusline", () => {
       shimExitCode: 1,
     });
 
-    expect(stripAnsi(result.output)).toBe("builder · codedeck/main · ctx 68% · 2k tok · $0.25");
-    expect(stripAnsi(result.output)).not.toContain("run");
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $0.25`);
+    expect(stripAnsi(result.output)).not.toContain(" · run ");
     expect(stripAnsi(result.output)).not.toContain("agents");
   });
 
