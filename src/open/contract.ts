@@ -40,14 +40,22 @@ export function resolveRoleContract(
   if (!fs.existsSync(file)) {
     throw new Error(`Role "${role}" has no agent file at ${file}. The CodeDeck plugin is incomplete.`);
   }
+  return {
+    agentBody: roleBody(pluginDir, role),
+    ultra: readUltra(pluginDir),
+  };
+}
+
+/**
+ * The shared ultra text. One reader so every delivery path (opencode's inline
+ * instructions, claude's append flag) fails loud on the same missing file.
+ */
+export function readUltra(pluginDir: string): string {
   const ultraFile = path.join(pluginDir, "ultra.md");
   if (!fs.existsSync(ultraFile)) {
     throw new Error(`CodeDeck ultra prompt not found at ${ultraFile}. The CodeDeck plugin is incomplete.`);
   }
-  return {
-    agentBody: roleBody(pluginDir, role),
-    ultra: fs.readFileSync(ultraFile, "utf8"),
-  };
+  return fs.readFileSync(ultraFile, "utf8");
 }
 
 /**

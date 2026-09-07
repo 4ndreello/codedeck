@@ -52,7 +52,8 @@ describe("default sandbox config", () => {
 
     const configFile = path.join(process.env.RUN_AGENT_CONFIG_DIR!, "config.json");
     expect(JSON.parse(fs.readFileSync(configFile, "utf-8"))).toEqual(config);
-    expect(loadConfig()).toEqual(config);
+    // The saved file omits pty, so load layers the DEFAULT_CONFIG default back on.
+    expect(loadConfig()).toEqual({ ...config, pty: true });
     expect(resolveDefaultSandbox(loadConfig())).toBe(defaultSandbox);
   });
 

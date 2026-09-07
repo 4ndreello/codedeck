@@ -113,21 +113,30 @@ describe("open command argument builder", () => {
     ]);
   });
 
-  it("appends orchestrator prose with Claude's inline prompt flag", () => {
-    const args = buildOpenArgs(
-      "orchestrator",
-      {},
-      "/opt/codedeck/plugin",
-      [],
-      undefined,
-      mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
-    );
-    const proseIndex = args.indexOf("--append-system-prompt");
+  it("merges ultra and orchestrator prose into a single inline append flag", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-ultra-"));
+    try {
+      fs.writeFileSync(path.join(dir, "ultra.md"), "ULTRA BASE\n");
+      const args = buildOpenArgs(
+        "orchestrator",
+        {},
+        dir,
+        [],
+        undefined,
+        mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
+      );
 
-    expect(args.slice(proseIndex, proseIndex + 2)).toEqual([
-      "--append-system-prompt",
-      "Investigation allowance: read.\nSelf-work allowance: trivial.\nRun at most 2 workers concurrently.",
-    ]);
+      // Claude Code refuses --append-system-prompt alongside its -file variant,
+      // so a preset with prose gets ultra and the prose merged into the one flag.
+      expect(args).not.toContain("--append-system-prompt-file");
+      const proseIndex = args.indexOf("--append-system-prompt");
+      expect(args.slice(proseIndex, proseIndex + 2)).toEqual([
+        "--append-system-prompt",
+        "ULTRA BASE\n\nInvestigation allowance: read.\nSelf-work allowance: trivial.\nRun at most 2 workers concurrently.",
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("leaves non-orchestrator roles unchanged when a richer mode is configured", () => {
