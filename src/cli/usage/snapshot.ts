@@ -35,7 +35,7 @@ export function renderSnapshot(result: UsageQueryResult, options: SnapshotOption
 
   // Header
   if (!isPlain && width >= 60) {
-    const periodLabel = range.period ? `período: ${range.period}` : `${range.since.slice(0, 10)} até ${range.until.slice(0, 10)}`;
+    const periodLabel = range.period ? `period: ${range.period}` : `${range.since.slice(0, 10)} to ${range.until.slice(0, 10)}`;
     lines.push(renderLogo(`codedeck usage  ~  ${periodLabel}`));
   } else {
     lines.push(`CodeDeck Usage — ${range.since.slice(0, 10)} to ${range.until.slice(0, 10)}`);
@@ -45,23 +45,23 @@ export function renderSnapshot(result: UsageQueryResult, options: SnapshotOption
   // Summary Card
   const costStr = formatCurrency(totals.costUsd, totals.costComplete);
   const tokensStr = `${formatTokens(totals.totalTokens)} (${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cachedTokens)} cached)`;
-  const sessionsStr = `${totals.sessionCount} (${totals.completedSessionCount} concluídas, ${totals.failedSessionCount} falhas${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} ativas` : ""})`;
+  const sessionsStr = `${totals.sessionCount} (${totals.completedSessionCount} completed, ${totals.failedSessionCount} failed${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} active` : ""})`;
 
-  lines.push(`  ${c.bold("Custo Total:")}    ${costStr} USD${!totals.costComplete ? c.dim(` (${totals.sessionsWithoutCost} sessões sem preço tabelado)`) : ""}`);
-  lines.push(`  ${c.bold("Tokens:")}         ${tokensStr}`);
-  lines.push(`  ${c.bold("Sessões:")}        ${sessionsStr}`);
+  lines.push(`  ${c.bold("Total Cost:")}    ${costStr} USD${!totals.costComplete ? c.dim(` (${totals.sessionsWithoutCost} sessions unpriced)`) : ""}`);
+  lines.push(`  ${c.bold("Tokens:")}        ${tokensStr}`);
+  lines.push(`  ${c.bold("Sessions:")}      ${sessionsStr}`);
   lines.push("");
 
   // Daily Evolution (if more than 1 day)
   if (byDay.length > 1 && options.by !== "repo" && options.by !== "model") {
-    lines.push(`  ${c.dim("-- EVOLUÇÃO DIÁRIA " + "-".repeat(Math.max(0, Math.min(width - 24, 50))))}`);
+    lines.push(`  ${c.dim("-- DAILY TIMELINE " + "-".repeat(Math.max(0, Math.min(width - 24, 50))))}`);
     const maxDayCost = Math.max(...byDay.map((d) => d.costUsd), 0.01);
 
     for (const day of byDay) {
       const pct = Math.round((day.costUsd / maxDayCost) * 100);
       const bar = renderHorizontalBar(pct, 16);
       const dateLabel = padToWidth(day.key.slice(5), 6); // "09-07"
-      const countLabel = padToWidth(`${day.sessionCount} sessões`, 13);
+      const countLabel = padToWidth(`${day.sessionCount} sessions`, 13);
       const costLabel = padToWidth(formatCurrency(day.costUsd, day.costComplete), 10);
       lines.push(`  ${dateLabel}  ${c.dim(countLabel)}  ${c.bold(costLabel)}  ${bar} ${pct}%`);
     }
@@ -70,30 +70,30 @@ export function renderSnapshot(result: UsageQueryResult, options: SnapshotOption
 
   // Table by Dimension
   const dimension = options.by ?? "repo";
-  let tableTitle = "-- CONSUMO POR PROJETO / REPOSITÓRIO ";
+  let tableTitle = "-- USAGE BY PROJECT / REPOSITORY ";
   let items: UsageMetricBucket[] = byRepository;
 
   if (dimension === "model") {
-    tableTitle = "-- CONSUMO POR MODELO ";
+    tableTitle = "-- USAGE BY MODEL ";
     items = byModel;
   } else if (dimension === "day") {
-    tableTitle = "-- CONSUMO POR DIA ";
+    tableTitle = "-- USAGE BY DAY ";
     items = byDay;
   } else if (dimension === "agent") {
-    tableTitle = "-- CONSUMO POR AGENTE ";
+    tableTitle = "-- USAGE BY AGENT ";
     items = result.byAgent;
   } else if (dimension === "run") {
-    tableTitle = "-- CONSUMO POR RUN ";
+    tableTitle = "-- USAGE BY RUN ";
     items = result.byRun;
   }
 
   lines.push(`  ${c.dim(tableTitle + "-".repeat(Math.max(0, Math.min(width - tableTitle.length - 4, 50))))}`);
 
   // Table header
-  const colName = padToWidth(dimension === "model" ? "MODELO" : dimension === "agent" ? "AGENTE" : dimension === "run" ? "RUN" : "PROJETO", 28);
-  const colSessions = padToWidth("SESSÕES", 9);
+  const colName = padToWidth(dimension === "model" ? "MODEL" : dimension === "agent" ? "AGENT" : dimension === "run" ? "RUN" : "PROJECT", 28);
+  const colSessions = padToWidth("SESSIONS", 9);
   const colTokens = padToWidth("TOKENS (IN/OUT/CACHE)", 26);
-  const colCost = padToWidth("CUSTO", 10);
+  const colCost = padToWidth("COST", 10);
   const colShare = padToWidth("%", 5);
 
   lines.push(`  ${c.dim(`${colName}  ${colSessions}  ${colTokens}  ${colCost}  ${colShare}`)}`);
@@ -119,13 +119,13 @@ export function renderSnapshot(result: UsageQueryResult, options: SnapshotOption
   }
 
   if (items.length > 10) {
-    lines.push(`  ${c.dim(`+ ${items.length - 10} itens ocultos...`)}`);
+    lines.push(`  ${c.dim(`+ ${items.length - 10} hidden items...`)}`);
   }
   lines.push("");
 
   // Tip footer
   if (!isPlain) {
-    lines.push(`  ${c.dim("(Dica: use 'codedeck usage -i' para TUI interativa com gráficos ou '-w' para monitorar ao vivo)")}`);
+    lines.push(`  ${c.dim("(Tip: use 'codedeck usage -i' for interactive TUI charts or '-w' to watch live)")}`);
   }
 
   return lines.map((l) => truncate(l, width)).join("\n");

@@ -505,7 +505,7 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
 
   const cleanCwd = cwd.replace(/\/+$/, "");
   const parts = cleanCwd.split("/");
-  return parts[parts.length - 1] || "outros";
+  return parts[parts.length - 1] || "other";
 }
 
 
