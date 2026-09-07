@@ -1,0 +1,32 @@
+T1 probe: opencode rename command (negative)
+Date: 2026-09-07
+Binary: opencode 1.18.21 (/home/andreello/.config/nvm/versions/node/v26.7.0/bin/opencode)
+Spec: OP-02 (entry only after live probe), fallback OP-17 (open without renaming)
+
+Method
+1. `opencode --help`: no rename/title flag on the TUI command. Only
+   `opencode run --title <title>` sets a title, and only at creation
+   via `run`, not for the interactive TUI `open` launches.
+2. `opencode session --help`: only `list` and `delete <sessionID>`.
+   No rename subcommand.
+3. Official TUI docs (https://opencode.ai/docs/tui/, fetched 2026-09-07):
+   builtin slash commands are connect, compact, details, editor, exit,
+   export, help, init, models, new, redo, sessions, share, themes,
+   thinking, undo, unshare. `/sessions` only lists and switches
+   (aliases /resume, /continue). No rename/retitle builtin, no title
+   mention anywhere on the page.
+4. Binary strings (`grep -a`): 26 `"rename"` literals, all consistent
+   with LSP/file-rename providers (`getEditsForFileRename`,
+   `renameLocations-full`, `--no-renames`); no `/rename` slash literal.
+5. Web reports of `/rename` / `/retitle` trace to newer builds or the
+   anomalyco fork (e.g. "not available until after first prompt",
+   inline-rename PR). Not present in installed 1.18.21, so not usable:
+   typing an unverified guess would land as prompt text.
+
+Verdict: NEGATIVE for opencode 1.18.21. No verified rename command.
+Consequences per spec: HARNESS_INJECTION.opencode stays empty (OP-02),
+sessions open without renaming (OP-17), T7 pins the empty entry by test.
+Alternatives NOT probed (out of T1 scope, noted only): server PATCH
+/session/:id {title} (third-party doc claim, needs running server plus
+id plus auth), driving rename through a custom command's model turn
+(unreliable by construction).
