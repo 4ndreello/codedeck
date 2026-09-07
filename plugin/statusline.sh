@@ -69,12 +69,7 @@ const cwd = firstText(payload.workspace?.current_dir, payload.cwd) ?? process.cw
 const project = text(basename(cwd)) ?? (cwd === "/" ? "/" : undefined);
 
 /**
- * `workspace.git_worktree` is NOT a branch. Claude Code fills it with the
- * basename of .git/worktrees/<name>, and only when the session runs inside a
- * linked worktree, so reading it as a branch printed the worktree name in every
- * worktree and nothing anywhere else. `worktree.branch` is a real branch but
- * exists only for worktrees Claude Code created itself, which leaves git as the
- * answer for the ordinary case.
+ * Claude supplies a branch for its own worktrees. Git fills the ordinary case.
  */
 let branch = text(payload.worktree?.branch);
 if (!branch) {
