@@ -33,9 +33,7 @@ export function createRuntimeHooks(options: SessionDriverHookOptions): RuntimeHo
       const parsedEvents = options.parse(line, sessionId);
       for (const event of parsedEvents) {
         const native =
-          event.type === "session.started" && event.nativeSessionId
-            ? event.nativeSessionId
-            : nativeIdFrom(event.raw, options.nativeKeys);
+          (event as any).nativeSessionId || nativeIdFrom(event.raw, options.nativeKeys);
         if (native) setNativeId(native);
         push(event);
       }
@@ -79,14 +77,21 @@ export abstract class SessionDriver implements AgentDriver {
 
   abstract detect(): Promise<AgentInstallation>;
 
+  protected getCommand(): string {
+    return this.id;
+  }
+
+  protected getEnv?(_options: StartOptions): NodeJS.ProcessEnv | undefined;
+
   async start(options: StartOptions): Promise<DriverSession> {
     const runtime = SessionRuntime.spawn({
       sessionId: options.sessionId,
-      cmd: this.id,
+      cmd: this.getCommand(),
       args: this.buildArgs(options),
       cwd: options.cwd,
       nativeSessionId: options.resumeSessionId,
       hooks: this.hooks,
+      env: this.getEnv?.(options),
     });
     this.handles.set(options.sessionId, runtime);
 

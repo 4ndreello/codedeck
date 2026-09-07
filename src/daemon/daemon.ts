@@ -11,7 +11,7 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import { isTerminalStatus, type AgentId, type Session } from "../core/session.js";
+import { isTerminalStatus, normalizeAgentId, type AgentId, type Session } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
@@ -253,7 +253,8 @@ class Daemon {
         if (!prompt) { send({ error: { code: "INVALID", message: "prompt required" } }); return; }
         const cwdIn = p.cwd || process.cwd();
         const cfg = loadConfig();
-        let agent: AgentId = p.agent || cfg.defaultAgent || "claude";
+        const rawAgent = p.agent || cfg.defaultAgent || "claude";
+        let agent: AgentId = (normalizeAgentId(rawAgent) ?? rawAgent) as AgentId;
         if (!this.registry.has(agent)) { send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } }); return; }
         const requestSandbox = resolveRequestSandbox(p.sandbox);
         const configuredSandbox = resolveDefaultSandbox(cfg);

@@ -31,6 +31,25 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 0.8, output: 4 },
+
+  // Google Antigravity (Gemini) models.
+  "gemini-3.8-flash": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.8-flash-high": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.8-flash-medium": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.8-flash-low": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.7-flash": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.7-flash-high": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.7-flash-medium": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.7-flash-low": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gemini-3.6-flash": { input: 0.075, output: 0.3, cached: 0.01875 },
+  "gemini-3.6-flash-high": { input: 0.075, output: 0.3, cached: 0.01875 },
+  "gemini-3.6-flash-medium": { input: 0.075, output: 0.3, cached: 0.01875 },
+  "gemini-3.6-flash-low": { input: 0.075, output: 0.3, cached: 0.01875 },
+  "gemini-3.1-pro": { input: 1.25, output: 5, cached: 0.3125 },
+  "gemini-3.1-pro-high": { input: 1.25, output: 5, cached: 0.3125 },
+  "gemini-3.1-pro-low": { input: 1.25, output: 5, cached: 0.3125 },
+  "gemini-2.5-flash": { input: 0.075, output: 0.3, cached: 0.01875 },
+  "gemini-2.5-pro": { input: 1.25, output: 5, cached: 0.3125 },
 };
 
 export interface SessionCostUsage {

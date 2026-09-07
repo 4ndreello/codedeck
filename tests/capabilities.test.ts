@@ -13,13 +13,14 @@ describe("capabilities", () => {
     }
   });
 
-  it("detectAll returns 4 agents", async () => {
+  it("detectAll returns 5 agents", async () => {
     const reg = getRegistry();
     const all = await reg.detectAll();
     expect(Object.keys(all)).toContain("claude");
     expect(Object.keys(all)).toContain("codex");
     expect(Object.keys(all)).toContain("opencode");
     expect(Object.keys(all)).toContain("omp");
+    expect(Object.keys(all)).toContain("antigravity");
     for (const v of Object.values(all)) {
       expect(typeof v.installed).toBe("boolean");
     }
@@ -31,5 +32,14 @@ describe("capabilities", () => {
     expect(c.resume).toBe(true);
     expect(c.cost).toBe(true);
     expect(c.streaming).toBe(true);
+  });
+
+  it("antigravity supports streaming, resume and model selection", () => {
+    const reg = getRegistry();
+    const a = reg.get("antigravity").capabilities();
+    expect(a.resume).toBe(true);
+    expect(a.streaming).toBe(true);
+    expect(a.modelSelection).toBe(true);
+    expect(a.approvals).toBe(true);
   });
 });

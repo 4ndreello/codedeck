@@ -7,7 +7,7 @@ import {
   type ModelInfo,
   type ProviderModels,
 } from "../../core/models.js";
-import { AGENT_IDS, type AgentId } from "../../core/session.js";
+import { AGENT_IDS, normalizeAgentId, type AgentId } from "../../core/session.js";
 
 export interface ModelsCliOptions {
   provider?: string;
@@ -158,14 +158,14 @@ export function registerModelsCommand(program: Command): void {
       let agent: AgentId | undefined;
 
       if (agentArg) {
-        const normalized = agentArg.toLowerCase() as AgentId;
-        if (!AGENT_IDS.includes(normalized)) {
+        const resolved = normalizeAgentId(agentArg);
+        if (!resolved) {
           console.error(
             `Invalid agent "${agentArg}". Available agents: ${AGENT_IDS.join(", ")}`,
           );
           process.exit(1);
         }
-        agent = normalized;
+        agent = resolved;
       }
 
       let harnesses: HarnessModels[] = [];
