@@ -137,6 +137,7 @@ export class SessionRuntime {
       cmd: opts.cmd,
       args: opts.args,
       cwd: opts.cwd,
+      env: { CODEDECK_SESSION_ID: opts.sessionId },
       stdoutPath: paths.stdoutPath,
       stderrPath: paths.stderrPath,
     });

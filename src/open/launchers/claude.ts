@@ -101,6 +101,9 @@ export function buildOpenArgs(
     flags.model ?? DEFAULT_MODEL,
     "--effort",
     flags.effort ?? DEFAULT_EFFORT,
+    // Remote Control is interactive-only. It requires a subscribed Claude
+    // account and a prior workspace-trust dialog.
+    ...(flags.remoteControl !== false ? ["--remote-control"] : []),
     ...(flags.bypass !== false ? ["--dangerously-skip-permissions"] : []),
     "--plugin-dir",
     pluginDir,

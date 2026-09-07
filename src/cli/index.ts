@@ -8,6 +8,7 @@ import { registerRunCommand } from "./commands/run.js";
 import { registerPsCommand } from "./commands/ps.js";
 import { registerClaimsCommand } from "./commands/claims.js";
 import { registerShowCommand } from "./commands/show.js";
+import { registerRenameCommand } from "./commands/rename.js";
 import { registerLogsCommand } from "./commands/logs.js";
 import { registerWaitCommand } from "./commands/wait.js";
 import { registerSendCommand } from "./commands/send.js";
@@ -52,6 +53,7 @@ Examples:
   $ ${cli} ps
   $ ${cli} ps --json
   $ ${cli} show a83f
+  $ ${cli} rename a83f "fix auth tests"
   $ ${cli} logs a83f --follow
   $ ${cli} logs a83f --json
   $ ${cli} send a83f "add tests"
@@ -76,6 +78,7 @@ registerRunCommand(program);
 registerPsCommand(program);
 registerClaimsCommand(program);
 registerShowCommand(program);
+registerRenameCommand(program);
 registerLogsCommand(program);
 registerWaitCommand(program);
 registerSendCommand(program);

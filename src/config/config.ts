@@ -18,6 +18,7 @@ export interface RunAgentConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
   defaultModel?: string;
+  remoteControl?: boolean;
   /**
    * Per harness, and the fallback for whatever `agents` does not answer: a run
    * with no role, or one whose role nobody bound. Setup no longer writes it.
@@ -63,6 +64,7 @@ export function resolveModel(
 const DEFAULT_CONFIG: RunAgentConfig = {
   defaultAgent: "claude",
   worktree: false,
+  remoteControl: true,
 };
 
 export function loadConfig(): RunAgentConfig {

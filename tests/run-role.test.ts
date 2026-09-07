@@ -94,6 +94,22 @@ describe("codedeck run --role", () => {
     expect(params.prompt).toBe("do the thing");
   });
 
+  it("derives the session name from the raw task prompt", async () => {
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--bg"]))
+      .rejects.toThrow(Exited);
+
+    const [, params] = request.mock.calls[0];
+    expect(params.name).toBe("fix-oauth-login");
+  });
+
+  it("keeps an explicitly supplied session name verbatim", async () => {
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--name", "OAuth / v2", "--bg"]))
+      .rejects.toThrow(Exited);
+
+    const [, params] = request.mock.calls[0];
+    expect(params.name).toBe("OAuth / v2");
+  });
+
   it.each([
     ["an unknown role", "implementer"],
     ["an empty value", ""],
