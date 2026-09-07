@@ -95,12 +95,13 @@ The final launch fallback remains in `buildCodexArgs` in `src/drivers/codex/driv
 
 The daemon is a second config consumer. In `src/daemon/daemon.ts`, the `session.create` handler around `daemon.ts:247` loads `cfg` independently of the CLI. Resolve the sandbox at this boundary before constructing the session object around `daemon.ts:288-307`:
 
+- At this boundary, validate both the incoming request value `p.sandbox` and `cfg.defaultSandbox` against the valid `CodexSandbox` set, using an allowlist or `parseSandbox` in a try-catch. Treat an invalid request or config value as unset. A raw IPC value such as `{"sandbox":"network"}` must never reach `codex -s`; the same allowlist-or-unset rule applies to both sources.
 - For Codex, a valid request `p.sandbox` wins over a valid `cfg.defaultSandbox`.
-- If the request has no sandbox, use the validated global value.
+- If the request sandbox is absent or invalid, use the validated global value.
 - If neither value is valid or present, leave the option unset so the Codex driver keeps its `workspace-write` fallback.
-- For Claude, opencode, and omp, keep the sandbox unset regardless of the global config.
+- For Claude, opencode, and omp, strip or ignore sandbox unconditionally, whether it came from the request or from config. A non-Codex session row and its driver start options must contain no sandbox value from any source.
 
-This covers callers that use the IPC boundary without going through `run.ts`. The session row and the driver start options must receive the resolved value used at creation time. A bad config value must be ignored safely at this boundary as well.
+This covers callers that use the IPC boundary without going through `run.ts`. The session row and the driver start options must receive the resolved value used at creation time. A bad request or config value must be ignored safely at this boundary.
 
 ## Codex-only semantics
 
@@ -110,7 +111,7 @@ The existing non-Codex behavior in `run.ts` remains the contract: clear the sand
 
 ## Setup toggle UX
 
-Extend the setup flow in `src/cli/commands/setup.ts` with one non-role toggle screen after the existing role and orchestrator setup screens. Reuse the `Screen.next` pattern already used by the merged orchestrator-presets feature. `src/cli/picker-state.ts`, `src/cli/picker.ts`, and `src/cli/ui.ts` already provide the generic screen and skip/abort behavior; no sandbox-specific picker primitive is needed.
+Extend the setup flow in `src/cli/commands/setup.ts` with one non-role toggle screen after the existing role and orchestrator setup screens. After the orchestrator screen has been appended, append the sandbox screen to that same flat array with `[..., buildSandboxScreen(...)]`, where `screens` already includes the orchestrator screen. Give the sandbox screen its own `next: () => []`. Do not chain it from the orchestrator screen's `next`: `Screen.next` is only for a screen's own sub-screens, and the wizard's result accounting filters the flat screens list, so a next-chain would break that accounting. `src/cli/picker-state.ts`, `src/cli/picker.ts`, and `src/cli/ui.ts` already provide the generic screen and skip/abort behavior; no sandbox-specific picker primitive is needed.
 
 The screen must be named and described as `Danger full access`, with only OFF and ON states. OFF writes `defaultSandbox: "workspace-write"`. ON writes `defaultSandbox: "danger-full-access"`. There is no `read-only` item, label, or third state in the setup UI. A hand-edited `read-only` value remains available only through `config.json`.
 
@@ -128,7 +129,7 @@ Add a regression unit test that exercises the open launch argument builders and 
 
 An existing session keeps the sandbox selected when it was created. A later change to `config.defaultSandbox` must not retroactively change a live or resumable thread.
 
-Preserve the current behavior in `src/drivers/session-driver.ts:125-135`: `SessionDriver.send` reuses `session.sandbox` rather than loading the current global config. Preserve the Codex resume behavior in `src/drivers/codex/driver.ts`: `codex exec resume` does not receive `-s`, because the native thread owns its original sandbox policy. The persisted session value records the creation-time choice, and a resumed thread must keep that choice even after the global setting changes.
+Preserve the current behavior in `src/drivers/session-driver.ts:121-139`: `SessionDriver.send` reuses `session.sandbox` rather than loading the current global config. Preserve the Codex resume behavior in `src/drivers/codex/driver.ts`: `codex exec resume` does not receive `-s`, because the native thread owns its original sandbox policy. The persisted session value records the creation-time choice, and a resumed thread must keep that choice even after the global setting changes.
 
 ## Acceptance criteria
 
@@ -140,11 +141,11 @@ Each criterion must be covered by a focused unit test.
 
 3. A config containing an invalid, non-string, or otherwise malformed `defaultSandbox` never throws during config resolution, `run`, or daemon session creation. The invalid value is treated as unset and Codex falls back to `workspace-write`; it never reaches a Codex sandbox argument.
 
-4. On `run`, an explicit valid `--sandbox` beats a different valid `config.defaultSandbox`, a missing flag uses the valid config value, and an absent or invalid config value leaves `params.sandbox` unset so the driver applies its fallback. The request sent to `session.create` contains the expected sandbox value in each case.
+4. On `run`, an explicit valid `--sandbox` beats a different valid `config.defaultSandbox`; an invalid config value combined with an explicit valid `--sandbox` still lets the flag win with no fallback substitution; a missing flag uses the valid config value; and an absent or invalid config value leaves `params.sandbox` unset so the driver applies its fallback. The request sent to `session.create` contains the expected sandbox value in each case.
 
-5. On the daemon `session.create` path, a valid request sandbox beats the global config, a missing request sandbox uses the global config, and neither value leaves the option unset for the Codex driver fallback. The daemon test must exercise the IPC boundary independently of the CLI.
+5. On the daemon `session.create` path, a valid request sandbox beats the global config, a missing request sandbox uses the global config, and neither value leaves the option unset for the Codex driver fallback. "Invalid" covers both an invalid config value and an invalid request value. The invalid raw request value must never reach the session row or the Codex start options. The daemon test must exercise the IPC boundary independently of the CLI.
 
-6. A global sandbox value never changes a Claude, opencode, or omp launch. Non-Codex run requests clear the value and retain the existing warning behavior, and the daemon does not store or pass a config-derived sandbox for those agents.
+6. A global sandbox value never changes a Claude, opencode, or omp launch. Non-Codex run requests clear the value and retain the existing warning behavior, and the daemon strips or ignores sandbox unconditionally for those agents. The daemon stores and passes no sandbox for non-Codex agents from any source, whether the value came from the request or from config.
 
 7. The setup screen exposes exactly the two toggle states OFF and ON. OFF saves `workspace-write`, ON saves `danger-full-access`, and no setup item exposes `read-only`.
 
@@ -186,7 +187,7 @@ Gate: Focused setup tests pass. Completing the screen writes exactly one valid g
 
 Owned files: `src/cli/commands/run.ts`, `tests/run-sandbox.test.ts`, `tests/driver-args.test.ts`.
 
-Tests: Cover explicit flag over config, config over driver fallback, invalid config fallback, propagation to `params.sandbox`, the existing bypass-flag conflict behavior, and stripping plus warnings for non-Codex agents.
+Tests: Cover explicit flag over config, config over driver fallback, invalid config fallback, the case where an invalid config plus an explicit valid `--sandbox` flag lets the flag win without fallback substitution, propagation to `params.sandbox`, the existing bypass-flag conflict behavior, and stripping plus warnings for non-Codex agents.
 
 Gate: Focused run tests pass, and the request sent by `run` cannot replace an explicit sandbox with the global default. The existing driver fallback assertion remains covered by `tests/driver-args.test.ts`; no driver default change is allowed.
 
@@ -194,7 +195,7 @@ Gate: Focused run tests pass, and the request sent by `run` cannot replace an ex
 
 Owned files: `src/daemon/daemon.ts`, `tests/daemon-sandbox.test.ts`, `tests/session-driver-sandbox.test.ts`.
 
-Tests: Call `session.create` through the daemon boundary with explicit, configured, absent, invalid, and non-Codex cases. Assert the session row and Codex start options receive the correct creation-time value. The session-driver test changes the global config after creation, confirms `SessionDriver.send` reuses the stored sandbox, and confirms Codex resume omits `-s`.
+Tests: Call `session.create` through the daemon boundary with explicit, configured, absent, invalid, and non-Codex cases. Assert the session row and Codex start options receive the correct creation-time value. The invalid cases cover both invalid request and invalid config values; the invalid request value must not reach the session row or Codex start options. The session-driver test changes the global config after creation, confirms `SessionDriver.send` reuses the stored sandbox, and confirms Codex resume omits `-s`. That resume assertion is READ-ONLY coverage of `src/drivers/codex/driver.ts`: Slice 4 does not edit that file, it stays unchanged, and it is not a file the slice owns or modifies.
 
 Gate: Focused daemon and session-driver tests pass independently of the CLI path. Direct IPC callers receive the same precedence and fallback behavior as `run` callers, and the existing driver fallback remains `workspace-write`.
 
