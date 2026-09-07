@@ -204,13 +204,17 @@ T11 -> T12 -> T13
 
 ---
 
-### T6: Wire pty into opencode branch
+### T6: Wire pty into opencode branch (RETIRED)
 
-**What**: Pass the owned pty to the opencode `spawnHarness` call.
-**Where**: `src/cli/commands/open.ts`
+**What**: RETIRED 2026-09-07. Both consumers went negative in Phase 1
+(rename: probe-rename, name channel: probe-name) and capture rides on
+list-diff (probe-session-id), so the pty has no consumer. Wiring
+raw-mode spawn without observable behavior fails the senior-engineer
+check; re-propose only with a pinned keystroke consumer.
+**Where**: `.specs/features/open-opencode-parity/tasks.md` (this record)
 **Depends on**: T5
-**Reuses**: `ptyLaunchForHarness` (same call shape as claude)
-**Requirement**: OP-01, OP-03, OP-17
+**Reuses**: Phase 1 transcripts
+**Requirement**: OP-01, OP-03, OP-17 (retired with cause, see T13)
 
 **Tools**:
 
@@ -219,14 +223,14 @@ T11 -> T12 -> T13
 
 **Done when**:
 
-- [ ] Opencode branch passes `pty` key; piped/non-tty opens exit 0 rename-free
-- [ ] Gate check passes: `npx vitest run tests/open-pty.test.ts`
-- [ ] No test deleted or weakened
+- [x] Retirement recorded here with rationale; no src touched
 
-**Tests**: unit
-**Gate**: quick
+**Tests**: build gate only
+**Gate**: build
 
-**Commit**: `feat(open): wire pty into opencode branch`
+**Status**: ⚠️ Retired (no consumer after negative probes)
+
+**Commit**: `docs(specs): retire pty wiring task after negative probes`
 
 ---
 
