@@ -515,7 +515,9 @@ class Daemon {
         // survive as a phantom "na fila" on every exit, including the
         // terminal early return below.
         this.clearPending(s.id);
-        if (isTerminalStatus(s.status)) {
+        // Interrupted is an archival terminal: a power-shutdown row stays
+        // actionable and release may finalize it to completed/failed.
+        if (isTerminalStatus(s.status) && s.status !== "interrupted") {
           send({ result: { session: this.sessions.get(s.id)! } });
           return;
         }

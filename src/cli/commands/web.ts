@@ -18,7 +18,7 @@ export function parseWebPort(raw: string | undefined): number {
   return port;
 }
 
-export type SessionSubpathAction = "stream" | "logs" | "get" | "send";
+export type SessionSubpathAction = "stream" | "logs" | "get" | "send" | "release";
 
 export interface SessionSubpath {
   action: SessionSubpathAction;
@@ -26,10 +26,11 @@ export interface SessionSubpath {
 }
 
 /**
- * Pure route split for /api/sessions/:id[/stream|/logs|/get|/send]. More
- * specific routes must be tried before this one so "stream" never lands in
- * :id handling. "send" is the only POST route; the method check lives at the
- * callsite, so a GET to /send parses here and then falls through to 404.
+ * Pure route split for /api/sessions/:id[/stream|/logs|/get|/send|/release].
+ * More specific routes must be tried before this one so "stream" never lands
+ * in :id handling. "send"/"release" are the only POST routes; the method
+ * check lives at the callsite, so a GET to either parses here and then falls
+ * through to 404.
  */
 export function parseSessionSubpath(parts: string[]): SessionSubpath | null {
   if (parts.length < 3 || parts[0] !== "api" || parts[1] !== "sessions" || !parts[2]) {
@@ -40,6 +41,7 @@ export function parseSessionSubpath(parts: string[]): SessionSubpath | null {
   if (parts.length === 4 && parts[3] === "stream") return { action: "stream", id };
   if (parts.length === 4 && parts[3] === "logs") return { action: "logs", id };
   if (parts.length === 4 && parts[3] === "send") return { action: "send", id };
+  if (parts.length === 4 && parts[3] === "release") return { action: "release", id };
   return null;
 }
 
@@ -178,6 +180,16 @@ export function createWebHandler(bridge: WebBridge): http.RequestListener {
           } catch (error) {
             const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
             sendJson(res, sendErrorStatus(code), { error: error instanceof Error ? error.message : String(error) });
+          }
+          return;
+        }
+        if (req.method === "POST" && sub?.action === "release") {
+          try {
+            const result = await bridge.request("session.release", { id: sub.id });
+            sendJson(res, 200, result);
+          } catch (error) {
+            const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+            sendJson(res, code === "SESSION_NOT_FOUND" ? 404 : 502, { error: error instanceof Error ? error.message : String(error) });
           }
           return;
         }

@@ -23,7 +23,7 @@ function bridge(overrides: Partial<WebBridge> = {}): WebBridge & { calls: string
       if (method === "session.get") return { session: { id: "a1" } };
       if (method === "session.logs") return { events: [] };
       if (method === "session.send") return { ok: true };
-      if (method === "daemon.status") return { ok: true };
+      if (method === "session.release") return { ok: true };
       if (method === "usage.query") return { totals: {} };
       throw new Error(`unexpected method ${method}`);
     },
@@ -205,6 +205,20 @@ describe("web handler", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(seen).toEqual([{ method: "session.send", params: { id: "a1", message: "continua" } }]);
+  });
+
+  it("proxies POST /release to session.release", async () => {
+    const b = bridge();
+    const seen: Array<{ method: string; params: unknown }> = [];
+    const inner = b.request;
+    b.request = async (method: string, params: unknown) => {
+      seen.push({ method, params });
+      return inner(method, params);
+    };
+    const base = await listen(createWebHandler(b));
+    const res = await fetch(`${base}/api/sessions/a1/release`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{ method: "session.release", params: { id: "a1" } }]);
   });
 
   it("rejects send bodies without a usable message", async () => {
