@@ -577,6 +577,7 @@ function onEvent(n, ev) {
     touch(n, "quer sua aprovação para continuar");
     paintSummary();
     spawnRing(n, "#ff9f0a");
+    feed(agentName(n.agent), "pedindo sua aprovação");
   } else if (ev.type === "session.completed" || ev.type === "session.failed") {
     n.status = ev.type === "session.failed" ? "failed" : "completed";
     touch(n, ev.type === "session.failed" ? ("falhou: " + (ev.error || "")) : "concluída");

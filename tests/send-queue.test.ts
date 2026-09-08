@@ -185,7 +185,9 @@ describe("tail dispatch", () => {
       pendingAt: new Date().toISOString(),
     });
     await tailSeam(daemon).attachDriverEvents("s-nonative", driver, drvSession("s-nonative"));
-    await flushWhile(() => false);
+    // The no-native gate returns before any await, but drain a few ticks so
+    // the assertion covers the settled chain rather than a pending one.
+    await flushWhile(() => sent.length !== 0, 10);
     expect(sent).toHaveLength(0);
     expect(seam(daemon).sessions.get("s-nonative")?.pendingMessage).toBe("waits for manual send");
     const types = seam(daemon).events.list("s-nonative", 20).map((e) => e.type);
