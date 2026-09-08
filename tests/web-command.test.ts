@@ -22,6 +22,7 @@ function bridge(overrides: Partial<WebBridge> = {}): WebBridge & { calls: string
       if (method === "session.list") return { sessions: [] };
       if (method === "session.get") return { session: { id: "a1" } };
       if (method === "session.logs") return { events: [] };
+      if (method === "session.send") return { ok: true };
       if (method === "daemon.status") return { ok: true };
       if (method === "usage.query") return { totals: {} };
       throw new Error(`unexpected method ${method}`);
@@ -66,7 +67,7 @@ describe("parseWebPort", () => {
 });
 
 describe("parseSessionSubpath", () => {
-  it("matches get, stream, and logs", () => {
+  it("matches get, stream, logs, and send", () => {
     expect(parseSessionSubpath(["api", "sessions", "a1"])).toEqual({ action: "get", id: "a1" });
     expect(parseSessionSubpath(["api", "sessions", "a1", "stream"])).toEqual({
       action: "stream",
@@ -74,6 +75,10 @@ describe("parseSessionSubpath", () => {
     });
     expect(parseSessionSubpath(["api", "sessions", "a1", "logs"])).toEqual({
       action: "logs",
+      id: "a1",
+    });
+    expect(parseSessionSubpath(["api", "sessions", "a1", "send"])).toEqual({
+      action: "send",
       id: "a1",
     });
   });
@@ -88,7 +93,6 @@ describe("parseSessionSubpath", () => {
   it("rejects anything else", () => {
     expect(parseSessionSubpath(["api", "sessions"])).toBeNull();
     expect(parseSessionSubpath(["api", "sessions", "", "stream"])).toBeNull();
-    expect(parseSessionSubpath(["api", "sessions", "a1", "send"])).toBeNull();
     expect(parseSessionSubpath(["api", "sessions", "a1", "stream", "x"])).toBeNull();
     expect(parseSessionSubpath(["api", "other", "a1"])).toBeNull();
   });
@@ -183,6 +187,90 @@ describe("web handler", () => {
     // Give the server close handler a tick to run the unsubscribe.
     await vi.waitFor(() => expect(offCalled).toBe(true));
   });
+
+  it("proxies POST /send to session.send", async () => {
+    const b = bridge();
+    const seen: Array<{ method: string; params: unknown }> = [];
+    const inner = b.request;
+    b.request = async (method: string, params: unknown) => {
+      seen.push({ method, params });
+      return inner(method, params);
+    };
+    const base = await listen(createWebHandler(b));
+    const res = await fetch(`${base}/api/sessions/a1/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "continua" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(seen).toEqual([{ method: "session.send", params: { id: "a1", message: "continua" } }]);
+  });
+
+  it("rejects send bodies without a usable message", async () => {
+    const b = bridge();
+    const base = await listen(createWebHandler(b));
+    const blank = await fetch(`${base}/api/sessions/a1/send`, {
+      method: "POST",
+      body: JSON.stringify({ message: "   " }),
+    });
+    expect(blank.status).toBe(400);
+
+    const broken = await fetch(`${base}/api/sessions/a1/send`, {
+      method: "POST",
+      body: "{not json",
+    });
+    expect(broken.status).toBe(400);
+    expect(b.calls).not.toContain("session.send");
+  });
+
+  it("caps oversized send bodies at 413", async () => {
+    const b = bridge();
+    const base = await listen(createWebHandler(b));
+    const res = await fetch(`${base}/api/sessions/a1/send`, {
+      method: "POST",
+      body: JSON.stringify({ message: "x".repeat(64 * 1024 + 1) }),
+    });
+    expect(res.status).toBe(413);
+    expect(b.calls).not.toContain("session.send");
+  });
+
+  it("maps daemon error codes to status codes", async () => {
+    const cases: Array<[string, number]> = [
+      ["SESSION_NOT_FOUND", 404],
+      ["SESSION_BUSY", 409],
+      ["CAPABILITY_NOT_SUPPORTED", 400],
+    ];
+    for (const [code, status] of cases) {
+      const b = bridge();
+      const inner = b.request;
+      b.request = async (method: string, params: unknown) => {
+        b.calls.push(method);
+        if (method === "session.send") {
+          const err: Error & { code?: string } = new Error(code);
+          err.code = code;
+          throw err;
+        }
+        return inner(method, params);
+      };
+      const base = await listen(createWebHandler(b));
+      const res = await fetch(`${base}/api/sessions/a1/send`, {
+        method: "POST",
+        body: JSON.stringify({ message: "oi" }),
+      });
+      expect(res.status).toBe(status);
+    }
+  });
+
+  it("keeps /send POST-only and other subpaths GET-only", async () => {
+    const b = bridge();
+    const base = await listen(createWebHandler(b));
+    const wrongMethod = await fetch(`${base}/api/sessions/a1/send`);
+    expect(wrongMethod.status).toBe(404);
+
+    const postGet = await fetch(`${base}/api/sessions/a1/get`, { method: "POST", body: "{}" });
+    expect(postGet.status).toBe(404);
+  });
 });
 
 describe("canvas page", () => {
@@ -203,6 +291,18 @@ describe("canvas page", () => {
     expect(CANVAS_PAGE).toContain("selectSession");
     expect(CANVAS_PAGE).toContain("inputSnippet");
     expect(CANVAS_PAGE).toContain('id="detail"');
+  });
+
+  it("wires the chat transcript and send box", () => {
+    expect(CANVAS_PAGE).toContain('id="dChat"');
+    expect(CANVAS_PAGE).toContain('id="dSend"');
+    expect(CANVAS_PAGE).toContain("/logs");
+    expect(CANVAS_PAGE).toContain("/send");
+  });
+
+  it("hides completed sessions by default", () => {
+    expect(CANVAS_PAGE).toContain('qp0.get("hide") !== "0"');
+    expect(CANVAS_PAGE).toContain('qp.set("hide", "0")');
   });
 
   it("makes no external requests", () => {
