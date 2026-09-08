@@ -317,6 +317,8 @@ describe("canvas page", () => {
     ],
     ["chat transcript and send box", ['id="dChat"', 'id="dSend"', "/logs", "/send"]],
     ["hidden-by-default filter", ['qp0.get("hide") !== "0"', 'qp.set("hide", "0")']],
+    ["wheel skips zoom inside the detail panel", ['closest("#detail")']],
+    ["roomier chat with dark thin scrollbars", ["52vh", "scrollbar-width", "::-webkit-scrollbar"]],
   ];
   for (const [feature, needs] of markerGroups) {
     it(`has the ${feature}`, () => {

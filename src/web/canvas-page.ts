@@ -50,7 +50,7 @@ export const CANVAS_PAGE: string = `<!doctype html>
   #feed li.fresh { color: #f5f5f7; }
   @keyframes feedIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; } }
   #hint { left: 50%; transform: translateX(-50%); bottom: 16px; font-size: 12px; color: #98989f; white-space: nowrap; }
-  #detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 92vw); z-index: 20;
+  #detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 94vw); z-index: 20;
     background: rgba(10, 12, 16, 0.92); border-left: 1px solid rgba(255,255,255,0.1);
     backdrop-filter: blur(14px); padding: 18px; overflow-y: auto; display: none; }
   #detail.open { display: block; }
@@ -69,7 +69,14 @@ export const CANVAS_PAGE: string = `<!doctype html>
     border: 1px solid rgba(255,255,255,0.12); background: transparent; color: #98989f;
     cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit; }
   #detailClose:hover { color: #f5f5f7; border-color: rgba(255,255,255,0.25); }
-  #dChat { border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; max-height: 34vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+  #dChat { border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; max-height: 52vh; min-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+  /* Scroll fino escuro no painel e no chat (Firefox + WebKit): o padrao
+     claro do SO quebra o tema escuro da pagina. */
+  #detail, #dChat { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.24) transparent; }
+  #detail::-webkit-scrollbar, #dChat::-webkit-scrollbar { width: 10px; }
+  #detail::-webkit-scrollbar-track, #dChat::-webkit-scrollbar-track { background: transparent; }
+  #detail::-webkit-scrollbar-thumb, #dChat::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.18); border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+  #detail::-webkit-scrollbar-thumb:hover, #dChat::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.32); }
   #dChat .msg { font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; padding: 7px 9px; border-radius: 9px; }
   #dChat .msg .who { display: block; font-size: 10.5px; letter-spacing: 0.04em; color: #98989f; margin-bottom: 2px; }
   #dChat .msg.user { background: rgba(10,132,255,0.16); }
@@ -789,6 +796,10 @@ window.addEventListener("keydown", function (ev) {
   if (ev.key === "Escape") closeDetail();
 });
 window.addEventListener("wheel", function (ev) {
+  // O painel de detalhe tem scroll proprio (#detail e #dChat): o zoom do
+  // canvas so vale fora dele, senao rolar o chat daria zoom na cena.
+  var t = ev.target;
+  if (t && typeof t.closest === "function" && t.closest("#detail")) return;
   ev.preventDefault();
   var before = toWorld(ev.clientX, ev.clientY);
   cam.zoom = Math.min(2.2, Math.max(0.45, cam.zoom * (ev.deltaY < 0 ? 1.1 : 0.9)));
