@@ -613,15 +613,22 @@ class Daemon {
           send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
           return;
         }
+        // A lifecycle operation owns the session: retry instead of queueing,
+        // so a send racing stop cannot strand a phantom slot with no stream
+        // tail left to consume it (stop cancels the queue on exit).
+        if (this.sessionLocks.has(s.id)) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
+          return;
+        }
         // Do not start a second harness while the current one is still live:
         // both runtimes would tail the same per-session file and duplicate
-        // every event from the follow-up turn.
+        // every event from the follow-up turn. Queue behind a live turn only.
         const busyHandle = driver.getHandle?.(s.id);
         const busyState = busyHandle && typeof busyHandle === "object"
           ? busyHandle as { done?: boolean; drained?: boolean }
           : undefined;
         const runtimeBusy = busyHandle !== undefined && (busyState?.done !== true || busyState?.drained !== true);
-        const busy = this.sessionLocks.has(s.id) || s.status === "starting" || runtimeBusy || livePidIdentity(s);
+        const busy = s.status === "starting" || runtimeBusy || livePidIdentity(s);
         if (busy) {
           // One-slot queue, last-wins: persist without holding the lifecycle
           // lock, then converge — the turn may have ended between the busy
@@ -743,6 +750,9 @@ class Daemon {
             this.events.append(s.id, ev);
             this.broadcast(s.id, ev);
           }
+          // A send may have persisted a slot after the entry clear (it saw a
+          // live turn before this stop took the lock): stop wins, clear again.
+          this.clearPending(s.id);
           send({ result: { ok: true } });
         } catch (e) {
           if (this.shuttingDown) {
@@ -1143,8 +1153,14 @@ class Daemon {
       if (!driver.capabilities().resume) return false;
       const handle = driver.getHandle?.(s.id);
       const hs = handle && typeof handle === "object"
-        ? handle as { done?: boolean; drained?: boolean }
+        ? handle as { done?: boolean; drained?: boolean; nativeSessionId?: unknown }
         : undefined;
+      // Same resolution as SessionDriver.send: without a native id the start
+      // would only throw after emitting turn.started and flipping status, so
+      // leave the slot quietly for a manual send instead.
+      const nativeId = s.nativeSessionId
+        || (typeof hs?.nativeSessionId === "string" ? hs.nativeSessionId : undefined);
+      if (!nativeId) return false;
       if (s.status === "starting") return false;
       if (handle !== undefined && (hs?.done !== true || hs?.drained !== true)) return false;
       if (livePidIdentity(s)) return false;

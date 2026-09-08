@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { Daemon } from "../src/daemon/daemon.js";
+import type { AgentDriver, DriverSession } from "../src/core/driver.js";
+import type { AgentEvent } from "../src/core/events.js";
 import { processStartTime } from "../src/utils/process.js";
 import { makeTempDir, removeTempDir, seam, seed, fakeSocket } from "./helpers/daemon-seam.js";
 
@@ -15,16 +17,21 @@ afterEach(() => {
   removeTempDir(dir);
 });
 
-async function send(daemon: Daemon, id: string, message: unknown): Promise<any> {
-  const { writes, socket } = fakeSocket();
-  await seam(daemon).handleRequest({ id: "r1", method: "session.send", params: { id, message } }, socket);
-  return JSON.parse(writes[0]);
+interface IpcOutcome {
+  result?: { ok?: boolean; queued?: boolean };
+  error?: { code?: string; message?: string };
 }
 
-async function stop(daemon: Daemon, id: string): Promise<any> {
+async function send(daemon: Daemon, id: string, message: unknown): Promise<IpcOutcome> {
+  const { writes, socket } = fakeSocket();
+  await seam(daemon).handleRequest({ id: "r1", method: "session.send", params: { id, message } }, socket);
+  return JSON.parse(writes[0]) as IpcOutcome;
+}
+
+async function stop(daemon: Daemon, id: string): Promise<IpcOutcome> {
   const { writes, socket } = fakeSocket();
   await seam(daemon).handleRequest({ id: "r1", method: "session.stop", params: { id } }, socket);
-  return JSON.parse(writes[0]);
+  return JSON.parse(writes[0]) as IpcOutcome;
 }
 
 describe("send queue", () => {
@@ -101,5 +108,105 @@ describe("send queue", () => {
     await seam(daemon).handleRequest({ id: "r2", method: "session.get", params: { id: "s-busy" } }, socket);
     const body = JSON.parse(writes[0]) as { result?: { session?: { pendingMessage?: string } } };
     expect(body.result?.session?.pendingMessage).toBe("queued hello");
+  });
+});
+
+interface TailTestSeam {
+  attachDriverEvents(sessionId: string, driver: AgentDriver, drvSession: DriverSession): Promise<void>;
+}
+
+function tailSeam(daemon: Daemon): TailTestSeam {
+  // Tests drive private lifecycle methods directly (same seam pattern).
+  return seam(daemon) as unknown as TailTestSeam;
+}
+
+describe("tail dispatch", () => {
+  // The tail fires tryDispatch fire-and-forget; the whole chain is
+  // microtasks plus synchronous sqlite, so drain the queue instead of
+  // sleeping on the wall clock.
+  async function flushWhile(more: () => boolean, budget = 500): Promise<void> {
+    for (let i = 0; i < budget && more(); i++) await Promise.resolve();
+  }
+
+  function completedEvent(sessionId: string): AgentEvent {
+    return { type: "session.completed", sessionId, timestamp: new Date().toISOString(), reason: "done" };
+  }
+
+  function installQueueDriver(daemon: Daemon, sent: { message: string }[], failSend = false): AgentDriver {
+    const driver = {
+      id: "claude",
+      capabilities: () => ({ streaming: true, resume: true }),
+      send: async (_session: unknown, message: string) => {
+        if (failSend) throw new Error("resume gone");
+        sent.push({ message });
+      },
+      getHandle: () => undefined,
+      events: async function* () {
+        yield completedEvent("x");
+      },
+    };
+    seam(daemon).registry.register(driver);
+    // Structurally the daemon only touches the fields above in this flow.
+    return driver as unknown as AgentDriver;
+  }
+
+  function drvSession(id: string, nativeSessionId?: string): DriverSession {
+    return { id, nativeSessionId, cwd: "/tmp" };
+  }
+
+  it("starts the queued message as exactly one turn when the stream ends", async () => {
+    const daemon = new Daemon();
+    const sent: { message: string }[] = [];
+    const driver = installQueueDriver(daemon, sent);
+    seed(daemon, "s-tail", "working", {
+      origin: "run",
+      nativeSessionId: "n-1",
+      pendingMessage: "queued hello",
+      pendingAt: new Date().toISOString(),
+    });
+    await tailSeam(daemon).attachDriverEvents("s-tail", driver, drvSession("s-tail", "n-1"));
+    await flushWhile(() => sent.length === 0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].message).toBe("queued hello");
+    await flushWhile(() => seam(daemon).sessions.get("s-tail")?.pendingMessage != null);
+    const all = seam(daemon).events.list("s-tail", 20);
+    const starts = all.filter((e) => e.type === "turn.started");
+    expect(starts).toHaveLength(1);
+    expect(starts[0].type === "turn.started" ? starts[0].prompt : undefined).toBe("queued hello");
+  });
+
+  it("leaves the slot quietly when no native id can be resolved", async () => {
+    const daemon = new Daemon();
+    const sent: { message: string }[] = [];
+    const driver = installQueueDriver(daemon, sent);
+    seed(daemon, "s-nonative", "working", {
+      origin: "run",
+      pendingMessage: "waits for manual send",
+      pendingAt: new Date().toISOString(),
+    });
+    await tailSeam(daemon).attachDriverEvents("s-nonative", driver, drvSession("s-nonative"));
+    await flushWhile(() => false);
+    expect(sent).toHaveLength(0);
+    expect(seam(daemon).sessions.get("s-nonative")?.pendingMessage).toBe("waits for manual send");
+    const types = seam(daemon).events.list("s-nonative", 20).map((e) => e.type);
+    expect(types).not.toContain("turn.started");
+  });
+
+  it("restores the slot with an honest event when dispatch fails", async () => {
+    const daemon = new Daemon();
+    const sent: { message: string }[] = [];
+    const driver = installQueueDriver(daemon, sent, true);
+    seed(daemon, "s-fail", "working", {
+      origin: "run",
+      nativeSessionId: "n-9",
+      pendingMessage: "doomed",
+      pendingAt: new Date().toISOString(),
+    });
+    await tailSeam(daemon).attachDriverEvents("s-fail", driver, drvSession("s-fail", "n-9"));
+    await flushWhile(
+      () => !seam(daemon).events.list("s-fail", 20).some((e) => e.type === "session.failed" && e.error === "resume gone"),
+    );
+    expect(sent).toHaveLength(0);
+    expect(seam(daemon).sessions.get("s-fail")?.pendingMessage).toBe("doomed");
   });
 });
