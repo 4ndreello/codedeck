@@ -224,7 +224,12 @@ export function buildAutocompactScreen(
   index = 0,
   total = 1,
 ): Screen {
-  const selected = config.autocompact?.enabled === true ? AUTOCOMPACT_ON : AUTOCOMPACT_OFF;
+  // A hand-tuned block without `enabled` still resolves as active in the
+  // Claude driver (only `enabled: false` disables), so show it as ON rather
+  // than let an accepted OFF silently switch off a working setup.
+  const selected = config.autocompact === undefined || config.autocompact.enabled === false
+    ? AUTOCOMPACT_OFF
+    : AUTOCOMPACT_ON;
   const values = selected === AUTOCOMPACT_ON
     ? [AUTOCOMPACT_ON, AUTOCOMPACT_OFF]
     : [AUTOCOMPACT_OFF, AUTOCOMPACT_ON];

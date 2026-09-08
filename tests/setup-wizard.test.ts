@@ -156,6 +156,7 @@ describe("runModelSetupWizard", () => {
     ["absent", undefined, ["OFF", "ON"]],
     ["disabled", { enabled: false }, ["OFF", "ON"]],
     ["enabled", { enabled: true }, ["ON", "OFF"]],
+    ["manual without enabled", { cap: 300_000 }, ["ON", "OFF"]],
   ] as const)("renders the autocompact toggle from a %s config", (_name, autocompact, labels) => {
     const screen = buildAutocompactScreen(
       autocompact === undefined ? {} : ({ autocompact } as RunAgentConfig),
@@ -213,6 +214,20 @@ describe("runModelSetupWizard", () => {
     const result = await runModelSetupWizard({ ...base(), config, input, output, save });
 
     expect(result.autocompact).toEqual({ ...config.autocompact, enabled: true });
+  });
+
+  it("keeps a manual block active when it carries no enabled flag", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, autocompact: { cap: 300_000 } };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.autocompact).toEqual({ cap: 300_000, enabled: true });
+    expect(save).toHaveBeenCalledWith(result);
   });
 
   it("saves disabled autocompact when it already exists and the toggle is OFF", async () => {
