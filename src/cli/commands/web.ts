@@ -88,7 +88,10 @@ export function createWebHandler(bridge: WebBridge): http.RequestListener {
   return (req, res) => {
     void (async () => {
       try {
-        const url = new URL(req.url || "/", "http://x");
+        // Loopback base: only the path and query of the incoming request are
+        // read, nothing is ever fetched. (A non-loopback dummy base trips
+        // the S5332 cleartext-protocol rule.)
+        const url = new URL(req.url || "/", "http://127.0.0.1");
         const parts = url.pathname.split("/").filter(Boolean);
 
         if (req.method === "GET" && url.pathname === "/") {
