@@ -18,7 +18,7 @@ export function parseWebPort(raw: string | undefined): number {
   return port;
 }
 
-export type SessionSubpathAction = "stream" | "logs" | "get";
+export type SessionSubpathAction = "stream" | "logs" | "get" | "send";
 
 export interface SessionSubpath {
   action: SessionSubpathAction;
@@ -26,8 +26,10 @@ export interface SessionSubpath {
 }
 
 /**
- * Pure route split for /api/sessions/:id[/stream|/logs]. More specific routes
- * must be tried before this one so "stream" never lands in :id handling.
+ * Pure route split for /api/sessions/:id[/stream|/logs|/get|/send]. More
+ * specific routes must be tried before this one so "stream" never lands in
+ * :id handling. "send" is the only POST route; the method check lives at the
+ * callsite, so a GET to /send parses here and then falls through to 404.
  */
 export function parseSessionSubpath(parts: string[]): SessionSubpath | null {
   if (parts.length < 3 || parts[0] !== "api" || parts[1] !== "sessions" || !parts[2]) {
@@ -37,6 +39,7 @@ export function parseSessionSubpath(parts: string[]): SessionSubpath | null {
   if (parts.length === 3) return { action: "get", id };
   if (parts.length === 4 && parts[3] === "stream") return { action: "stream", id };
   if (parts.length === 4 && parts[3] === "logs") return { action: "logs", id };
+  if (parts.length === 4 && parts[3] === "send") return { action: "send", id };
   return null;
 }
 
@@ -50,6 +53,27 @@ export function sseNamed(name: string, data: unknown): string {
 
 export function sseComment(text = "conectado"): string {
   return `: ${text}\n\n`;
+}
+
+// POST /api/sessions/:id/send body cap. A turn prompt larger than this is
+// almost always a mistake; the drain (no req.destroy) keeps the socket clean.
+export const MAX_SEND_BODY_BYTES = 64 * 1024;
+
+/** Validates the parsed /send body: returns the trimmed message or null. */
+export function parseSendBody(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("message" in body)) return null;
+  const message: unknown = body.message;
+  if (typeof message !== "string") return null;
+  const trimmed = message.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Daemon error code → HTTP status for the send proxy. */
+function sendErrorStatus(code: string | undefined): number {
+  if (code === "SESSION_NOT_FOUND") return 404;
+  if (code === "SESSION_BUSY") return 409;
+  if (code === "CAPABILITY_NOT_SUPPORTED") return 400;
+  return 502;
 }
 
 export function openBrowser(url: string): boolean {
@@ -118,8 +142,46 @@ export function createWebHandler(bridge: WebBridge): http.RequestListener {
           return;
         }
 
-        const sub = req.method === "GET" ? parseSessionSubpath(parts) : null;
-        if (sub?.action === "stream") {
+        const sub = parseSessionSubpath(parts);
+        if (req.method === "POST" && sub?.action === "send") {
+          // Body cap: stop buffering past the limit but keep draining so the
+          // socket closes cleanly; a loopback client has nothing to gain.
+          const raw = await new Promise<string | null>((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            let size = 0;
+            req.on("data", (chunk: Buffer) => {
+              size += chunk.length;
+              if (size <= MAX_SEND_BODY_BYTES) chunks.push(chunk);
+            });
+            req.on("end", () => resolve(size > MAX_SEND_BODY_BYTES ? null : Buffer.concat(chunks).toString("utf8")));
+            req.on("error", reject);
+          });
+          if (raw === null) {
+            sendJson(res, 413, { error: "message body too large" });
+            return;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            sendJson(res, 400, { error: "invalid JSON body" });
+            return;
+          }
+          const message = parseSendBody(parsed);
+          if (message === null) {
+            sendJson(res, 400, { error: "message required" });
+            return;
+          }
+          try {
+            const result = await bridge.request("session.send", { id: sub.id, message });
+            sendJson(res, 200, result);
+          } catch (error) {
+            const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+            sendJson(res, sendErrorStatus(code), { error: error instanceof Error ? error.message : String(error) });
+          }
+          return;
+        }
+        if (req.method === "GET" && sub?.action === "stream") {
           // Pre-flight before the 200: otherwise the browser holds an
           // EventSource open on pings with no visible error when the daemon
           // is down or the session does not exist.
@@ -172,11 +234,11 @@ export function createWebHandler(bridge: WebBridge): http.RequestListener {
           });
           return;
         }
-        if (sub?.action === "logs") {
+        if (req.method === "GET" && sub?.action === "logs") {
           sendJson(res, 200, await bridge.request("session.logs", { id: sub.id }));
           return;
         }
-        if (sub?.action === "get") {
+        if (req.method === "GET" && sub?.action === "get") {
           sendJson(res, 200, await bridge.request("session.get", { id: sub.id }));
           return;
         }

@@ -69,6 +69,20 @@ export const CANVAS_PAGE: string = `<!doctype html>
     border: 1px solid rgba(255,255,255,0.12); background: transparent; color: #98989f;
     cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit; }
   #detailClose:hover { color: #f5f5f7; border-color: rgba(255,255,255,0.25); }
+  #dChat { border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; max-height: 34vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+  #dChat .msg { font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; padding: 7px 9px; border-radius: 9px; }
+  #dChat .msg .who { display: block; font-size: 10.5px; letter-spacing: 0.04em; color: #98989f; margin-bottom: 2px; }
+  #dChat .msg.user { background: rgba(10,132,255,0.16); }
+  #dChat .msg.assistant { background: rgba(255,255,255,0.05); }
+  #dChat .evt { font-size: 11.5px; color: #636366; }
+  #dChat .empty { color: #636366; font-size: 12px; }
+  #dSend { display: flex; gap: 8px; margin-top: 10px; }
+  #dSendText { flex: 1; min-width: 0; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: #f5f5f7; padding: 8px 10px; font-size: 12.5px; font-family: inherit; }
+  #dSendText:focus { outline: none; border-color: rgba(255,255,255,0.3); }
+  #dSendText:disabled { opacity: 0.4; }
+  #dSendBtn { border: 1px solid rgba(255,255,255,0.14); background: rgba(10,132,255,0.25); color: #f5f5f7; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 12.5px; }
+  #dSendBtn:disabled { opacity: 0.4; cursor: default; }
+  #dSendMsg { font-size: 11.5px; color: #98989f; margin: 6px 0 0; min-height: 15px; }
   .node { position: absolute; width: 196px; background: #13161c; border: 1px solid rgba(255,255,255,.09);
     border-radius: 14px; padding: 11px 13px; pointer-events: auto; cursor: grab; user-select: none;
     box-shadow: 0 8px 28px rgba(0,0,0,.45); }
@@ -105,8 +119,13 @@ export const CANVAS_PAGE: string = `<!doctype html>
   <h2 id="dTitle"></h2>
   <p class="dsub" id="dSub"></p>
   <dl id="dRows"></dl>
-  <h3>HISTÓRICO</h3>
-  <ul id="dHist"></ul>
+  <h3>CONVERSA</h3>
+  <div id="dChat"></div>
+  <form id="dSend">
+    <input id="dSendText" type="text" autocomplete="off" placeholder="mensagem para esta sessão">
+    <button id="dSendBtn" type="submit">Enviar</button>
+  </form>
+  <p id="dSendMsg" role="status"></p>
 </aside>
 <script>
 "use strict";
@@ -410,6 +429,11 @@ function reconcile(sessions) {
     if (Date.now() > n.liveUntil) n.activity = baseActivity(s);
     paintNode(n);
     seen[s.id] = true;
+    if (detailId === s.id) {
+      detailStatus = s.status;
+      detailOrigin = s.origin || null;
+      paintSendState();
+    }
   });
   for (var id in nodesById) {
     if (!seen[id]) {
@@ -764,17 +788,20 @@ window.addEventListener("wheel", function (ev) {
 function syncUrl() {
   try {
     var qp = new URLSearchParams(window.location.search);
-    if (hideDone) qp.set("hide", "1"); else qp.delete("hide");
+    // Padrão é esconder concluídas: a URL limpa É o estado escondido, e
+    // quem quiser ver tudo marca hide=0 explicitamente.
+    if (hideDone) qp.delete("hide"); else qp.set("hide", "0");
     if (!motion) qp.set("motion", "0"); else qp.delete("motion");
     var qs = qp.toString();
     window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
   } catch (e) {}
 }
-// Filtros sobrevivem ao F5: o estado mora na query string (?hide=1&motion=0).
-var urlHide = false, urlMotion = true;
+// Filtros sobrevivem ao F5: o estado mora na query string (?hide=0&motion=0).
+// hideDone nasce true: concluídas ficam fora até alguém pedir hide=0.
+var urlHide = true, urlMotion = true;
 try {
   var qp0 = new URLSearchParams(window.location.search);
-  urlHide = qp0.get("hide") === "1";
+  urlHide = qp0.get("hide") !== "0";
   urlMotion = qp0.get("motion") !== "0";
 } catch (e) {}
 motion = urlMotion;
@@ -808,31 +835,42 @@ document.getElementById("btnMotion").classList.toggle("on", motion);
 document.getElementById("btnHide").classList.toggle("on", hideDone);
 document.getElementById("btnHide").title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
 
-function fmtTime(iso) {
-  try {
-    var d = new Date(iso);
-    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  } catch (e) { return ""; }
+/* Transcrição da sessão: a mensagem do usuário mora em turn.started.prompt
+   (o daemon anexa no turno inicial e a cada send), a resposta em
+   message(role=assistant) com content completo. Ferramentas viram linhas
+   compactas para a conversa continuar legível. */
+var detailId = null, detailStatus = null, detailOrigin = null;
+var sendInFlight = false, sendBlockedNote = false;
+function chatMsg(who, text, cls) {
+  var d = document.createElement("div");
+  d.className = "msg " + cls;
+  var w = document.createElement("span");
+  w.className = "who";
+  w.textContent = who;
+  d.appendChild(w);
+  d.appendChild(document.createTextNode(text));
+  return d;
 }
-function fmtEvent(ev) {
-  if (!ev || !ev.type) return "";
-  if (ev.type === "text.delta") return null;
-  if (ev.type === "tool.started") return "Começou: " + toolLabel(ev.tool);
-  if (ev.type === "tool.completed") {
-    var bad = ev.tool && ev.tool.success === false;
-    return "Terminou: " + toolLabel(ev.tool) + (bad ? " (com erro)" : "");
-  }
-  if (ev.type === "message" && ev.role === "assistant") return "Respondeu: " + String(ev.content || "").slice(0, 120);
-  if (ev.type === "message") return null;
-  if (ev.type === "turn.started") return "Nova etapa";
-  if (ev.type === "turn.completed") return "Etapa concluída";
-  if (ev.type === "file.changed") return "Mudou " + (ev.path || "um arquivo");
-  if (ev.type === "permission.requested") return "Pediu aprovação: " + (ev.tool || "uma ação");
-  if (ev.type === "permission.resolved") return ev.approved ? "Aprovado" : "Negado";
-  if (ev.type === "session.completed") return "Sessão concluída";
-  if (ev.type === "session.failed") return "Sessão falhou: " + (ev.error || "");
-  if (ev.type === "session.started") return "Sessão iniciada";
-  return null;
+function chatEvt(text) {
+  var d = document.createElement("div");
+  d.className = "evt";
+  d.textContent = text;
+  return d;
+}
+/* Input e botão seguem o estado do daemon: ocupada trava, origin=open
+   (TUI interativa) trava sempre. Mensagem de sucesso não é apagada aqui. */
+function paintSendState() {
+  var input = document.getElementById("dSendText");
+  var btn = document.getElementById("dSendBtn");
+  var msg = document.getElementById("dSendMsg");
+  if (!detailId) return;
+  var reason = "";
+  if (detailOrigin === "open") reason = "sessão interativa não aceita mensagens";
+  else if (detailStatus === "working" || detailStatus === "starting") reason = "aguarde o turno atual terminar";
+  input.disabled = sendInFlight || reason !== "";
+  btn.disabled = sendInFlight || reason !== "";
+  if (reason) { msg.textContent = reason; sendBlockedNote = true; }
+  else if (sendBlockedNote) { msg.textContent = ""; sendBlockedNote = false; }
 }
 function row(dt, dd) {
   var d = document.createElement("dt");
@@ -842,13 +880,20 @@ function row(dt, dd) {
   return [d, v];
 }
 function closeDetail() {
+  detailId = null;
+  detailStatus = null;
+  detailOrigin = null;
   document.getElementById("detail").classList.remove("open");
 }
 document.getElementById("detailClose").onclick = closeDetail;
 function selectSession(id) {
-  fetch("api/sessions/" + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+  // /logs traz até 1000 eventos; /get limitaria a transcrição aos 10 últimos.
+  fetch("api/sessions/" + encodeURIComponent(id) + "/logs").then(function (r) { return r.json(); }).then(function (j) {
     var s = j.session || j;
     if (!s || !s.id) return;
+    detailId = s.id;
+    detailStatus = s.status;
+    detailOrigin = s.origin || null;
     var title = document.getElementById("dTitle");
     title.innerHTML = "";
     var logo = document.createElement("span");
@@ -870,8 +915,9 @@ function selectSession(id) {
     ];
     if (s.pid) items.push(["PID", String(s.pid)]);
     if (s.updatedAt) items.push(["Atualizado", timeAgo(s.updatedAt)]);
+    var events = j.events || [];
     var tools = 0, msgs = 0;
-    (j.events || []).forEach(function (ev) {
+    events.forEach(function (ev) {
       if (!ev) return;
       if (ev.type === "tool.completed") tools++;
       if (ev.type === "message" && ev.role === "assistant") msgs++;
@@ -881,29 +927,72 @@ function selectSession(id) {
     items.forEach(function (kv) {
       row(kv[0], kv[1]).forEach(function (el) { rows.appendChild(el); });
     });
-    var hist = document.getElementById("dHist");
-    hist.innerHTML = "";
-    var shown = 0;
-    for (var i = (j.events || []).length - 1; i >= 0 && shown < 30; i--) {
-      var line = fmtEvent(j.events[i]);
-      if (!line) continue;
-      var li = document.createElement("li");
-      var ts = document.createElement("span");
-      ts.className = "ts";
-      ts.textContent = fmtTime(j.events[i].timestamp) + " ";
-      li.appendChild(ts);
-      li.appendChild(document.createTextNode(line));
-      hist.appendChild(li);
-      shown++;
+    var chat = document.getElementById("dChat");
+    chat.innerHTML = "";
+    // Últimos 200 eventos bastam: render além disso só pesa o DOM.
+    var start = Math.max(0, events.length - 200);
+    for (var i = start; i < events.length; i++) {
+      var ev = events[i];
+      if (!ev || !ev.type) continue;
+      if (ev.type === "turn.started" && ev.prompt) {
+        chat.appendChild(chatMsg("você", String(ev.prompt), "user"));
+      } else if (ev.type === "message" && ev.role === "assistant" && ev.content) {
+        chat.appendChild(chatMsg(agentName(s.agent), String(ev.content), "assistant"));
+      } else if (ev.type === "tool.started") {
+        chat.appendChild(chatEvt("começou: " + toolLabel(ev.tool)));
+      } else if (ev.type === "tool.completed") {
+        var bad = ev.tool && ev.tool.success === false;
+        chat.appendChild(chatEvt("terminou: " + toolLabel(ev.tool) + (bad ? " (com erro)" : "")));
+      } else if (ev.type === "permission.requested") {
+        chat.appendChild(chatEvt("pediu aprovação: " + (ev.tool || "uma ação")));
+      } else if (ev.type === "file.changed") {
+        chat.appendChild(chatEvt("mudou " + (ev.path || "um arquivo")));
+      }
     }
-    if (!shown) {
-      var empty = document.createElement("li");
-      empty.textContent = "Sem histórico ainda.";
-      hist.appendChild(empty);
+    if (!chat.children.length) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Sem mensagens ainda.";
+      chat.appendChild(empty);
     }
+    chat.scrollTop = chat.scrollHeight;
     document.getElementById("detail").classList.add("open");
+    paintSendState();
   }).catch(function () {});
 }
+document.getElementById("dSend").addEventListener("submit", function (ev) {
+  ev.preventDefault();
+  if (!detailId || sendInFlight) return;
+  var input = document.getElementById("dSendText");
+  var text = input.value.trim();
+  if (!text) return;
+  var msg = document.getElementById("dSendMsg");
+  var btn = document.getElementById("dSendBtn");
+  sendInFlight = true;
+  input.disabled = true;
+  btn.disabled = true;
+  msg.textContent = "enviando...";
+  fetch("api/sessions/" + encodeURIComponent(detailId) + "/send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message: text })
+  }).then(function (r) {
+    return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+  }).then(function (out) {
+    if (out.ok) {
+      input.value = "";
+      msg.textContent = "mensagem enviada — nova etapa começou";
+      poll();
+    } else {
+      msg.textContent = (out.body && out.body.error) || "não deu para enviar";
+    }
+  }).catch(function () {
+    msg.textContent = "daemon fora do ar?";
+  }).then(function () {
+    sendInFlight = false;
+    paintSendState();
+  });
+});
 
 function poll() {
   fetch("api/sessions").then(function (r) { return r.json(); }).then(function (j) {
