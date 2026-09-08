@@ -198,6 +198,11 @@ describe("canvas page", () => {
     expect(CANVAS_PAGE).toContain("btnHide");
     expect(CANVAS_PAGE).toContain("fitCamera");
     expect(CANVAS_PAGE).toContain("currentTarget");
+    expect(CANVAS_PAGE).toContain("drawMarkers");
+    expect(CANVAS_PAGE).toContain("syncUrl");
+    expect(CANVAS_PAGE).toContain("selectSession");
+    expect(CANVAS_PAGE).toContain("inputSnippet");
+    expect(CANVAS_PAGE).toContain('id="detail"');
   });
 
   it("makes no external requests", () => {

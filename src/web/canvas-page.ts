@@ -18,6 +18,9 @@ export const CANVAS_PAGE: string = `<!doctype html>
   #nodes { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
   .hud { position: fixed; z-index: 10; }
   #title, #feed, #legend, #hint { background: transparent; border: none; text-shadow: 0 1px 10px rgba(0,0,0,.8); }
+  /* Sem reacao a mouse: sao texto flutuante, e os cliques precisam varar
+     ate o canvas (pills de borda, pan e nos embaixo deles). */
+  #title, #feed, #legend, #hint { pointer-events: none; }
   #title { top: 16px; left: 16px; }
   #title h1 { font-size: 15px; margin: 0 0 2px; }
   #title h1 .live { display: inline-block; width: 8px; height: 8px; border-radius: 99px; background: #30d158; margin-right: 8px; animation: breathe 2s ease-in-out infinite; }
@@ -47,6 +50,25 @@ export const CANVAS_PAGE: string = `<!doctype html>
   #feed li.fresh { color: #f5f5f7; }
   @keyframes feedIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; } }
   #hint { left: 50%; transform: translateX(-50%); bottom: 16px; font-size: 12px; color: #98989f; white-space: nowrap; }
+  #detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 92vw); z-index: 20;
+    background: rgba(10, 12, 16, 0.92); border-left: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(14px); padding: 18px; overflow-y: auto; display: none; }
+  #detail.open { display: block; }
+  #detail h2 { font-size: 15px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+  #detail h2 .logo { width: 22px; height: 22px; display: inline-flex; }
+  #detail h2 .logo svg { width: 22px; height: 22px; fill: #f5f5f7; }
+  #detail .dsub { font-size: 12.5px; color: #98989f; margin-bottom: 12px; }
+  #detail dl { margin: 0 0 12px; display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; }
+  #detail dt { color: #98989f; }
+  #detail dd { margin: 0; word-break: break-word; }
+  #detail h3 { font-size: 11px; letter-spacing: 0.06em; color: #98989f; margin: 14px 0 8px; }
+  #detail ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; color: #c7c7cc; }
+  #detail ul li b { color: #f5f5f7; font-weight: 600; }
+  #detail .ts { color: #636366; font-size: 11.5px; }
+  #detailClose { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 99px;
+    border: 1px solid rgba(255,255,255,0.12); background: transparent; color: #98989f;
+    cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit; }
+  #detailClose:hover { color: #f5f5f7; border-color: rgba(255,255,255,0.25); }
   .node { position: absolute; width: 196px; background: #13161c; border: 1px solid rgba(255,255,255,.09);
     border-radius: 14px; padding: 11px 13px; pointer-events: auto; cursor: grab; user-select: none;
     box-shadow: 0 8px 28px rgba(0,0,0,.45); }
@@ -77,7 +99,15 @@ export const CANVAS_PAGE: string = `<!doctype html>
 </div>
 <div class="hud" id="legend"><span><i class="dot working"></i>Trabalhando</span><span><i class="dot waiting"></i>Esperando você</span><span><i class="dot resting"></i>Em pausa</span><span><i class="dot done"></i>Concluída</span></div>
 <div class="hud" id="feed"><h2>AGORA MESMO</h2><ul id="feedList"></ul></div>
-<div class="hud" id="hint">arraste para organizar · scroll dá zoom</div>
+<div class="hud" id="hint">arraste para organizar · scroll dá zoom · clique num agente para o detalhe</div>
+<aside id="detail" aria-label="Detalhe da sessão">
+  <button id="detailClose" type="button" aria-label="Fechar">×</button>
+  <h2 id="dTitle"></h2>
+  <p class="dsub" id="dSub"></p>
+  <dl id="dRows"></dl>
+  <h3>HISTÓRICO</h3>
+  <ul id="dHist"></ul>
+</aside>
 <script>
 "use strict";
 var LOGO_ANTHROPIC = '<svg viewBox="0 0 24 24"><path d="M17.304 3.541h-3.672l6.696 16.918H24Zm-10.608 0L0 20.459h3.744l1.369-3.553h7.005l1.37 3.553h3.744L10.536 3.541Zm-.371 10.223 2.291-5.945 2.292 5.945Z"/></svg>';
@@ -113,14 +143,48 @@ function lastEventHuman(last) {
 }
 function toolHuman(name) {
   if (!name) return "uma tarefa";
-  if (name === "bash" || name === "Bash") return "comandos no terminal";
+  if (name === "bash" || name === "Bash") return "terminal";
   return name;
+}
+/* Pedaco do input real da ferramenta: primeira string interessante, cortada.
+   "terminal" sozinho nao diz nada; "podman ps" diz. */
+function inputSnippet(input) {
+  if (!input) return "";
+  if (typeof input === "string") return clip(input);
+  if (typeof input !== "object") return "";
+  var keys = ["command", "cmd", "file", "path", "query", "pattern", "message", "text", "url"];
+  for (var i = 0; i < keys.length; i++) {
+    var v = input[keys[i]];
+    if (typeof v === "string" && v.trim() !== "") return clip(v);
+  }
+  return "";
+}
+function clip(s) {
+  var one = String(s).replace(/\s+/g, " ").trim();
+  return one.length > 42 ? one.slice(0, 42) + "…" : one;
+}
+function toolLabel(tool) {
+  var name = (tool && tool.name) || "";
+  var snip = inputSnippet(tool && tool.input);
+  if (!name) return snip || "uma tarefa";
+  if (name === "bash" || name === "Bash") return snip ? '"' + snip + '"' : "terminal";
+  return snip ? name + " " + snip : name;
+}
+function timeAgo(iso) {
+  var t = new Date(iso).getTime();
+  if (!t) return "";
+  var m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (m < 1) return "agora mesmo";
+  if (m < 60) return "há " + m + " min";
+  var h = Math.floor(m / 60);
+  if (h < 24) return "há " + h + " h";
+  return "há " + Math.floor(h / 24) + " dias";
 }
 function ringSlot(wi) {
   var j = 0, start = 0;
   while (true) {
-    var R = 300 + j * 260;
-    var k = Math.max(6, Math.floor(2 * Math.PI * R / 300));
+    var R = 300 + j * 230;
+    var k = Math.max(6, Math.floor(2 * Math.PI * R / 250));
     if (wi < start + k) {
       return { a: ((wi - start) + j * 0.5) / k * Math.PI * 2 - Math.PI / 2, r: R };
     }
@@ -276,7 +340,7 @@ function reconcile(sessions) {
   var maxWorkers = 1;
   gkeys.forEach(function (key) { maxWorkers = Math.max(maxWorkers, groups[key].length); });
   var spread = ringSlot(Math.max(0, maxWorkers - 1)).r;
-  var gapX = spread * 2 + 460;
+  var gapX = spread * 2 + 340;
   var seen = {};
   gkeys.forEach(function (key, gi) {
     var list = groups[key];
@@ -342,6 +406,41 @@ function bestRunFocus() {
   }
   return bestRun ? nodes.filter(function (n) { return n.runId === bestRun; }) : nodes;
 }
+/* Pills de borda para sessoes ativas fora da viewport: o resumo conta a
+   frota inteira, entao quem trabalha longe aparece aqui com um atalho. */
+var edgeMarkers = [];
+function drawMarkers() {
+  edgeMarkers = [];
+  nodes.forEach(function (n) {
+    if (!isActive(n.status)) return;
+    var p = w2s(n.x, n.y);
+    var m = 80;
+    if (p[0] > -40 && p[0] < window.innerWidth + 40 && p[1] > -40 && p[1] < window.innerHeight + 40) return;
+    var cx = Math.min(window.innerWidth - m, Math.max(m, p[0]));
+    var cy = Math.min(window.innerHeight - m, Math.max(m, p[1]));
+    var label = agentName(n.agent);
+    ctx.font = "12px system-ui, sans-serif";
+    var w = ctx.measureText(label).width + 36;
+    var h = 26;
+    var x = cx - w / 2, y = cy - h / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 13);
+    else ctx.rect(x, y, w, h);
+    ctx.fillStyle = "rgba(19,22,28,0.92)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + 15, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = STATUS_COLOR[n.status] || "#30d158";
+    ctx.fill();
+    ctx.fillStyle = "#f5f5f7";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, x + 25, cy + 1);
+    edgeMarkers.push({ x: x, y: y, w: w, h: h, node: n });
+  });
+}
 function fitCamera(list) {
   if (!list.length) return;
   var xs = list.map(function (n) { return n.x; });
@@ -350,7 +449,7 @@ function fitCamera(list) {
   var bh = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 500;
   cam.x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
   cam.y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
-  cam.zoom = Math.min(1, Math.max(0.4, Math.min(window.innerWidth / bw, window.innerHeight / bh)));
+  cam.zoom = Math.min(1, Math.max(0.5, Math.min(window.innerWidth / bw, window.innerHeight / bh)));
 }
 function isDone(s) { return s === "completed" || s === "failed" || s === "stopped"; }
 function isActive(s) { return s === "working" || s === "starting" || s === "needs_input"; }
@@ -385,14 +484,13 @@ function onEvent(n, ev) {
     spawnFlow(n, "#30d158", 1);
     touch(n, "escrevendo resposta");
   } else if (ev.type === "tool.started") {
-    var name = (ev.tool && ev.tool.name) || "";
     spawnRing(n, "#0a84ff");
     spawnFlow(n, "#0a84ff", 1);
-    touch(n, "usando " + toolHuman(name));
-    feed(agentName(n.agent), "começou: " + toolHuman(name));
+    touch(n, toolLabel(ev.tool));
+    feed(agentName(n.agent), "começou: " + toolLabel(ev.tool));
   } else if (ev.type === "tool.completed") {
     var bad = ev.tool && ev.tool.success === false;
-    touch(n, toolHuman(ev.tool && ev.tool.name) + (bad ? " (com erro)" : " concluído"));
+    touch(n, toolLabel(ev.tool) + (bad ? " (com erro)" : " ✓"));
     if (bad) feed(agentName(n.agent), "ferramenta falhou");
   } else if (ev.type === "message") {
     if (ev.role === "assistant") {
@@ -483,6 +581,7 @@ function frame() {
     ctx.fillStyle = g;
     ctx.fill();
   }
+  drawMarkers();
   nodes.forEach(function (n) {
     var hidden = hideDone && isDone(n.status);
     n.el.style.display = hidden ? "none" : "";
@@ -501,15 +600,47 @@ var dragNode = null, panning = false, lastM = null;
 function toWorld(cx, cy) {
   return [(cx - window.innerWidth / 2) / cam.zoom + cam.x, (cy - window.innerHeight / 2) / cam.zoom + cam.y];
 }
+var dragMoved = false;
 function startDragNode(ev, n) {
   dragNode = n;
+  dragMoved = false;
   lastM = [ev.clientX, ev.clientY];
   ev.stopPropagation();
   ev.preventDefault();
 }
-canvas.addEventListener("mousedown", function (ev) { panning = true; lastM = [ev.clientX, ev.clientY]; });
+/* Hit-test recalculado na hora a partir dos nos: nao depende do array
+   desenhado no ultimo frame, entao nunca diverge dele. */
+function markerAt(cx, cy) {
+  var found = null;
+  nodes.forEach(function (n) {
+    if (found || !isActive(n.status)) return;
+    var p = w2s(n.x, n.y);
+    var m = 80;
+    if (p[0] > -40 && p[0] < window.innerWidth + 40 && p[1] > -40 && p[1] < window.innerHeight + 40) return;
+    var px = Math.min(window.innerWidth - m, Math.max(m, p[0]));
+    var py = Math.min(window.innerHeight - m, Math.max(m, p[1]));
+    var label = agentName(n.agent);
+    ctx.font = "12px system-ui, sans-serif";
+    var w = ctx.measureText(label).width + 36;
+    var x = px - w / 2, y = py - 13;
+    if (cx >= x && cx <= x + w && cy >= y && cy <= y + 26) found = n;
+  });
+  return found;
+}
+canvas.addEventListener("mousedown", function (ev) {
+  var hit = markerAt(ev.clientX, ev.clientY);
+  if (hit) {
+    cam.x = hit.x;
+    cam.y = hit.y;
+    if (cam.zoom < 0.7) cam.zoom = 0.7;
+    return;
+  }
+  panning = true;
+  lastM = [ev.clientX, ev.clientY];
+});
 window.addEventListener("mousemove", function (ev) {
   if (dragNode) {
+    if (Math.abs(ev.clientX - lastM[0]) + Math.abs(ev.clientY - lastM[1]) > 4) dragMoved = true;
     dragNode.x += (ev.clientX - lastM[0]) / cam.zoom;
     dragNode.y += (ev.clientY - lastM[1]) / cam.zoom;
     lastM = [ev.clientX, ev.clientY];
@@ -519,7 +650,14 @@ window.addEventListener("mousemove", function (ev) {
     lastM = [ev.clientX, ev.clientY];
   }
 });
-window.addEventListener("mouseup", function () { dragNode = null; panning = false; });
+window.addEventListener("mouseup", function () {
+  if (dragNode && !dragMoved) selectSession(dragNode.id);
+  dragNode = null;
+  panning = false;
+});
+window.addEventListener("keydown", function (ev) {
+  if (ev.key === "Escape") closeDetail();
+});
 window.addEventListener("wheel", function (ev) {
   ev.preventDefault();
   var before = toWorld(ev.clientX, ev.clientY);
@@ -528,24 +666,141 @@ window.addEventListener("wheel", function (ev) {
   cam.x += before[0] - after[0];
   cam.y += before[1] - after[1];
 }, { passive: false });
+function syncUrl() {
+  try {
+    var qp = new URLSearchParams(window.location.search);
+    if (hideDone) qp.set("hide", "1"); else qp.delete("hide");
+    if (!motion) qp.set("motion", "0"); else qp.delete("motion");
+    var qs = qp.toString();
+    window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+  } catch (e) {}
+}
+// Filtros sobrevivem ao F5: o estado mora na query string (?hide=1&motion=0).
+var urlHide = false, urlMotion = true;
+try {
+  var qp0 = new URLSearchParams(window.location.search);
+  urlHide = qp0.get("hide") === "1";
+  urlMotion = qp0.get("motion") !== "0";
+} catch (e) {}
+motion = urlMotion;
 document.getElementById("btnMotion").onclick = function (ev) {
   motion = !motion;
   // currentTarget, nunca target: o clique cai no SVG interno e a classe
   // precisa alternar no botao para o estado visual acompanhar.
   ev.currentTarget.classList.toggle("on", motion);
+  syncUrl();
 };
 document.getElementById("btnReset").onclick = function () {
   // Volta para a acao (mesmo enquadramento da abertura), nunca um zoom
   // cego: com a frota espalhada, zoom 1 ou fit-geral cai no vazio entre runs.
   fitCamera(bestRunFocus());
 };
-var hideDone = false;
+var hideDone = urlHide;
 document.getElementById("btnHide").onclick = function (ev) {
   hideDone = !hideDone;
   ev.currentTarget.classList.toggle("on", hideDone);
   ev.currentTarget.title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
   paintSummary();
+  syncUrl();
 };
+document.getElementById("btnMotion").classList.toggle("on", motion);
+document.getElementById("btnHide").classList.toggle("on", hideDone);
+document.getElementById("btnHide").title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
+
+function fmtTime(iso) {
+  try {
+    var d = new Date(iso);
+    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch (e) { return ""; }
+}
+function fmtEvent(ev) {
+  if (!ev || !ev.type) return "";
+  if (ev.type === "text.delta") return null;
+  if (ev.type === "tool.started") return "Começou: " + toolLabel(ev.tool);
+  if (ev.type === "tool.completed") {
+    var bad = ev.tool && ev.tool.success === false;
+    return "Terminou: " + toolLabel(ev.tool) + (bad ? " (com erro)" : "");
+  }
+  if (ev.type === "message" && ev.role === "assistant") return "Respondeu: " + String(ev.content || "").slice(0, 120);
+  if (ev.type === "message") return null;
+  if (ev.type === "turn.started") return "Nova etapa";
+  if (ev.type === "turn.completed") return "Etapa concluída";
+  if (ev.type === "file.changed") return "Mudou " + (ev.path || "um arquivo");
+  if (ev.type === "permission.requested") return "Pediu aprovação: " + (ev.tool || "uma ação");
+  if (ev.type === "permission.resolved") return ev.approved ? "Aprovado" : "Negado";
+  if (ev.type === "session.completed") return "Sessão concluída";
+  if (ev.type === "session.failed") return "Sessão falhou: " + (ev.error || "");
+  if (ev.type === "session.started") return "Sessão iniciada";
+  return null;
+}
+function row(dt, dd) {
+  var d = document.createElement("dt");
+  d.textContent = dt;
+  var v = document.createElement("dd");
+  v.textContent = dd;
+  return [d, v];
+}
+function closeDetail() {
+  document.getElementById("detail").classList.remove("open");
+}
+document.getElementById("detailClose").onclick = closeDetail;
+function selectSession(id) {
+  fetch("api/sessions/" + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (j) {
+    var s = j.session || j;
+    if (!s || !s.id) return;
+    var title = document.getElementById("dTitle");
+    title.innerHTML = "";
+    var logo = document.createElement("span");
+    logo.className = "logo";
+    logo.innerHTML = logoFor(s.agent);
+    title.appendChild(logo);
+    title.appendChild(document.createTextNode(agentName(s.agent) + " · " + (s.name || s.id)));
+    document.getElementById("dSub").textContent = (STATUS_HUMAN[s.status] || s.status) +
+      (s.createdAt ? " · começou " + timeAgo(s.createdAt) : "");
+    var rows = document.getElementById("dRows");
+    rows.innerHTML = "";
+    var repo = s.repository ? String(s.repository).split("/").pop() : "";
+    var items = [
+      ["Modelo", s.model || "—"],
+      ["Repo", repo || "—"],
+      ["Atividade", s.lastEvent ? (lastEventHuman(s.lastEvent) || s.lastEvent) : "—"],
+    ];
+    if (s.pid) items.push(["PID", String(s.pid)]);
+    if (s.updatedAt) items.push(["Atualizado", timeAgo(s.updatedAt)]);
+    var tools = 0, msgs = 0;
+    (j.events || []).forEach(function (ev) {
+      if (!ev) return;
+      if (ev.type === "tool.completed") tools++;
+      if (ev.type === "message" && ev.role === "assistant") msgs++;
+    });
+    items.push(["Ferramentas", String(tools)]);
+    items.push(["Respostas", String(msgs)]);
+    items.forEach(function (kv) {
+      row(kv[0], kv[1]).forEach(function (el) { rows.appendChild(el); });
+    });
+    var hist = document.getElementById("dHist");
+    hist.innerHTML = "";
+    var shown = 0;
+    for (var i = (j.events || []).length - 1; i >= 0 && shown < 30; i--) {
+      var line = fmtEvent(j.events[i]);
+      if (!line) continue;
+      var li = document.createElement("li");
+      var ts = document.createElement("span");
+      ts.className = "ts";
+      ts.textContent = fmtTime(j.events[i].timestamp) + " ";
+      li.appendChild(ts);
+      li.appendChild(document.createTextNode(line));
+      hist.appendChild(li);
+      shown++;
+    }
+    if (!shown) {
+      var empty = document.createElement("li");
+      empty.textContent = "Sem histórico ainda.";
+      hist.appendChild(empty);
+    }
+    document.getElementById("detail").classList.add("open");
+  }).catch(function () {});
+}
 
 function poll() {
   fetch("api/sessions").then(function (r) { return r.json(); }).then(function (j) {
