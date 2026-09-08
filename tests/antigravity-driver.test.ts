@@ -27,6 +27,11 @@ describe("buildAntigravityArgs", () => {
     expect(args[args.length - 1]).toBe("-p=do something");
   });
 
+  it("keeps a dash-leading prompt attached to -p", () => {
+    const args = buildAntigravityArgs({ ...base, prompt: "--help is a flag" });
+    expect(args).toContain("-p=--help is a flag");
+  });
+
   it("adds --conversation on resume", () => {
     const args = buildAntigravityArgs({ ...base, resumeSessionId: "conv-1234" });
     expect(args).toContain("--conversation");
@@ -255,6 +260,14 @@ describe("parseAntigravityModelsList", () => {
     const providers = parseAntigravityModelsList(stdout);
     const ids = providers.flatMap((p) => p.models.map((m) => m.id));
     expect(ids.every((id) => !/fetching/i.test(id))).toBe(true);
+  });
+
+  it("strips spinner-prefixed banner output", () => {
+    const providers = parseAntigravityModelsList(
+      "⠋ Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\n",
+    );
+    const ids = providers.flatMap((p) => p.models.map((m) => m.id));
+    expect(ids).toEqual(["gemini-3.8-flash-high"]);
   });
 });
 
