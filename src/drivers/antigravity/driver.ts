@@ -10,7 +10,7 @@ import { parseAntigravityLine } from "./parser.js";
 
 // Pure so the flag spellings and effort clamping are testable without spawning agy.
 export function buildAntigravityArgs(options: StartOptions): string[] {
-  const args: string[] = ["-p", "--output-format", "stream-json", "--dangerously-skip-permissions"];
+  const args: string[] = ["--output-format", "stream-json", "--dangerously-skip-permissions"];
 
   if (options.resumeSessionId) {
     args.push("--conversation", options.resumeSessionId);
@@ -27,7 +27,11 @@ export function buildAntigravityArgs(options: StartOptions): string[] {
     args.push("--effort", clampedEffort);
   }
 
-  args.push(options.prompt);
+  // -p/--print takes the prompt as its value, so a bare -p up front swallows
+  // the next flag as the prompt ("-p took --output-format as its prompt").
+  // Attach with `=` so the prompt is unambiguous anywhere on the line, even
+  // when it starts with a dash.
+  args.push(`-p=${options.prompt}`);
   return args;
 }
 

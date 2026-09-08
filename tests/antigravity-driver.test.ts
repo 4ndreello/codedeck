@@ -10,12 +10,17 @@ describe("buildAntigravityArgs", () => {
   it("builds default headless flags with auto-permissions and prompt", () => {
     const args = buildAntigravityArgs(base);
     expect(args).toEqual([
-      "-p",
       "--output-format",
       "stream-json",
       "--dangerously-skip-permissions",
-      "do something",
+      "-p=do something",
     ]);
+  });
+
+  it("attaches the prompt to -p so it cannot swallow the next flag", () => {
+    const args = buildAntigravityArgs(base);
+    expect(args).not.toContain("-p");
+    expect(args[args.length - 1]).toBe("-p=do something");
   });
 
   it("adds --conversation on resume", () => {
