@@ -80,8 +80,9 @@ export const CANVAS_PAGE: string = `<!doctype html>
   #dSendText { flex: 1; min-width: 0; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; color: #f5f5f7; padding: 8px 10px; font-size: 12.5px; font-family: inherit; }
   #dSendText:focus { outline: none; border-color: rgba(255,255,255,0.3); }
   #dSendText:disabled { opacity: 0.4; }
-  #dSendBtn { border: 1px solid rgba(255,255,255,0.14); background: rgba(10,132,255,0.25); color: #f5f5f7; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 12.5px; }
-  #dSendBtn:disabled { opacity: 0.4; cursor: default; }
+  #dSendBtn, #dArchive { border: 1px solid rgba(255,255,255,0.14); background: rgba(10,132,255,0.25); color: #f5f5f7; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 12.5px; }
+  #dSendBtn:disabled, #dArchive:disabled { opacity: 0.4; cursor: default; }
+  #dArchive { width: 100%; margin-top: 8px; }
   #dSendMsg { font-size: 11.5px; color: #98989f; margin: 6px 0 0; min-height: 15px; }
   .node { position: absolute; width: 196px; background: #13161c; border: 1px solid rgba(255,255,255,.09);
     border-radius: 14px; padding: 11px 13px; pointer-events: auto; cursor: grab; user-select: none;
