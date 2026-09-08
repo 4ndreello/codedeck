@@ -19,6 +19,7 @@ export function registerSendCommand(program: Command): void {
         process.exit(1);
       }
       if (opts.json) console.log(JSON.stringify(result, null, 2));
+      else if (result && result.queued) console.log(`Message queued for ${id} — sends when the current turn ends`);
       else console.log(`Message sent to ${id}`);
     });
 }

@@ -53,6 +53,30 @@ function withLiveStatus(s: Session): Session {
   return status === s.status ? s : { ...s, status: status as Session["status"] };
 }
 
+// Send-queue cap: bytes, matching MAX_SEND_BODY_BYTES on the web route.
+const MAX_SEND_MESSAGE_BYTES = 64 * 1024;
+
+function validateSendMessage(raw: unknown): { message: string } | { code: string; error: string } {
+  if (typeof raw !== "string") return { code: "INVALID", error: "message required" };
+  const message = raw.trim();
+  if (!message) return { code: "INVALID", error: "message required" };
+  if (Buffer.byteLength(message, "utf8") > MAX_SEND_MESSAGE_BYTES) {
+    return { code: "INVALID", error: "message too large" };
+  }
+  return { message };
+}
+
+// PID identity triple, same rule as the stop path: a recycled PID must
+// neither block a legitimate resume nor permit killing a stranger.
+function livePidIdentity(s: Session): boolean {
+  return (
+    s.pid != null &&
+    s.pidStartTime != null &&
+    processAlive(s.pid) &&
+    processStartTime(s.pid) === s.pidStartTime
+  );
+}
+
 class Daemon {
   private db: Database;
   private sessions: SessionStore;
@@ -487,9 +511,12 @@ class Daemon {
           send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
           return;
         }
-
+        // Release owns the terminal outcome: a queued message must not
+        // survive as a phantom "na fila" on every exit, including the
+        // terminal early return below.
+        this.clearPending(s.id);
         if (isTerminalStatus(s.status)) {
-          send({ result: { session: s } });
+          send({ result: { session: this.sessions.get(s.id)! } });
           return;
         }
 
@@ -559,6 +586,12 @@ class Daemon {
 
       case "session.send": {
         const p = params as { id: string; message: string };
+        const validated = validateSendMessage(p.message);
+        if ("code" in validated) {
+          send({ error: { code: validated.code, message: validated.error } });
+          return;
+        }
+        const message = validated.message;
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
         if (s.origin === "open") {
@@ -566,113 +599,75 @@ class Daemon {
           return;
         }
         const driver = this.registry.get(s.agent);
+        if (!driver.capabilities().resume) {
+          send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Agent ${s.agent} does not support resume` } });
+          return;
+        }
+        if (s.status === "interrupted" && !s.nativeSessionId) {
+          send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Session ${s.id} cannot resume (no native session id or agent ${s.agent} does not support resume)` } });
+          return;
+        }
+        // Power-interrupted sessions with a live process keep the old rule:
+        // stop first, never queue behind a running harness.
+        if (s.status === "interrupted" && livePidIdentity(s)) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
+          return;
+        }
         // Do not start a second harness while the current one is still live:
         // both runtimes would tail the same per-session file and duplicate
         // every event from the follow-up turn.
-        if (this.sessionLocks.has(s.id)) {
-          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
+        const busyHandle = driver.getHandle?.(s.id);
+        const busyState = busyHandle && typeof busyHandle === "object"
+          ? busyHandle as { done?: boolean; drained?: boolean }
+          : undefined;
+        const runtimeBusy = busyHandle !== undefined && (busyState?.done !== true || busyState?.drained !== true);
+        const busy = this.sessionLocks.has(s.id) || s.status === "starting" || runtimeBusy || livePidIdentity(s);
+        if (busy) {
+          // One-slot queue, last-wins: persist without holding the lifecycle
+          // lock, then converge — the turn may have ended between the busy
+          // read and this persist, in which case tryDispatch starts now.
+          const pendingAt = new Date().toISOString();
+          try {
+            this.sessions.update(s.id, { pendingMessage: message, pendingAt });
+          } catch (e) {
+            send({ error: { code: "SEND_FAILED", message: e instanceof Error ? e.message : String(e) } });
+            return;
+          }
+          const queuedEvent: AgentEvent = {
+            type: "message.queued",
+            sessionId: s.id,
+            timestamp: pendingAt,
+            prompt: message,
+            pendingAt,
+          };
+          try { this.events.append(s.id, queuedEvent); } catch {}
+          this.broadcast(s.id, queuedEvent);
+          try { this.sessions.update(s.id, { lastEvent: `queued: ${message.slice(0, 80)}` }); } catch {}
+          void this.tryDispatch(s.id);
+          send({ result: { ok: true, queued: true } });
           return;
         }
-        if (s.status === "interrupted") {
-          // Resume-turn admission for power-interrupted sessions: capability
-          // BEFORE liveness, and liveness by process identity (same rule as
-          // stop). A recycled PID must not block a legitimate resume.
-          if (!s.nativeSessionId || !driver.capabilities().resume) {
-            send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Session ${s.id} cannot resume (no native session id or agent ${s.agent} does not support resume)` } }); return;
-          }
-          const liveIdentity =
-            s.pid != null &&
-            s.pidStartTime != null &&
-            processAlive(s.pid) &&
-            processStartTime(s.pid) === s.pidStartTime;
-          if (liveIdentity) {
-            send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
-            return;
-          }
-        } else {
-          const handle = driver.getHandle?.(s.id);
-          const runtimeState = handle && typeof handle === "object"
-            ? handle as { done?: boolean; drained?: boolean }
-            : undefined;
-          const runtimeDraining = handle !== undefined && (runtimeState?.done !== true || runtimeState?.drained !== true);
-          if (s.status === "starting" || runtimeDraining || (s.status === "working" && s.pid != null && processAlive(s.pid))) {
-            send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running` } });
-            return;
-          }
-          if (!driver.capabilities().resume) {
-            send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Agent ${s.agent} does not support resume` } }); return;
-          }
-        }
 
-        const drvSession: DriverSession = {
-          id: s.id,
-          nativeSessionId: s.nativeSessionId,
-          cwd: s.worktree || s.cwd,
-          model: s.model,
-          effort: s.effort,
-          fast: s.fast,
-          sandbox: s.sandbox,
-          dangerouslyBypassApprovalsAndSandbox: s.dangerouslyBypassApprovalsAndSandbox,
-          pid: s.pid,
-          pidStartTime: s.pidStartTime,
-        };
+
+        // Resumable now (terminal completed/failed/stopped/orphaned, or
+        // interrupted without a live process): a stale queued slot loses to
+        // the new message, which starts immediately.
         this.sessionLocks.add(s.id);
         try {
-          if (this.shuttingDown) {
-            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
-            return;
-          }
-          this.sessions.setStatus(s.id, "working", { lastEvent: `send: ${p.message.slice(0, 80)}` });
-
-          const turnEvent: AgentEvent = {
-            type: "turn.started",
-            sessionId: s.id,
-            timestamp: new Date().toISOString(),
-            prompt: p.message,
-          };
-          this.events.append(s.id, turnEvent);
-          this.broadcast(s.id, turnEvent);
-
-          await driver.send(drvSession, p.message);
-          if (this.shuttingDown) {
-            try { await driver.stop(drvSession); } catch {}
-            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
-            return;
-          }
-
-          const handle = driver.getHandle?.(s.id);
-          const handleNativeId =
-            handle &&
-            typeof handle === "object" &&
-            "nativeSessionId" in handle &&
-            typeof handle.nativeSessionId === "string"
-              ? handle.nativeSessionId
-              : undefined;
-          const newNative = handleNativeId || drvSession.nativeSessionId;
-          if (newNative && newNative !== s.nativeSessionId) {
-            this.sessions.update(s.id, { nativeSessionId: newNative });
-          }
-          if (drvSession.pid) {
-            this.sessions.update(s.id, {
-              pid: drvSession.pid,
-              pidStartTime: processStartTime(drvSession.pid),
-            });
-          }
-          this.sessions.update(s.id, { status: "working" });
-
-          // Attach event loop for new turn
-          this.attachDriverEvents(s.id, driver, drvSession).catch(() => {});
-
-          send({ result: { ok: true } });
+          try { this.sessions.update(s.id, { pendingMessage: null, pendingAt: null }); } catch {}
+          await this.runResumeTurn(s, message);
+          send({ result: { ok: true, queued: false } });
         } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          if (this.shuttingDown) {
-            try { await driver.stop(drvSession); } catch {}
-            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+          const errText = e instanceof Error ? e.message : String(e);
+          const code = e instanceof Error && (e as NodeJS.ErrnoException).code === "SERVICE_UNAVAILABLE"
+            ? "SERVICE_UNAVAILABLE"
+            : this.shuttingDown ? "SERVICE_UNAVAILABLE" : "SEND_FAILED";
+          if (code === "SERVICE_UNAVAILABLE") {
+            send({ error: { code, message: errText } });
             return;
           }
           try { this.sessions.setStatus(s.id, "failed"); } catch {}
-          send({ error: { code: "SEND_FAILED", message } });
+          send({ error: { code: "SEND_FAILED", message: errText } });
         } finally {
           if (!this.shuttingDown) this.sessionLocks.delete(s.id);
         }
@@ -683,6 +678,9 @@ class Daemon {
         const p = params as { id: string };
         const s = this.sessions.get(p.id);
         if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        // Stop cancels a queued message on every exit (explicit cancel),
+        // including the BUSY/NOT_RUNNING/UNSAFE early returns below.
+        this.clearPending(s.id);
         const driver = this.registry.get(s.agent);
         if (this.sessionLocks.has(s.id)) {
           send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} has another lifecycle operation in progress` } });
@@ -1051,6 +1049,141 @@ class Daemon {
     await this.attachDriverEvents(sessionId, driver, drvSession);
   }
 
+  /** Best-effort queue cancel; stop/release own the terminal outcome. */
+  private clearPending(sessionId: string): void {
+    try { this.sessions.update(sessionId, { pendingMessage: null, pendingAt: null }); } catch {}
+  }
+
+  /**
+  +   * Starts a resumed turn; caller MUST hold sessionLocks for the session.
+  +   * Shared by session.send (immediate) and tryDispatch (queued) so both
+  +   * paths emit the same frames in the same order.
+  +   */
+  private async runResumeTurn(s: Session, message: string): Promise<void> {
+    const driver = this.registry.get(s.agent);
+    if (this.shuttingDown) {
+      const early = new Error("daemon is shutting down") as NodeJS.ErrnoException;
+      early.code = "SERVICE_UNAVAILABLE";
+      throw early;
+    }
+    this.sessions.setStatus(s.id, "working", { lastEvent: `send: ${message.slice(0, 80)}` });
+    const turnEvent: AgentEvent = {
+      type: "turn.started",
+      sessionId: s.id,
+      timestamp: new Date().toISOString(),
+      prompt: message,
+    };
+    this.events.append(s.id, turnEvent);
+    this.broadcast(s.id, turnEvent);
+    const drvSession: DriverSession = {
+      id: s.id,
+      nativeSessionId: s.nativeSessionId,
+      cwd: s.worktree || s.cwd,
+      model: s.model,
+      effort: s.effort,
+      fast: s.fast,
+      sandbox: s.sandbox,
+      dangerouslyBypassApprovalsAndSandbox: s.dangerouslyBypassApprovalsAndSandbox,
+      pid: s.pid,
+      pidStartTime: s.pidStartTime,
+    };
+    try {
+      await driver.send(drvSession, message);
+    } catch (e) {
+      if (this.shuttingDown) { try { await driver.stop(drvSession); } catch {} }
+      throw e;
+    }
+    if (this.shuttingDown) {
+      try { await driver.stop(drvSession); } catch {}
+      const late = new Error("daemon is shutting down") as NodeJS.ErrnoException;
+      late.code = "SERVICE_UNAVAILABLE";
+      throw late;
+    }
+    const handle = driver.getHandle?.(s.id);
+    const handleNativeId =
+      handle &&
+      typeof handle === "object" &&
+      "nativeSessionId" in handle &&
+      typeof handle.nativeSessionId === "string"
+        ? handle.nativeSessionId
+        : undefined;
+    const newNative = handleNativeId || drvSession.nativeSessionId;
+    if (newNative && newNative !== s.nativeSessionId) {
+      this.sessions.update(s.id, { nativeSessionId: newNative });
+    }
+    if (drvSession.pid) {
+      this.sessions.update(s.id, {
+        pid: drvSession.pid,
+        pidStartTime: processStartTime(drvSession.pid),
+      });
+    }
+    this.sessions.update(s.id, { status: "working" });
+    // Attach event loop for new turn
+    this.attachDriverEvents(s.id, driver, drvSession).catch(() => {});
+  }
+
+  /**
+  +   * Starts the queued message as a new turn when the session is resumable.
+  +   * Never blocks: returns false leaving the slot intact when busy,
+  +   * unresumable, or shutting down. The stream tail calls this, and the
+  +   * busy send path calls it to converge on races (enqueue landing as the
+  +   * turn ends starts immediately instead of stranding).
+  +   */
+  private async tryDispatch(sessionId: string): Promise<boolean> {
+    if (this.shuttingDown || this.sessionLocks.has(sessionId)) return false;
+    const queued = this.sessions.get(sessionId);
+    if (!queued || !queued.pendingMessage || queued.origin === "open") return false;
+    this.sessionLocks.add(sessionId);
+    let message: string | undefined;
+    let pendingAt: string | null | undefined;
+    try {
+      const s = this.sessions.get(sessionId);
+      if (!s || !s.pendingMessage || s.origin === "open") return false;
+      const driver = this.registry.get(s.agent);
+      if (!driver.capabilities().resume) return false;
+      const handle = driver.getHandle?.(s.id);
+      const hs = handle && typeof handle === "object"
+        ? handle as { done?: boolean; drained?: boolean }
+        : undefined;
+      if (s.status === "starting") return false;
+      if (handle !== undefined && (hs?.done !== true || hs?.drained !== true)) return false;
+      if (livePidIdentity(s)) return false;
+      message = s.pendingMessage;
+      pendingAt = s.pendingAt;
+      // Clear first so a crash mid-start cannot double-send; restored below
+      // when the start fails.
+      this.sessions.update(s.id, { pendingMessage: null, pendingAt: null });
+      await this.runResumeTurn(s, message);
+      return true;
+    } catch (e) {
+      const errText = e instanceof Error ? e.message : String(e);
+      const unavailable = (e as NodeJS.ErrnoException)?.code === "SERVICE_UNAVAILABLE" || this.shuttingDown;
+      if (!unavailable) {
+        const failure = classifyFailure(errText);
+        const errEv: AgentEvent = {
+          type: "session.failed",
+          sessionId,
+          timestamp: new Date().toISOString(),
+          error: errText,
+          failure,
+        };
+        try { this.events.append(sessionId, errEv); } catch {}
+        this.broadcast(sessionId, errEv);
+        try { this.sessions.setStatus(sessionId, "failed", { lastEvent: errText.slice(0, 200), failure }); } catch {}
+      }
+      // Restore the slot so a failed dispatch never vanishes silently; the
+      // next manual send (or a future tail) retries it.
+      try {
+        if (message !== undefined) {
+          this.sessions.update(sessionId, { pendingMessage: message, pendingAt: pendingAt ?? new Date().toISOString() });
+        }
+      } catch {}
+      return false;
+    } finally {
+      if (!this.shuttingDown) this.sessionLocks.delete(sessionId);
+    }
+  }
+
   private async attachDriverEvents(sessionId: string, driver: AgentDriver, drvSession: DriverSession): Promise<void> {
     try {
       for await (const ev of driver.events(drvSession)) {
@@ -1131,6 +1264,10 @@ class Daemon {
         this.sessions.setStatus(sessionId, "failed", { lastEvent: error.slice(0, 200), failure });
       }
     }
+    // A message queued while the turn ran starts now as the next turn.
+    // tryDispatch rechecks resumability under the lifecycle lock; a stale
+    // or unresumable slot stays put for a manual send.
+    if (!this.shuttingDown) void this.tryDispatch(sessionId);
   }
 
   private updateSessionFromEvent(sessionId: string, ev: AgentEvent): void {
@@ -1147,6 +1284,8 @@ class Daemon {
         this.sessions.setStatus(sessionId, "failed", { lastEvent: ev.error.slice(0, 200), failure: ev.failure });
       } else if (ev.type === "tool.started") {
         this.sessions.update(sessionId, { lastEvent: `tool: ${ev.tool.name}` });
+      } else if (ev.type === "message.queued") {
+        this.sessions.update(sessionId, { lastEvent: `queued: ${ev.prompt.slice(0, 80)}` });
       } else if (ev.type === "message") {
         this.sessions.update(sessionId, { lastEvent: ev.content.slice(0, 80) });
       } else if (ev.type === "usage.updated") {

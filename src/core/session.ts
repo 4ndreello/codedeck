@@ -65,6 +65,10 @@ export interface Session {
   usage?: SessionUsage;
   lastEvent?: string;
   failure?: FailureInfo;
+  // One-slot send queue: message waiting for the next turn, set by
+  // session.send while busy (last-wins), cleared on dispatch/stop/release.
+  pendingMessage?: string | null;
+  pendingAt?: string | null;
   // Byte offsets into the session's log files (see drivers/tailer.ts) after
   // the last fully persisted line, so a reattaching daemon does not replay
   // events already in the store.
