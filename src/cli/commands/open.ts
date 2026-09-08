@@ -452,8 +452,8 @@ export function registerOpenCommand(program: Command): void {
     .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
-    .option("--autocompact [value]", "Claude auto-compact window size: auto or 100000-1000000 tokens")
-    .option("--no-autocompact", "disable Claude native auto-compaction")
+    .option("--autocompact [value]", "native auto-compact: Claude window size is auto or 100000-1000000 tokens; OpenCode toggles its native setting")
+    .option("--no-autocompact", "disable native auto-compaction in Claude and OpenCode")
     .option("--resume <session>", "resume an interactive session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
@@ -591,7 +591,12 @@ export function registerOpenCommand(program: Command): void {
               cwd: openCwd,
               envExtra: {
                 CODEDECK_RUN_ID: runId,
-                OPENCODE_CONFIG_CONTENT: buildInlineConfig(pluginDir, role, orchestratorMode),
+                OPENCODE_CONFIG_CONTENT: buildInlineConfig(
+                  pluginDir,
+                  role,
+                  orchestratorMode,
+                  { config, explicit: autocompact },
+                ),
                 ...(tuiDir !== undefined ? { OPENCODE_CONFIG_DIR: tuiDir } : {}),
               },
               sessionFile,

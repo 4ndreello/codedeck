@@ -4,6 +4,7 @@ import path from "node:path";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { getCachedOrDiscoverModels } from "../../core/models.js";
+import type { AutocompactExplicit } from "../../core/autocompact.js";
 import {
   catalogWarning,
   judgeModelIn,
@@ -11,6 +12,7 @@ import {
   type OpenFlags,
 } from "../contract.js";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
+import type { RunAgentConfig } from "../../config/config.js";
 import type { Role } from "../../core/roles.js";
 import { composeOrchestratorProse } from "../orchestrator-prose.js";
 
@@ -81,9 +83,24 @@ export function buildInlineConfig(
   pluginDir: string,
   role: Role,
   mode: OrchestratorMode = DISPATCHER_PRESET,
+  options?: { config?: RunAgentConfig; explicit?: AutocompactExplicit },
 ): string {
   const { agentBody, ultra } = resolveRoleContract(pluginDir, role, mode);
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
+  const explicit = options?.explicit;
+  const cfg = options?.config?.autocompact;
+  const auto = explicit === false || explicit === "--no-autocompact"
+    ? false
+    : explicit !== undefined
+      ? true
+      : cfg === undefined
+        ? undefined
+        : cfg.enabled === false
+          ? false
+          : true;
+
+  // OpenCode owns the overflow trigger, so Claude's token, cap, and percent
+  // settings have no equivalent here and stay unmapped.
   return JSON.stringify({
     instructions: [ultra],
     agent: {
@@ -97,6 +114,7 @@ export function buildInlineConfig(
     command: {
       [AUTONOMOUS_COMMAND]: autonomousCommand(pluginDir),
     },
+    ...(auto === undefined ? {} : { compaction: { auto } }),
   });
 }
 

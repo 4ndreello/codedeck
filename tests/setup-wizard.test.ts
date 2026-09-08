@@ -167,7 +167,7 @@ describe("runModelSetupWizard", () => {
     expect(screen.items).toHaveLength(2);
     expect(screen.items[0].note).toBe("atual");
     expect(screen.description).toEqual([
-      expect.stringContaining("Claude sessions"),
+      expect.stringContaining("Claude and OpenCode sessions"),
     ]);
     expect(screen.description?.[0]).toContain("260k");
     expect(screen.description?.[0]).toContain("80%");

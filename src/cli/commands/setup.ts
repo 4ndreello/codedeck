@@ -52,7 +52,7 @@ const AUTOCOMPACT_SCREEN_ROLE = "autocompact";
 const AUTOCOMPACT_PICKER_GROUP = "autocompact";
 const AUTOCOMPACT_OFF = "off" as const;
 const AUTOCOMPACT_ON = "on" as const;
-const AUTOCOMPACT_DESCRIPTION = `Native autocompact applies to Claude sessions. The default window is min(${AUTOCOMPACT_DEFAULT_CAP / 1000}k tokens, ${AUTOCOMPACT_DEFAULT_PERCENT * 100}% of the context window).`;
+const AUTOCOMPACT_DESCRIPTION = `Native autocompact applies to Claude and OpenCode sessions. Claude's default window is min(${AUTOCOMPACT_DEFAULT_CAP / 1000}k tokens, ${AUTOCOMPACT_DEFAULT_PERCENT * 100}% of the context window); OpenCode uses its internal context trigger.`;
 
 const ORCHESTRATOR_PARALLELISM_NOTE_LINES = [
   "parallelism is advisory. Version 1 puts the requested cap in the",
