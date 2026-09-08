@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectBinary } from "../helpers.js";
+import { loadConfig, type RunAgentConfig } from "../../config/config.js";
+import { autocompactArgs } from "../../core/autocompact.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
@@ -9,8 +11,9 @@ import { parseClaudeLine } from "./parser.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Pure so the flag spellings are testable without spawning claude.
-export function buildClaudeArgs(options: StartOptions): string[] {
+export function buildClaudeArgs(options: StartOptions, config: RunAgentConfig = {}): string[] {
   const args: string[] = ["-p", "--output-format", "stream-json", "--verbose"];
+  const autocompact = options.autocompact ?? (config.autocompact === undefined ? false : undefined);
   // Bypass permissions for automation (as spec allows).
   args.push("--dangerously-skip-permissions");
   if (options.model) args.push("--model", options.model);
@@ -19,7 +22,15 @@ export function buildClaudeArgs(options: StartOptions): string[] {
   // deliberately dropped here rather than translated into an invalid flag.
   if (options.effort) args.push("--effort", options.effort);
   if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
-  args.push(options.prompt);
+  args.push(
+    ...autocompactArgs({
+      contextWindow: options.contextWindow,
+      config,
+      explicit: autocompact,
+      passthrough: options.passthrough,
+    }),
+  );
+  args.push(options.prompt, ...(options.passthrough ?? []));
   return args;
 }
 
@@ -35,7 +46,8 @@ export class ClaudeDriver extends SessionDriver {
   protected readonly resumeError = "No native session id available for resume";
 
   protected buildArgs(options: StartOptions): string[] {
-    return buildClaudeArgs(options);
+    const config = loadConfig();
+    return buildClaudeArgs(options, config);
   }
 
   capabilities(): AgentCapabilities {
@@ -237,5 +249,3 @@ export class ClaudeDriver extends SessionDriver {
     ];
   }
 }
-
-

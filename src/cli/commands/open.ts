@@ -14,6 +14,7 @@ import {
   type RunAgentConfig,
 } from "../../config/config.js";
 import type { AgentId } from "../../core/session.js";
+import { parseAutocompact } from "../../core/autocompact.js";
 import { harnessInjection } from "../../open/injection.js";
 import { getGitInfo } from "../../git/repository.js";
 import { createWorktree } from "../../git/worktree.js";
@@ -451,6 +452,8 @@ export function registerOpenCommand(program: Command): void {
     .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
+    .option("--autocompact [value]", "Claude auto-compact window size: auto or 100000-1000000 tokens")
+    .option("--no-autocompact", "disable Claude native auto-compaction")
     .option("--resume <session>", "resume an interactive session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
@@ -459,6 +462,7 @@ export function registerOpenCommand(program: Command): void {
     .allowUnknownOption()
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
+      const autocompact = parseAutocompact(opts.autocompact);
       const interactive = !isNonInteractiveLaunch(invocation.passthrough);
       const role = await resolveRole(invocation.roleInput, interactive);
       const pluginDir = resolvePluginDir();
@@ -611,11 +615,12 @@ export function registerOpenCommand(program: Command): void {
         const resolved = boundModel ?? DEFAULT_MODEL;
         const args = buildOpenArgs(
           role,
-          { ...opts, model: resolved, remoteControl: config.remoteControl },
+          { ...opts, model: resolved, remoteControl: config.remoteControl, autocompact },
           pluginDir,
           invocation.passthrough,
           cwd,
           orchestratorMode,
+          config,
         );
         const model = passthroughModel ?? resolved;
 

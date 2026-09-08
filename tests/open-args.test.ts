@@ -951,6 +951,13 @@ describe("option scanning", () => {
 
   it("accepts a value glued to an option that wants one", () => {
     expect(scan(["--model=sonnet"])).toEqual([]);
+    expect(scan(["--autocompact=200000"])).toEqual([]);
+  });
+
+  it("accepts both autocompact modes and the disabling flag", () => {
+    expect(scan(["--autocompact", "auto"])).toEqual([]);
+    expect(scan(["--autocompact", "200000"])).toEqual([]);
+    expect(scan(["--no-autocompact"])).toEqual([]);
   });
 
   // Commander binds the token after a value-taking option as its value, however

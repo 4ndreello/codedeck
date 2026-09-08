@@ -5,6 +5,7 @@ import { findClosestModel, modelNames, type HarnessModels } from "../core/models
 import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
 import { getCliName } from "../cli/cli-name.js";
+import type { AutocompactExplicit } from "../core/autocompact.js";
 
 import type { OrchestratorMode } from "../config/orchestrator-mode.js";
 
@@ -16,6 +17,7 @@ export type ModelVerdict =
 export interface OpenFlags {
   model?: string;
   effort?: string;
+  autocompact?: AutocompactExplicit;
   resume?: string;
   worktree?: boolean;
   bypass?: boolean;

@@ -17,6 +17,7 @@ import {
 import { itemKey } from "../src/cli/picker-state.js";
 import {
   ORCHESTRATOR_PARALLELISM_NOTE,
+  buildAutocompactScreen,
   buildOrchestratorScreen,
   buildSandboxScreen,
   collectOrchestratorSelection,
@@ -120,11 +121,14 @@ describe("runModelSetupWizard", () => {
    * the picker attaches its listener would be dropped by the resumed stream.
    */
   function drive(input: PassThrough, output: PassThrough, keys: string[]): void {
+    // The wizard now ends with autocompact. Existing cases leave that screen
+    // at its default OFF choice unless they provide an answer of their own.
+    const pending = [...keys, "\x07"];
     let next = 0;
     output.on("data", (chunk) => {
       if (!String(chunk).includes("filtrar")) return;
-      if (next >= keys.length) return;
-      const key = keys[next++];
+      if (next >= pending.length) return;
+      const key = pending[next++];
       setImmediate(() => input.write(key));
     });
   }
@@ -146,6 +150,144 @@ describe("runModelSetupWizard", () => {
     expect(result).toBe(config);
     expect(discoverModels).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["absent", undefined, ["OFF", "ON"]],
+    ["disabled", { enabled: false }, ["OFF", "ON"]],
+    ["enabled", { enabled: true }, ["ON", "OFF"]],
+    ["manual without enabled", { cap: 300_000 }, ["ON", "OFF"]],
+  ] as const)("renders the autocompact toggle from a %s config", (_name, autocompact, labels) => {
+    const screen = buildAutocompactScreen(
+      autocompact === undefined ? {} : ({ autocompact } as RunAgentConfig),
+    );
+
+    expect(screen.role).toBe("autocompact");
+    expect(screen.items.map((item) => item.label)).toEqual(labels);
+    expect(screen.items).toHaveLength(2);
+    expect(screen.items[0].note).toBe("atual");
+    expect(screen.description).toEqual([
+      expect.stringContaining("Claude sessions"),
+    ]);
+    expect(screen.description?.[0]).toContain("260k");
+    expect(screen.description?.[0]).toContain("80%");
+    expect(screen.next?.({ kind: "skipped", role: screen.role })).toEqual([]);
+  });
+
+  it("counts sandbox and autocompact as the final two screens", () => {
+    expect(buildSandboxScreen({}, 5, 7).counter).toBe("configuração 6 de 7");
+    expect(buildAutocompactScreen({}, 6, 7).counter).toBe("configuração 7 de 7");
+  });
+
+  it("saves enabled autocompact when the toggle is ON", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(result.autocompact).toEqual({ enabled: true });
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("preserves manual autocompact settings when turning it ON", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      autocompact: {
+        enabled: false,
+        cap: 300_000,
+        percent: 0.7,
+        tokens: 210_000,
+        mode: "tokens" as const,
+      },
+    };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.autocompact).toEqual({ ...config.autocompact, enabled: true });
+  });
+
+  it("keeps a manual block active when it carries no enabled flag", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, autocompact: { cap: 300_000 } };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.autocompact).toEqual({ cap: 300_000, enabled: true });
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("saves disabled autocompact when it already exists and the toggle is OFF", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      autocompact: { enabled: true, cap: 300_000, percent: 0.7, tokens: 210_000, mode: "tokens" as const },
+    };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07",
+      "\x1b[B", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.autocompact).toEqual({ ...config.autocompact, enabled: false });
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("keeps autocompact absent when the toggle is OFF", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07", "\x07",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), input, output, save });
+
+    expect(Object.hasOwn(result, "autocompact")).toBe(false);
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("ignores a hand-typed invalid autocompact choice", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, autocompact: { enabled: true, cap: 300_000 } };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07",
+      ...[..."autocompact:network"], "\r", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.autocompact).toEqual(config.autocompact);
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("does not save or change config when the wizard is aborted on autocompact", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = { ...base().config, autocompact: { enabled: true, cap: 300_000 } };
+    drive(input, output, [
+      "\x07", "\x07", "\x07", "\x07", "\x07", "\x07", "\x03",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(result).toBe(config);
   });
 
   // Discovery blocks for seconds, so silence there reads as a freeze.

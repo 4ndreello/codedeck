@@ -6,6 +6,9 @@ import { parseSandbox } from "../core/driver.js";
 import type { CodexSandbox } from "../core/driver.js";
 import type { Role } from "../core/roles.js";
 import type { OrchestratorMode } from "./orchestrator-mode.js";
+import type { AutocompactConfig } from "../core/autocompact.js";
+
+export type { AutocompactConfig } from "../core/autocompact.js";
 
 export {
   BALANCED_PRESET,
@@ -40,6 +43,7 @@ export interface RunAgentConfig {
   defaultModel?: string;
   remoteControl?: boolean;
   defaultSandbox?: CodexSandbox;
+  autocompact?: AutocompactConfig;
   /**
    * Run interactive sessions under a pty CodeDeck owns, which is what lets it
    * type harness commands — today the `/rename` that names a Claude Code
@@ -104,6 +108,9 @@ export function resolveDefaultSandbox(config: RunAgentConfig = {}): CodexSandbox
   }
 }
 
+// Native auto-compaction is intentionally not materialized in the default
+// object. Existing config and open-argument contracts compare exact vectors;
+// enable it explicitly with `autocompact: { enabled: true }`.
 export const DEFAULT_CONFIG: RunAgentConfig = {
   defaultAgent: "claude",
   worktree: false,
