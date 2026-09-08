@@ -92,6 +92,20 @@ export function isActiveStatus(status: SessionStatus): boolean {
   return status === "starting" || status === "working" || status === "needs_input" || status === "idle";
 }
 
+// Display-level liveness shared by `ps` and the daemon read boundary: an
+// active session whose recorded process is gone is a corpse ("dead"), never
+// "working". Pure (liveness injected) so it is unit-testable; the stored
+// row is never mutated, only the served view.
+export type LiveSessionStatus = SessionStatus | "dead";
+export function liveStatus(
+  status: SessionStatus,
+  pid: number | null | undefined,
+  alive: boolean,
+): LiveSessionStatus {
+  if (isActiveStatus(status) && pid != null && !alive) return "dead";
+  return status;
+}
+
 export function generateSessionId(): string {
   // 4-char hex like spec (a83f) but ensure uniqueness with 8 chars if needed
   // Use 8 hex chars, display first 4 but store full

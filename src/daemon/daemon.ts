@@ -11,7 +11,7 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse, UsageQueryParams } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import { isTerminalStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
+import { isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
@@ -42,6 +42,15 @@ function resolveRequestSandbox(value: unknown): CodexSandbox | undefined {
   } catch {
     return undefined;
   }
+}
+
+// Read-boundary liveness: serve a corpse as "dead" (same rule `ps` shows)
+// instead of the stale stored "working". Returns the same object when no
+// correction applies, so callers can skip copies; never mutates the store.
+function withLiveStatus(s: Session): Session {
+  if (s.pid == null) return s;
+  const status = liveStatus(s.status, s.pid, processAlive(s.pid));
+  return status === s.status ? s : { ...s, status: status as Session["status"] };
 }
 
 class Daemon {
@@ -520,7 +529,7 @@ class Daemon {
       case "session.list": {
         const p = params as any;
         const all = p?.all;
-        const list = this.sessions.list(100, all);
+        const list = this.sessions.list(100, all).map(withLiveStatus);
         const hidden = all ? 0 : this.sessions.countHiddenByWindow();
         // Enrich with last event?
         send({ result: { sessions: list, hidden } });
@@ -529,8 +538,9 @@ class Daemon {
 
       case "session.get": {
         const p = params as any;
-        const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        const stored = this.sessions.get(p.id);
+        if (!stored) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        const s = withLiveStatus(stored);
         const evCount = this.events.count(s.id);
         const recent = this.events.list(s.id, 10);
         send({ result: { session: s, events: recent, eventCount: evCount } });

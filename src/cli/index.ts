@@ -19,6 +19,7 @@ import { registerModelsCommand } from "./commands/models.js";
 import { registerOpenCommand } from "./commands/open.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerUsageCommand } from "./commands/usage.js";
+import { registerWebCommand } from "./commands/web.js";
 import { getCliInvocation, getCliName } from "./cli-name.js";
 
 function getVersion(): string {
@@ -69,6 +70,7 @@ Recommended flow:
   $ ${cli} run "task" --bg --json     # starts in background
   $ ${cli} wait <id>                  # waits without ps/show loop
   $ ${cli} logs <id> --follow         # inspect progress
+  $ ${cli} web --open                  # realtime runs canvas in the browser
 
 Run '${cli} <command> --help' for command-specific options.
 Docs: https://github.com/4ndreello/run-agent
@@ -89,6 +91,7 @@ registerModelsCommand(program);
 registerOpenCommand(program);
 registerSetupCommand(program);
 registerUsageCommand(program);
+registerWebCommand(program);
 
 // Make `codedeck help` behave like `codedeck --help`
 program.command("help", { hidden: true }).action(() => program.outputHelp());
