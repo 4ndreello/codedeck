@@ -124,11 +124,12 @@ var AGENT_NAME = { claude: "Claude", codex: "Codex", opencode: "OpenCode", omp: 
 function agentName(a) { return AGENT_NAME[a] || a || "?"; }
 var STATUS_HUMAN = { working: "Trabalhando agora", starting: "Trabalhando agora", needs_input: "Esperando você",
   idle: "Em pausa", completed: "Concluída", failed: "Falhou", stopped: "Parada",
-  orphaned: "Interrompida", interrupted: "Interrompida" };
+  orphaned: "Interrompida", interrupted: "Interrompida", dead: "Morreu" };
 var STATUS_DOT = { working: "working", starting: "working", needs_input: "waiting", idle: "resting",
-  completed: "done", failed: "failed", stopped: "done", orphaned: "waiting", interrupted: "waiting" };
+  completed: "done", failed: "failed", stopped: "done", orphaned: "waiting", interrupted: "waiting", dead: "done" };
 var STATUS_COLOR = { working: "#30d158", starting: "#30d158", needs_input: "#ff9f0a", idle: "#636366",
-  completed: "#3a3a3c", failed: "#ff453a", stopped: "#3a3a3c", orphaned: "#ff9f0a", interrupted: "#ff9f0a" };
+  completed: "#3a3a3c", failed: "#ff453a", stopped: "#3a3a3c", orphaned: "#ff9f0a", interrupted: "#ff9f0a",
+  dead: "#3a3a3c" };
 function lastEventHuman(last) {
   if (!last) return "";
   if (last === "exit 0") return "terminou bem";
@@ -324,58 +325,91 @@ function baseActivity(s) {
   if (s.status === "needs_input") return "quer sua aprovação para continuar";
   var last = lastEventHuman(s.lastEvent);
   if (s.status === "failed") return last ? "falhou quando estava " + last : "falhou, abra os logs para ver";
+  if (s.status === "dead") return last ? "morreu quando estava " + last : "morreu, o processo sumiu";
   if (s.status === "completed") return last ? "concluída, " + last : "concluída";
   if (s.status === "working" || s.status === "starting") return last || "processando...";
   if (last) return "por último: " + last;
   return "sem atividade recente";
 }
-function reconcile(sessions) {
+var lastSessions = [];
+function visibleNodes() {
+  return nodes.filter(function (n) { return !(hideDone && isDone(n.status)); });
+}
+/* Raio de conteudo de um grupo a partir dos nos visiveis: grupo de um no
+   so vira um ponto compacto em vez de pagar o diametro do anel cheio. */
+function groupRadius(list) {
+  var workers = 0;
+  for (var i = 0; i < list.length; i++) if (!list[i].isOrch) workers++;
+  if (workers === 0) return 130;
+  return ringSlot(workers - 1).r + 130;
+}
+/* Layout deterministico sobre o conjunto VISIVEL: esconder concluidas
+   reempacota o resto lado a lado em vez de deixar buracos no mundo.
+   O slot (wi) nasce na criacao em ordem de chegada, entao polls e
+   chegadas novas nao embaralham ninguem; so o arraste fixa (pinned). */
+function layoutVisible() {
   var groups = {};
-  sessions.forEach(function (s) {
-    var key = s.runId || ("solo:" + s.id);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(s);
+  visibleNodes().forEach(function (n) {
+    if (!groups[n.runId]) groups[n.runId] = [];
+    groups[n.runId].push(n);
   });
-  var gkeys = Object.keys(groups);
-  var maxWorkers = 1;
-  gkeys.forEach(function (key) { maxWorkers = Math.max(maxWorkers, groups[key].length); });
-  var spread = ringSlot(Math.max(0, maxWorkers - 1)).r;
-  var gapX = spread * 2 + 340;
-  var seen = {};
+  var gkeys = Object.keys(groups).sort();
+  var radii = gkeys.map(function (k) { return groupRadius(groups[k]); });
+  var total = 0;
+  for (var i = 0; i < gkeys.length - 1; i++) total += radii[i] + radii[i + 1] + 260;
+  var cx = -total / 2;
   gkeys.forEach(function (key, gi) {
     var list = groups[key];
-    var orch = null;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === list[i].runId) { orch = list[i]; break; }
-    }
-    var cx = 420 + gi * gapX, cy = 330;
-    var wi = 0;
-    list.forEach(function (s) {
-      var isOrch = !!orch && s.id === orch.id;
-      var n = nodesById[s.id];
-      if (!n) {
-        // Aneis concentricos com lotacao pela circunferencia: cada no tem
-        // ~235px de espaco no anel, entao N workers nunca se encostam.
-        // (Filotaxia empacota demais para cards de 196px.)
-        var slot = ringSlot(wi);
-        n = { id: s.id, runId: key, isOrch: isOrch, agent: s.agent,
-          x: isOrch ? cx : cx + Math.cos(slot.a) * slot.r,
-          y: isOrch ? cy : cy + Math.sin(slot.a) * slot.r,
-          liveUntil: 0 };
-        if (!isOrch) wi++;
-        nodesById[s.id] = n;
-        nodes.push(n);
-        makeNodeEl(n);
+    list.forEach(function (n) {
+      // Aneis concentricos com lotacao pela circunferencia: cada no tem
+      // ~235px de espaco no anel, entao N workers nunca se encostam.
+      // (Filotaxia empacota demais para cards de 196px.)
+      if (n.isOrch) { n.hx = cx; n.hy = 0; }
+      else {
+        var slot = ringSlot(Math.max(0, n.wi));
+        n.hx = cx + Math.cos(slot.a) * slot.r;
+        n.hy = Math.sin(slot.a) * slot.r;
       }
-      n.status = s.status;
-      n.agent = s.agent;
-      n.isOrch = isOrch;
-      n.count = list.length;
-      n.label = s.name || "";
-      if (Date.now() > n.liveUntil) n.activity = baseActivity(s);
-      paintNode(n);
-      seen[s.id] = true;
+      if (!n.pinned) { n.x = n.hx; n.y = n.hy; }
     });
+    if (gi < gkeys.length - 1) cx += radii[gi] + radii[gi + 1] + 260;
+  });
+}
+function reconcile(sessions) {
+  lastSessions = sessions;
+  var totals = {};
+  sessions.forEach(function (s) {
+    var key = s.runId || ("solo:" + s.id);
+    totals[key] = (totals[key] || 0) + 1;
+  });
+  var seen = {};
+  sessions.forEach(function (s) {
+    var key = s.runId || ("solo:" + s.id);
+    var isOrch = s.id === s.runId;
+    var n = nodesById[s.id];
+    if (!n) {
+      var wi = -1;
+      if (!isOrch) {
+        wi = 0;
+        for (var k = 0; k < nodes.length; k++) {
+          if (nodes[k].runId === key && !nodes[k].isOrch) wi = Math.max(wi, nodes[k].wi + 1);
+        }
+      }
+      n = { id: s.id, runId: key, isOrch: isOrch, agent: s.agent,
+        x: 0, y: 0, wi: wi, pinned: false, liveUntil: 0 };
+      nodesById[s.id] = n;
+      nodes.push(n);
+      makeNodeEl(n);
+    }
+    n.status = s.status;
+    n.agent = s.agent;
+    n.isOrch = isOrch;
+    n.repo = s.repository ? String(s.repository).split("/").pop() : "";
+    n.count = totals[key];
+    n.label = s.name || "";
+    if (Date.now() > n.liveUntil) n.activity = baseActivity(s);
+    paintNode(n);
+    seen[s.id] = true;
   });
   for (var id in nodesById) {
     if (!seen[id]) {
@@ -386,6 +420,7 @@ function reconcile(sessions) {
       nodes.splice(nodes.indexOf(n), 1);
     }
   }
+  layoutVisible();
   ensureStreams();
   paintSummary();
   if (!window.__fitted && nodes.length) {
@@ -396,15 +431,21 @@ function reconcile(sessions) {
   }
 }
 function bestRunFocus() {
+  // So o conjunto visivel participa: com hide ligado, no oculto nao
+  // puxa a camera nem entra no enquadramento.
+  var vis = visibleNodes();
+  // Pouca gente visivel: enquadra todo mundo, nao so o run campeao.
+  // (Com 5 nos, focar so o melhor corta o vizinho na borda.)
+  if (vis.length <= 8) return vis;
   var activeByRun = {};
-  nodes.forEach(function (n) {
+  vis.forEach(function (n) {
     if (isActive(n.status)) activeByRun[n.runId] = (activeByRun[n.runId] || 0) + 1;
   });
   var bestRun = null, bestCount = 0;
   for (var rk in activeByRun) {
     if (activeByRun[rk] > bestCount) { bestCount = activeByRun[rk]; bestRun = rk; }
   }
-  return bestRun ? nodes.filter(function (n) { return n.runId === bestRun; }) : nodes;
+  return bestRun ? vis.filter(function (n) { return n.runId === bestRun; }) : vis;
 }
 /* Pills de borda para sessoes ativas fora da viewport: o resumo conta a
    frota inteira, entao quem trabalha longe aparece aqui com um atalho. */
@@ -451,7 +492,7 @@ function fitCamera(list) {
   cam.y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
   cam.zoom = Math.min(1, Math.max(0.5, Math.min(window.innerWidth / bw, window.innerHeight / bh)));
 }
-function isDone(s) { return s === "completed" || s === "failed" || s === "stopped"; }
+function isDone(s) { return s === "completed" || s === "failed" || s === "stopped" || s === "dead"; }
 function isActive(s) { return s === "working" || s === "starting" || s === "needs_input"; }
 function ensureStreams() {
   var open = 0;
@@ -527,9 +568,57 @@ function drawGrid() {
   for (var x = ox; x < window.innerWidth; x += gap)
     for (var y = oy; y < window.innerHeight; y += gap) ctx.fillRect(x, y, 1.4, 1.4);
 }
+/* Largura externa do card (CSS content-box + padding 13px/lado + borda):
+   e o numero que centra o card no ponto e dimensiona o container. */
+function nodeOuterW(n) { return (n.isOrch ? 228 : 196) + 28; }
+/* Container por run: borda tracejada beeeem suave com o nome do repo,
+   desenhado atras dos cards. A bbox e recalculada a cada frame a partir
+   da posicao viva dos nos, entao acompanha arraste e polls. */
+function drawGroupBoxes() {
+  var groups = {};
+  nodes.forEach(function (n) {
+    if (hideDone && isDone(n.status)) return;
+    if (!groups[n.runId]) groups[n.runId] = [];
+    groups[n.runId].push(n);
+  });
+  ctx.save();
+  ctx.setLineDash([5, 7]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.10)";
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.textBaseline = "bottom";
+  Object.keys(groups).forEach(function (key) {
+    var list = groups[key];
+    var x0 = 1e12, y0 = 1e12, x1 = -1e12, y1 = -1e12, repo = "";
+    list.forEach(function (n) {
+      var hw = nodeOuterW(n) / 2 + 28, hh = 44 + 28;
+      if (n.x - hw < x0) x0 = n.x - hw;
+      if (n.y - hh < y0) y0 = n.y - hh;
+      if (n.x + hw > x1) x1 = n.x + hw;
+      if (n.y + hh > y1) y1 = n.y + hh;
+      if (n.isOrch && n.repo) repo = n.repo;
+    });
+    if (!repo) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].repo) { repo = list[i].repo; break; }
+      }
+    }
+    var a = w2s(x0, y0), b = w2s(x1, y1);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(a[0], a[1], b[0] - a[0], b[1] - a[1], 18);
+    else ctx.rect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+    ctx.stroke();
+    if (repo) {
+      ctx.fillStyle = "rgba(235,235,240,0.38)";
+      ctx.fillText(repo, a[0] + 14, a[1] - 6);
+    }
+  });
+  ctx.restore();
+}
 function frame() {
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
   drawGrid();
+  drawGroupBoxes();
   nodes.forEach(function (n) {
     if (n.isOrch || n.runId === "solo" || n.runId.indexOf("solo:") === 0) return;
     if (hideDone && isDone(n.status)) return;
@@ -587,7 +676,9 @@ function frame() {
     n.el.style.display = hidden ? "none" : "";
     if (hidden) return;
     var p = w2s(n.x, n.y);
-    var w = n.isOrch ? 228 : 196;
+    // Largura EXTERNA do card: o CSS usa content-box com padding 13px de
+    // cada lado, entao o centro real fica 13px a direita do 196/228.
+    var w = nodeOuterW(n);
     // O no escala junto com o zoom: sem isso o DOM fica gigante no mundo
     // e o layout que e limpo em coordenadas vira pilha na tela.
     n.el.style.transform = "translate(" + Math.round(p[0] - (w / 2) * cam.zoom) + "px," +
@@ -640,7 +731,11 @@ canvas.addEventListener("mousedown", function (ev) {
 });
 window.addEventListener("mousemove", function (ev) {
   if (dragNode) {
-    if (Math.abs(ev.clientX - lastM[0]) + Math.abs(ev.clientY - lastM[1]) > 4) dragMoved = true;
+    if (Math.abs(ev.clientX - lastM[0]) + Math.abs(ev.clientY - lastM[1]) > 4) {
+      dragMoved = true;
+      // Posicao manual sobrevive aos polls: o layout so move no solto.
+      dragNode.pinned = true;
+    }
     dragNode.x += (ev.clientX - lastM[0]) / cam.zoom;
     dragNode.y += (ev.clientY - lastM[1]) / cam.zoom;
     lastM = [ev.clientX, ev.clientY];
@@ -691,8 +786,10 @@ document.getElementById("btnMotion").onclick = function (ev) {
   syncUrl();
 };
 document.getElementById("btnReset").onclick = function () {
-  // Volta para a acao (mesmo enquadramento da abertura), nunca um zoom
-  // cego: com a frota espalhada, zoom 1 ou fit-geral cai no vazio entre runs.
+  // Solta os arrastes manuais, reempacota e volta para a acao (mesmo
+  // enquadramento da abertura), nunca um zoom cego.
+  nodes.forEach(function (n) { n.pinned = false; });
+  layoutVisible();
   fitCamera(bestRunFocus());
 };
 var hideDone = urlHide;
@@ -700,6 +797,10 @@ document.getElementById("btnHide").onclick = function (ev) {
   hideDone = !hideDone;
   ev.currentTarget.classList.toggle("on", hideDone);
   ev.currentTarget.title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
+  // Trocar o filtro reempacota o mundo e reenquadra: sem isso os nos
+  // visiveis ficam presos nos slots antigos, a um oceano de distancia.
+  layoutVisible();
+  fitCamera(bestRunFocus());
   paintSummary();
   syncUrl();
 };
@@ -762,6 +863,8 @@ function selectSession(id) {
     var repo = s.repository ? String(s.repository).split("/").pop() : "";
     var items = [
       ["Modelo", s.model || "—"],
+      // effort so existe quando a sessao nasceu com --effort; ausente = padrao.
+      ["Esforço", s.effort || "padrão"],
       ["Repo", repo || "—"],
       ["Atividade", s.lastEvent ? (lastEventHuman(s.lastEvent) || s.lastEvent) : "—"],
     ];
