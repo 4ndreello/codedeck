@@ -64,6 +64,8 @@ export class Database {
         usage_cached_tokens INTEGER,
         usage_cost REAL,
         last_event TEXT,
+        pending_message TEXT,
+        pending_at TEXT,
         effort TEXT,
         fast INTEGER NOT NULL DEFAULT 0,
         sandbox TEXT,
@@ -120,6 +122,8 @@ export class Database {
       ["pid_start_time", "TEXT"],
       ["run_id", "TEXT"],
       ["origin", "TEXT"],
+      ["pending_message", "TEXT"],
+      ["pending_at", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);

@@ -6,6 +6,7 @@ export type AgentEventType =
   | "turn.started"
   | "text.delta"
   | "message"
+  | "message.queued"
   | "tool.started"
   | "tool.completed"
   | "file.changed"
@@ -60,6 +61,12 @@ export interface ToolStartedEvent extends BaseAgentEvent {
     id?: string;
     input?: unknown;
   };
+}
+
+export interface MessageQueuedEvent extends BaseAgentEvent {
+  type: "message.queued";
+  prompt: string;
+  pendingAt: string;
 }
 
 export interface ToolCompletedEvent extends BaseAgentEvent {
@@ -137,6 +144,7 @@ export type AgentEvent =
   | TurnStartedEvent
   | TextDeltaEvent
   | MessageEvent
+  | MessageQueuedEvent
   | ToolStartedEvent
   | ToolCompletedEvent
   | FileChangedEvent

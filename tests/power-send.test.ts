@@ -57,6 +57,7 @@ interface SendCase {
   message: string;
   error?: string;
   sent: number;
+  queued?: boolean;
   then?: (daemon: Daemon, sent: SentCall[]) => void;
 }
 
@@ -106,14 +107,17 @@ const cases: SendCase[] = [
     },
   },
   {
-    title: "keeps the working busy check for non-interrupted sessions",
+    title: "queues behind a live turn for non-interrupted sessions",
     id: "s-working",
     status: "working",
     resume: true,
     extra: { nativeSessionId: "n-4", ...livePid },
     message: "more work",
-    error: "SESSION_BUSY",
     sent: 0,
+    queued: true,
+    then: (daemon) => {
+      expect(seam(daemon).sessions.get("s-working")?.pendingMessage).toBe("more work");
+    },
   },
 ];
 
@@ -125,10 +129,10 @@ describe("power send admission for interrupted", () => {
     seed(daemon, c.id, c.status ?? "interrupted", c.extra ?? {});
 
     const res = await sendMessage(daemon, c.id, c.message);
-
     if (c.error === undefined) expect(res.error).toBeUndefined();
     else expect(res.error?.code).toBe(c.error);
     expect(sent).toHaveLength(c.sent);
+    if (c.queued !== undefined) expect((res.result as { queued?: boolean } | undefined)?.queued).toBe(c.queued);
     c.then?.(daemon, sent);
   });
 });

@@ -35,6 +35,8 @@ export interface SessionRow {
   log_offset: number | null;
   stderr_offset: number | null;
   origin: string | null;
+  pending_message: string | null;
+  pending_at: string | null;
 }
 
 
@@ -87,6 +89,8 @@ function rowToSession(row: SessionRow): Session {
         : undefined,
     lastEvent: row.last_event ?? undefined,
     failure,
+    pendingMessage: row.pending_message ?? undefined,
+    pendingAt: row.pending_at ?? undefined,
     logOffset: row.log_offset ?? undefined,
     stderrOffset: row.stderr_offset ?? undefined,
   };
@@ -106,11 +110,12 @@ export class SessionStore {
         pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
         last_event, effort, fast, sandbox, dangerously_bypass_approvals_and_sandbox, failure, log_offset, stderr_offset,
-        run_id, origin
+        run_id, origin, pending_message, pending_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?
       )
     `);
     stmt.run(
@@ -144,6 +149,8 @@ export class SessionStore {
       session.stderrOffset ?? null,
       session.runId ?? null,
       session.origin ?? null,
+      session.pendingMessage ?? null,
+      session.pendingAt ?? null,
     );
   }
 
@@ -232,6 +239,8 @@ export class SessionStore {
       stderr_offset: patch.stderrOffset,
       failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
       origin: patch.origin,
+      pending_message: patch.pendingMessage === undefined ? undefined : (patch.pendingMessage ?? null),
+      pending_at: patch.pendingAt === undefined ? undefined : (patch.pendingAt ?? null),
     };
 
     for (const [col, val] of Object.entries(map)) {

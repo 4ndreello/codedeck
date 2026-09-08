@@ -562,6 +562,12 @@ function onEvent(n, ev) {
       touch(n, "respondendo");
       feed(agentName(n.agent), String(ev.content || "").slice(0, 90));
     }
+  } else if (ev.type === "message.queued") {
+    touch(n, "mensagem na fila");
+    feed(agentName(n.agent), "mensagem na fila");
+    if (n.id && n.id === detailId) { detailPending = ev.prompt || true; paintSendState(); }
+  } else if (ev.type === "turn.started") {
+    if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
   } else if (ev.type === "turn.completed") {
     feed(agentName(n.agent), "etapa concluída");
   } else if (ev.type === "file.changed") {
@@ -577,6 +583,9 @@ function onEvent(n, ev) {
     touch(n, ev.type === "session.failed" ? ("falhou: " + (ev.error || "")) : "concluída");
     paintSummary();
     feed(agentName(n.agent), ev.type === "session.failed" ? "falhou" : "concluída");
+    // Stop/release cancels the queue server-side: drop a stale "na fila"
+    // hint on the open detail, mirroring the turn.started branch.
+    if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
     if (n.es) { try { n.es.close(); } catch (e) {} n.es = null; }
   }
 }
@@ -839,7 +848,7 @@ document.getElementById("btnHide").title = hideDone ? "Mostrar concluídas" : "O
    (o daemon anexa no turno inicial e a cada send), a resposta em
    message(role=assistant) com content completo. Ferramentas viram linhas
    compactas para a conversa continuar legível. */
-var detailId = null, detailStatus = null, detailOrigin = null;
+var detailId = null, detailStatus = null, detailOrigin = null, detailPending = null;
 var sendInFlight = false, sendBlockedNote = false;
 function chatMsg(who, text, cls) {
   var d = document.createElement("div");
@@ -864,12 +873,14 @@ function paintSendState() {
   var btn = document.getElementById("dSendBtn");
   var msg = document.getElementById("dSendMsg");
   if (!detailId) return;
+  // origin=open (TUI interativa) trava sempre; working/starting entra na
+  // fila em vez de travar. Mensagem de sucesso não é apagada aqui.
   var reason = "";
   if (detailOrigin === "open") reason = "sessão interativa não aceita mensagens";
-  else if (detailStatus === "working" || detailStatus === "starting") reason = "aguarde o turno atual terminar";
   input.disabled = sendInFlight || reason !== "";
   btn.disabled = sendInFlight || reason !== "";
   if (reason) { msg.textContent = reason; sendBlockedNote = true; }
+  else if (detailPending) { msg.textContent = "1 mensagem na fila — envia quando o turno terminar"; sendBlockedNote = true; }
   else if (sendBlockedNote) { msg.textContent = ""; sendBlockedNote = false; }
 }
 function row(dt, dd) {
@@ -883,6 +894,7 @@ function closeDetail() {
   detailId = null;
   detailStatus = null;
   detailOrigin = null;
+  detailPending = null;
   document.getElementById("detail").classList.remove("open");
 }
 document.getElementById("detailClose").onclick = closeDetail;
@@ -894,6 +906,7 @@ function selectSession(id) {
     detailId = s.id;
     detailStatus = s.status;
     detailOrigin = s.origin || null;
+    detailPending = s.pendingMessage || null;
     var title = document.getElementById("dTitle");
     title.innerHTML = "";
     var logo = document.createElement("span");
@@ -936,6 +949,8 @@ function selectSession(id) {
       if (!ev || !ev.type) continue;
       if (ev.type === "turn.started" && ev.prompt) {
         chat.appendChild(chatMsg("você", String(ev.prompt), "user"));
+      } else if (ev.type === "message.queued" && ev.prompt) {
+        chat.appendChild(chatMsg("você", String(ev.prompt) + " (na fila)", "user"));
       } else if (ev.type === "message" && ev.role === "assistant" && ev.content) {
         chat.appendChild(chatMsg(agentName(s.agent), String(ev.content), "assistant"));
       } else if (ev.type === "tool.started") {
@@ -981,7 +996,13 @@ document.getElementById("dSend").addEventListener("submit", function (ev) {
   }).then(function (out) {
     if (out.ok) {
       input.value = "";
-      msg.textContent = "mensagem enviada — nova etapa começou";
+      if (out.body && out.body.queued) {
+        detailPending = text;
+        msg.textContent = "mensagem na fila — envia quando o turno terminar";
+      } else {
+        detailPending = null;
+        msg.textContent = "mensagem enviada — nova etapa começou";
+      }
       poll();
     } else {
       msg.textContent = (out.body && out.body.error) || "não deu para enviar";

@@ -68,11 +68,11 @@ export function parseSendBody(body: unknown): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
-/** Daemon error code → HTTP status for the send proxy. */
 function sendErrorStatus(code: string | undefined): number {
   if (code === "SESSION_NOT_FOUND") return 404;
   if (code === "SESSION_BUSY") return 409;
   if (code === "CAPABILITY_NOT_SUPPORTED") return 400;
+  if (code === "INVALID") return 400;
   return 502;
 }
 
