@@ -96,6 +96,58 @@ describe("buildInlineConfig", () => {
     expect(Object.keys(parsed).sort()).toEqual(["agent", "command", "instructions"]);
   });
 
+  it.each([
+    ["enabled", { enabled: true }, { auto: true }],
+    ["disabled", { enabled: false }, { auto: false }],
+    ["manual without enabled", { cap: 300_000 }, { auto: true }],
+  ] as const)("maps %s config to native compaction", (_name, autocompact, compaction) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, {
+        config: { autocompact },
+      }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual(compaction);
+  });
+
+  it.each([true, 200_000, "auto"] as const)("maps explicit %j as enable even without config", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, { explicit }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: true });
+  });
+
+  it.each([false, "--no-autocompact"] as const)("lets explicit %j win over enabled config", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, {
+        config: { autocompact: { enabled: true } },
+        explicit,
+      }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: false });
+  });
+
+  it.each([false, "--no-autocompact"] as const)("disables compaction when explicit %j stands alone", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, { explicit }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: false });
+  });
+
+  it.each([true, 200_000, "auto"] as const)("lets explicit %j win over disabled config", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, {
+        config: { autocompact: { enabled: false } },
+        explicit,
+      }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: true });
+  });
+
   // probe-command-2026-09-07 pinned the `command` key as the delivery
   // channel, so the inline config carries /autonomous from the same file
   // Claude serves via --plugin-dir.
