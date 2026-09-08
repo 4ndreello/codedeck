@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { Daemon } from "../src/daemon/daemon.js";
+import { processStartTime } from "../src/utils/process.js";
 import { makeTempDir, removeTempDir, seam, seed, fakeSocket } from "./helpers/daemon-seam.js";
-
 let dir: string;
 
 beforeEach(() => {
@@ -46,15 +46,27 @@ describe("session.release archival", () => {
 
   it("clears a queued message while archiving", async () => {
     const daemon = new Daemon();
-    seed(daemon, "s-int", "interrupted", {
+    seed(daemon, "s-q", "interrupted", {
       origin: "run",
       pendingMessage: "stale",
       pendingAt: new Date().toISOString(),
     });
-    await release(daemon, { id: "s-int" });
-    const stored = seam(daemon).sessions.get("s-int")!;
+    await release(daemon, { id: "s-q" });
+    const stored = seam(daemon).sessions.get("s-q")!;
     expect(stored.status).toBe("completed");
     expect(stored.pendingMessage).toBeUndefined();
+  });
+
+  it("keeps stop-first for interrupted rows with a live process", async () => {
+    const daemon = new Daemon();
+    seed(daemon, "s-live", "interrupted", {
+      origin: "run",
+      pid: process.pid,
+      pidStartTime: processStartTime(process.pid),
+    });
+    const body = await release(daemon, { id: "s-live" });
+    expect(body.error?.code).toBe("SESSION_BUSY");
+    expect(seam(daemon).sessions.get("s-live")?.status).toBe("interrupted");
   });
 
   it("leaves other terminal rows untouched", async () => {

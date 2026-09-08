@@ -189,7 +189,7 @@ export function createWebHandler(bridge: WebBridge): http.RequestListener {
             sendJson(res, 200, result);
           } catch (error) {
             const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
-            sendJson(res, code === "SESSION_NOT_FOUND" ? 404 : 502, { error: error instanceof Error ? error.message : String(error) });
+            sendJson(res, sendErrorStatus(code), { error: error instanceof Error ? error.message : String(error) });
           }
           return;
         }

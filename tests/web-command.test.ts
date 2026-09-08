@@ -221,6 +221,14 @@ describe("web handler", () => {
     expect(seen).toEqual([{ method: "session.release", params: { id: "a1" } }]);
   });
 
+  it("falls through GET /release to 404", async () => {
+    const b = bridge();
+    const base = await listen(createWebHandler(b));
+    const res = await fetch(`${base}/api/sessions/a1/release`);
+    expect(res.status).toBe(404);
+    expect(b.calls).not.toContain("session.release");
+  });
+
   it("rejects send bodies without a usable message", async () => {
     const b = bridge();
     const base = await listen(createWebHandler(b));

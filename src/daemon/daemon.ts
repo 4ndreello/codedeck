@@ -516,7 +516,13 @@ class Daemon {
         // terminal early return below.
         this.clearPending(s.id);
         // Interrupted is an archival terminal: a power-shutdown row stays
-        // actionable and release may finalize it to completed/failed.
+        // actionable and release may finalize it to completed/failed — unless
+        // its process is still alive under the same identity, which keeps
+        // the send path's stop-first guard instead of orphaning it.
+        if (s.status === "interrupted" && livePidIdentity(s)) {
+          send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
+          return;
+        }
         if (isTerminalStatus(s.status) && s.status !== "interrupted") {
           send({ result: { session: this.sessions.get(s.id)! } });
           return;
