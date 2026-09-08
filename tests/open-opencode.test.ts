@@ -129,6 +129,25 @@ describe("buildInlineConfig", () => {
     expect(parsed.compaction).toEqual({ auto: false });
   });
 
+  it.each([false, "--no-autocompact"] as const)("disables compaction when explicit %j stands alone", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, { explicit }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: false });
+  });
+
+  it.each([true, 200_000, "auto"] as const)("lets explicit %j win over disabled config", (explicit) => {
+    const parsed = JSON.parse(
+      buildInlineConfig(pluginDir, "general", DISPATCHER_PRESET, {
+        config: { autocompact: { enabled: false } },
+        explicit,
+      }),
+    ) as any;
+
+    expect(parsed.compaction).toEqual({ auto: true });
+  });
+
   // probe-command-2026-09-07 pinned the `command` key as the delivery
   // channel, so the inline config carries /autonomous from the same file
   // Claude serves via --plugin-dir.
