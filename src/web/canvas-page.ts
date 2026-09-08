@@ -126,6 +126,7 @@ export const CANVAS_PAGE: string = `<!doctype html>
     <button id="dSendBtn" type="submit">Enviar</button>
   </form>
   <p id="dSendMsg" role="status"></p>
+  <button id="dArchive" type="button" style="display:none">Marcar como concluída</button>
 </aside>
 <script>
 "use strict";
@@ -907,6 +908,9 @@ function selectSession(id) {
     detailStatus = s.status;
     detailOrigin = s.origin || null;
     detailPending = s.pendingMessage || null;
+    // Interrupted rows are actionable again: offer archival. Every other
+    // status keeps the button hidden.
+    document.getElementById("dArchive").style.display = s.status === "interrupted" ? "" : "none";
     var title = document.getElementById("dTitle");
     title.innerHTML = "";
     var logo = document.createElement("span");
@@ -1012,6 +1016,28 @@ document.getElementById("dSend").addEventListener("submit", function (ev) {
   }).then(function () {
     sendInFlight = false;
     paintSendState();
+  });
+});
+document.getElementById("dArchive").addEventListener("click", function () {
+  if (!detailId) return;
+  var msg = document.getElementById("dSendMsg");
+  var btn = document.getElementById("dArchive");
+  btn.disabled = true;
+  msg.textContent = "arquivando...";
+  fetch("api/sessions/" + encodeURIComponent(detailId) + "/release", { method: "POST" }).then(function (r) {
+    return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+  }).then(function (out) {
+    if (out.ok) {
+      msg.textContent = "sessão arquivada como concluída";
+      selectSession(detailId);
+      poll();
+    } else {
+      msg.textContent = (out.body && out.body.error) || "não deu para arquivar";
+    }
+  }).catch(function () {
+    msg.textContent = "daemon fora do ar?";
+  }).then(function () {
+    btn.disabled = false;
   });
 });
 
