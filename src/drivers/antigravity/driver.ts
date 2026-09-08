@@ -35,6 +35,54 @@ export function buildAntigravityArgs(options: StartOptions): string[] {
   return args;
 }
 
+// Pure so the TAB-separated `agy models` table is testable without the binary.
+export function parseAntigravityModelsList(stdout: string): ProviderModels[] {
+  const lines = stdout.split("\n");
+  const providerMap = new Map<string, ModelInfo[]>();
+
+  for (const rawLine of lines) {
+    // Strip spinner prefix if present (e.g. ⠋ Fetching available models...)
+    const clean = rawLine.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s]+Fetching available models\.\.\./g, "").trim();
+    if (!clean) continue;
+    // Banner without spinner prefix is not a model row either.
+    if (/^fetching available models\.\.\./i.test(clean)) continue;
+
+    // `agy models` separates id and display name with a TAB; fall back to
+    // column spacing for anything else.
+    const tab = clean.indexOf("\t");
+    const parts = tab >= 0 ? [clean.slice(0, tab), clean.slice(tab + 1)] : clean.split(/\s{2,}/);
+    const id = parts[0]?.trim();
+    const name = parts[1]?.trim() || id;
+    if (!id || id.startsWith("#") || id.startsWith("Usage")) continue;
+
+    let provider = "google";
+    if (id.startsWith("claude-")) provider = "anthropic";
+    else if (id.startsWith("gpt-")) provider = "openai";
+
+    if (!providerMap.has(provider)) {
+      providerMap.set(provider, []);
+    }
+
+    providerMap.get(provider)!.push({
+      id,
+      name,
+      provider,
+      supportsThinking: id.includes("thinking") || id.includes("high") || id.includes("medium"),
+    });
+  }
+
+  const result: ProviderModels[] = [];
+  for (const [provider, models] of providerMap.entries()) {
+    result.push({
+      provider,
+      displayName: provider.charAt(0).toUpperCase() + provider.slice(1),
+      models,
+    });
+  }
+
+  return result;
+}
+
 export class AntigravityDriver extends SessionDriver {
   readonly id = "antigravity" as const;
 
@@ -136,45 +184,7 @@ export class AntigravityDriver extends SessionDriver {
 
     try {
       const stdout = await runCommandWithTimeout(install.path, ["models"], { timeoutMs: 10000 });
-      const lines = stdout.split("\n");
-      const providerMap = new Map<string, ModelInfo[]>();
-
-      for (const rawLine of lines) {
-        // Strip spinner prefix if present (e.g. ⠋ Fetching available models...)
-        const clean = rawLine.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s]+Fetching available models\.\.\./g, "").trim();
-        if (!clean) continue;
-
-        const parts = clean.split(/\s{2,}/);
-        const id = parts[0]?.trim();
-        const name = parts[1]?.trim() || id;
-        if (!id || id.startsWith("#") || id.startsWith("Usage")) continue;
-
-        let provider = "google";
-        if (id.startsWith("claude-")) provider = "anthropic";
-        else if (id.startsWith("gpt-")) provider = "openai";
-
-        if (!providerMap.has(provider)) {
-          providerMap.set(provider, []);
-        }
-
-        providerMap.get(provider)!.push({
-          id,
-          name,
-          provider,
-          supportsThinking: id.includes("thinking") || id.includes("high") || id.includes("medium"),
-        });
-      }
-
-      const result: ProviderModels[] = [];
-      for (const [provider, models] of providerMap.entries()) {
-        result.push({
-          provider,
-          displayName: provider.charAt(0).toUpperCase() + provider.slice(1),
-          models,
-        });
-      }
-
-      return result;
+      return parseAntigravityModelsList(stdout);
     } catch {
       return [];
     }

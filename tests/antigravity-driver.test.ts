@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildAntigravityArgs, AntigravityDriver } from "../src/drivers/antigravity/driver.js";
+import {
+  buildAntigravityArgs,
+  parseAntigravityModelsList,
+  AntigravityDriver,
+} from "../src/drivers/antigravity/driver.js";
 import { parseAntigravityLine } from "../src/drivers/antigravity/parser.js";
 import type { AgentEvent } from "../src/core/events.js";
 
@@ -222,6 +226,35 @@ describe("parseAntigravityLine", () => {
     expect(parse("")).toEqual([]);
     expect(parse("random non json text")).toEqual([]);
     expect(parse(JSON.stringify({ event: "unknown_future_event" }))).toEqual([]);
+  });
+});
+
+describe("parseAntigravityModelsList", () => {
+  // Mirrors real `agy models` output: a banner line plus TAB-separated rows.
+  const stdout = [
+    "Fetching available models...",
+    "gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
+    "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)",
+    "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
+    "",
+  ].join("\n");
+
+  it("splits TAB-separated id and display name", () => {
+    const providers = parseAntigravityModelsList(stdout);
+    const ids = providers.flatMap((p) => p.models.map((m) => m.id));
+    expect(ids).toEqual(["gemini-3.8-flash-high", "claude-sonnet-4-6", "gpt-oss-120b-medium"]);
+    const names = providers.flatMap((p) => p.models.map((m) => m.name));
+    expect(names).toEqual([
+      "Gemini 3.8 Flash (High)",
+      "Claude Sonnet 4.6 (Thinking)",
+      "GPT-OSS 120B (Medium)",
+    ]);
+  });
+
+  it("drops the banner line instead of listing it as a model", () => {
+    const providers = parseAntigravityModelsList(stdout);
+    const ids = providers.flatMap((p) => p.models.map((m) => m.id));
+    expect(ids.every((id) => !/fetching/i.test(id))).toBe(true);
   });
 });
 
