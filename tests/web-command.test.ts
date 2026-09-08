@@ -192,6 +192,14 @@ describe("canvas page", () => {
     expect(CANVAS_PAGE).toContain("text.delta");
   });
 
+  it("has the canvas controls", () => {
+    expect(CANVAS_PAGE).toContain("btnMotion");
+    expect(CANVAS_PAGE).toContain("btnReset");
+    expect(CANVAS_PAGE).toContain("btnHide");
+    expect(CANVAS_PAGE).toContain("fitCamera");
+    expect(CANVAS_PAGE).toContain("currentTarget");
+  });
+
   it("makes no external requests", () => {
     const externals = CANVAS_PAGE.match(/https?:\/\/[^"'\s>]+/g) ?? [];
     expect(externals).toEqual([]);

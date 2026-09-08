@@ -72,7 +72,8 @@ export const CANVAS_PAGE: string = `<!doctype html>
 <div class="hud" id="title"><h1><span class="live"></span>Canvas das runs</h1><p id="summary">conectando...</p></div>
 <div class="hud" id="tools">
   <button id="btnMotion" class="on" type="button" title="Pausar movimento"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l2.5-6 3.5 12 3-9 2 3H22"/></svg></button>
-  <button id="btnReset" type="button" title="Recentralizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button id="btnReset" type="button" title="Recentralizar" aria-label="Recentralizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button id="btnHide" type="button" title="Ocultar concluídas" aria-label="Ocultar concluídas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-2.9 3.6M6.6 6.6C3.6 8.2 2 12 2 12s3 7 10 7c1.5 0 2.8-.3 4-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
 </div>
 <div class="hud" id="legend"><span><i class="dot working"></i>Trabalhando</span><span><i class="dot waiting"></i>Esperando você</span><span><i class="dot resting"></i>Em pausa</span><span><i class="dot done"></i>Concluída</span></div>
 <div class="hud" id="feed"><h2>AGORA MESMO</h2><ul id="feedList"></ul></div>
@@ -238,10 +239,11 @@ function feed(agent, text) {
   for (var i = 0; i < items.length; i++) items[i].classList.toggle("fresh", i === 0);
 }
 function paintSummary() {
-  var working = 0, waiting = 0;
+  var working = 0, waiting = 0, hidden = 0;
   nodes.forEach(function (n) {
     if (n.status === "working" || n.status === "starting") working++;
     if (n.status === "needs_input") waiting++;
+    if (hideDone && isDone(n.status)) hidden++;
   });
   var el = document.getElementById("summary");
   el.innerHTML = "";
@@ -249,6 +251,7 @@ function paintSummary() {
   var b1 = document.createElement("b"); b1.textContent = working + " trabalhando"; el.appendChild(b1);
   el.appendChild(document.createTextNode(" · "));
   var b2 = document.createElement("b"); b2.textContent = waiting + " esperando você"; el.appendChild(b2);
+  if (hidden > 0) el.appendChild(document.createTextNode(" · " + hidden + " ocultas"));
 }
 
 /* Reconcilia o poll com os nos: preserva posicao arrastada, atualiza status. */
@@ -325,24 +328,31 @@ function reconcile(sessions) {
     window.__fitted = true;
     // Enquadra o run mais ativo, nao a frota inteira: 100 nos fixos nunca
     // cabem legiveis numa viewport. O resto fica ao redor para o pan.
-    var activeByRun = {};
-    nodes.forEach(function (n) {
-      if (isActive(n.status)) activeByRun[n.runId] = (activeByRun[n.runId] || 0) + 1;
-    });
-    var bestRun = null, bestCount = 0;
-    for (var rk in activeByRun) {
-      if (activeByRun[rk] > bestCount) { bestCount = activeByRun[rk]; bestRun = rk; }
-    }
-    var focus = bestRun ? nodes.filter(function (n) { return n.runId === bestRun; }) : nodes;
-    var xs = focus.map(function (n) { return n.x; });
-    var ys = focus.map(function (n) { return n.y; });
-    var bw = Math.max.apply(null, xs) - Math.min.apply(null, xs) + 700;
-    var bh = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 500;
-    cam.x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
-    cam.y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
-    cam.zoom = Math.min(1, Math.max(0.4, Math.min(window.innerWidth / bw, window.innerHeight / bh)));
+    fitCamera(bestRunFocus());
   }
 }
+function bestRunFocus() {
+  var activeByRun = {};
+  nodes.forEach(function (n) {
+    if (isActive(n.status)) activeByRun[n.runId] = (activeByRun[n.runId] || 0) + 1;
+  });
+  var bestRun = null, bestCount = 0;
+  for (var rk in activeByRun) {
+    if (activeByRun[rk] > bestCount) { bestCount = activeByRun[rk]; bestRun = rk; }
+  }
+  return bestRun ? nodes.filter(function (n) { return n.runId === bestRun; }) : nodes;
+}
+function fitCamera(list) {
+  if (!list.length) return;
+  var xs = list.map(function (n) { return n.x; });
+  var ys = list.map(function (n) { return n.y; });
+  var bw = Math.max.apply(null, xs) - Math.min.apply(null, xs) + 700;
+  var bh = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 500;
+  cam.x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+  cam.y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+  cam.zoom = Math.min(1, Math.max(0.4, Math.min(window.innerWidth / bw, window.innerHeight / bh)));
+}
+function isDone(s) { return s === "completed" || s === "failed" || s === "stopped"; }
 function isActive(s) { return s === "working" || s === "starting" || s === "needs_input"; }
 function ensureStreams() {
   var open = 0;
@@ -424,6 +434,7 @@ function frame() {
   drawGrid();
   nodes.forEach(function (n) {
     if (n.isOrch || n.runId === "solo" || n.runId.indexOf("solo:") === 0) return;
+    if (hideDone && isDone(n.status)) return;
     var o = null;
     for (var i = 0; i < nodes.length; i++) {
       if (nodes[i].runId === n.runId && nodes[i].isOrch) { o = nodes[i]; break; }
@@ -440,6 +451,10 @@ function frame() {
   });
   for (var i = particles.length - 1; i >= 0; i--) {
     var p = particles[i];
+    if (hideDone && (isDone(p.from.status) || isDone(p.to.status))) {
+      particles.splice(i, 1);
+      continue;
+    }
     p.t += motion ? p.speed : 0;
     if (p.t > 1.1) { particles.splice(i, 1); continue; }
     if (p.t < 0) continue;
@@ -469,6 +484,9 @@ function frame() {
     ctx.fill();
   }
   nodes.forEach(function (n) {
+    var hidden = hideDone && isDone(n.status);
+    n.el.style.display = hidden ? "none" : "";
+    if (hidden) return;
     var p = w2s(n.x, n.y);
     var w = n.isOrch ? 228 : 196;
     // O no escala junto com o zoom: sem isso o DOM fica gigante no mundo
@@ -512,15 +530,21 @@ window.addEventListener("wheel", function (ev) {
 }, { passive: false });
 document.getElementById("btnMotion").onclick = function (ev) {
   motion = !motion;
-  ev.target.classList.toggle("on", motion);
+  // currentTarget, nunca target: o clique cai no SVG interno e a classe
+  // precisa alternar no botao para o estado visual acompanhar.
+  ev.currentTarget.classList.toggle("on", motion);
 };
 document.getElementById("btnReset").onclick = function () {
-  if (!nodes.length) return;
-  var xs = nodes.map(function (n) { return n.x; });
-  var ys = nodes.map(function (n) { return n.y; });
-  cam.x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
-  cam.y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
-  cam.zoom = 1;
+  // Volta para a acao (mesmo enquadramento da abertura), nunca um zoom
+  // cego: com a frota espalhada, zoom 1 ou fit-geral cai no vazio entre runs.
+  fitCamera(bestRunFocus());
+};
+var hideDone = false;
+document.getElementById("btnHide").onclick = function (ev) {
+  hideDone = !hideDone;
+  ev.currentTarget.classList.toggle("on", hideDone);
+  ev.currentTarget.title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
+  paintSummary();
 };
 
 function poll() {
