@@ -274,36 +274,35 @@ describe("web handler", () => {
 });
 
 describe("canvas page", () => {
-  it("wires the realtime endpoints", () => {
-    expect(CANVAS_PAGE).toContain("api/sessions");
-    expect(CANVAS_PAGE).toContain("new EventSource");
-    expect(CANVAS_PAGE).toContain("text.delta");
-  });
-
-  it("has the canvas controls", () => {
-    expect(CANVAS_PAGE).toContain("btnMotion");
-    expect(CANVAS_PAGE).toContain("btnReset");
-    expect(CANVAS_PAGE).toContain("btnHide");
-    expect(CANVAS_PAGE).toContain("fitCamera");
-    expect(CANVAS_PAGE).toContain("currentTarget");
-    expect(CANVAS_PAGE).toContain("drawMarkers");
-    expect(CANVAS_PAGE).toContain("syncUrl");
-    expect(CANVAS_PAGE).toContain("selectSession");
-    expect(CANVAS_PAGE).toContain("inputSnippet");
-    expect(CANVAS_PAGE).toContain('id="detail"');
-  });
-
-  it("wires the chat transcript and send box", () => {
-    expect(CANVAS_PAGE).toContain('id="dChat"');
-    expect(CANVAS_PAGE).toContain('id="dSend"');
-    expect(CANVAS_PAGE).toContain("/logs");
-    expect(CANVAS_PAGE).toContain("/send");
-  });
-
-  it("hides completed sessions by default", () => {
-    expect(CANVAS_PAGE).toContain('qp0.get("hide") !== "0"');
-    expect(CANVAS_PAGE).toContain('qp.set("hide", "0")');
-  });
+  // Um único padrão de asserção: blocos repetidos de toContain tinham
+  // linhas novas idênticas, estourando o gate de duplicação do Sonar.
+  const markerGroups: Array<[string, string[]]> = [
+    ["realtime endpoints", ["api/sessions", "new EventSource", "text.delta"]],
+    [
+      "canvas controls",
+      [
+        "btnMotion",
+        "btnReset",
+        "btnHide",
+        "fitCamera",
+        "currentTarget",
+        "drawMarkers",
+        "syncUrl",
+        "selectSession",
+        "inputSnippet",
+        'id="detail"',
+      ],
+    ],
+    ["chat transcript and send box", ['id="dChat"', 'id="dSend"', "/logs", "/send"]],
+    ["hidden-by-default filter", ['qp0.get("hide") !== "0"', 'qp.set("hide", "0")']],
+  ];
+  for (const [feature, needs] of markerGroups) {
+    it(`has the ${feature}`, () => {
+      for (const marker of needs) {
+        expect(CANVAS_PAGE).toContain(marker);
+      }
+    });
+  }
 
   it("makes no external requests", () => {
     const externals = CANVAS_PAGE.match(/https?:\/\/[^"'\s>]+/g) ?? [];
