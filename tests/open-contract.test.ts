@@ -62,6 +62,15 @@ describe("resolveRoleContract", () => {
     expect(edit.agentBody).not.toContain("Bash is your dispatch console");
   });
 
+  it("keeps the ultra text out of the open agent body", () => {
+    for (const role of ["general", "reviewer"] as const) {
+      const { agentBody, ultra } = resolveRoleContract(pluginDir, role);
+
+      expect(agentBody).not.toContain("You are running inside a CodeDeck session");
+      expect(ultra).toContain("Never round failure to success");
+    }
+  });
+
   it("fails loud when the agent file is missing", () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-contract-"));
     try {

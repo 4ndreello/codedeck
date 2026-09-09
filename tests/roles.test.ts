@@ -5,7 +5,9 @@ import path from "node:path";
 
 import {
   composeRolePrompt,
+  composeRunPrompt,
   parseRole,
+  readCore,
   resolvePluginDir,
   resolveRolePrompt,
   roleBody,
@@ -15,6 +17,7 @@ import {
 function pluginWith(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
   fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "ultra.md"), "# CodeDeck Ultra\n\nCore text.\n");
   for (const [name, body] of Object.entries(files)) {
     fs.writeFileSync(path.join(dir, "agents", name), body);
   }
@@ -103,6 +106,32 @@ describe("composeRolePrompt", () => {
 
 });
 
+describe("readCore", () => {
+  it("reads the ultra text the open path ships separately", () => {
+    const dir = pluginWith({});
+
+    expect(readCore(dir)).toBe("# CodeDeck Ultra\n\nCore text.");
+  });
+
+  it("fails loud when ultra.md is missing", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+
+    expect(() => readCore(dir)).toThrow(/ultra prompt not found/);
+  });
+});
+
+describe("composeRunPrompt", () => {
+  it("prepends core, then the role body, then the prompt", () => {
+    const dir = pluginWith({
+      "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n",
+    });
+
+    expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+    );
+  });
+});
+
 describe("resolveRolePrompt", () => {
   it("passes the prompt through when the flag was not given", () => {
     const dir = pluginWith({ "auditor.md": "You audit.\n" });
@@ -110,11 +139,11 @@ describe("resolveRolePrompt", () => {
     expect(resolveRolePrompt(dir, undefined, "check the diff")).toBe("check the diff");
   });
 
-  it("composes when the flag names a real role", () => {
+  it("composes core plus the role when the flag names a real role", () => {
     const dir = pluginWith({ "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n" });
 
     expect(resolveRolePrompt(dir, " AUDITOR ", "check the diff")).toBe(
-      "You audit.\n\n---\n\ncheck the diff",
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
     );
   });
 
