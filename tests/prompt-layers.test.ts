@@ -102,6 +102,14 @@ describe("prompt layers: manifest validity", () => {
     }
   });
 
+  it("skips # comment lines inside includes lists", () => {
+    const { includes } = parseFrontmatter(
+      "---\nname: x\ndescription: X.\nincludes:\n  # a comment about proof\n  - proof\n---\n\nBody.\n",
+    );
+
+    expect(includes).toEqual(["proof"]);
+  });
+
   it("core is ultra.md verbatim and is never listed in includes", () => {
     expect(fs.readFileSync(path.join(partialsDir, "core.md"))).toEqual(
       fs.readFileSync(ultraFile),

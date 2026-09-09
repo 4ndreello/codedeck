@@ -36,6 +36,7 @@ function parseManifest(source, manifestPath) {
   const includes = [];
   let inIncludes = false;
   for (const line of front.split(/\r?\n/)) {
+    if (line.trimStart().startsWith("#") || line.trim() === "") continue;
     const item = /^\s*-\s+(.+?)\s*$/.exec(line);
     if (inIncludes && item) {
       includes.push(item[1]);
