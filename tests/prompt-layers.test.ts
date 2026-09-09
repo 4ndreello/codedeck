@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { composeRunPrompt, readCore } from "../src/core/roles.js";
+import { composeRunPrompt, readCore, ROLES as RUN_ROLES } from "../src/core/roles.js";
 import { resolveRoleContract } from "../src/open/contract.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,12 +124,18 @@ describe("prompt layers: manifest validity", () => {
 });
 
 describe("prompt layers: run-path core-first order", () => {
-  it("starts every run-path composer output with the core text", () => {
+  it.each([...RUN_ROLES])("starts the %s run-path composer output with the core text", (role) => {
     const core = readCore(path.join(root, "plugin"));
+    const composed = composeRunPrompt(path.join(root, "plugin"), role, "do it");
 
-    expect(composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it").startsWith(core)).toBe(true);
-    expect(composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it")).toContain("You are the CodeDeck reviewer.");
-    expect(composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it")).toMatch(/\n\n---\n\ndo it$/);
+    expect(composed.startsWith(core)).toBe(true);
+    expect(composed).toMatch(/\n\n---\n\ndo it$/);
+  });
+
+  it("carries each role body after the core text", () => {
+    expect(composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it")).toContain(
+      "You are the CodeDeck reviewer.",
+    );
   });
 
   it("excludes core from every generated file", () => {

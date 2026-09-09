@@ -52,6 +52,13 @@ describe("parseRole", () => {
   it.each(["ord", "orchestrators"])("rejects a non-matching prefix: %s", (input) => {
     expect(parseRole(input)).toBeUndefined();
   });
+
+  // The orchestrator read/edit variants are open-only by design: the open
+  // path routes to them through the tools mode, while `run --role` only
+  // addresses the four base roles.
+  it.each(["orchestrator-read", "orchestrator-edit"])("leaves %s to the open path", (input) => {
+    expect(parseRole(input)).toBeUndefined();
+  });
 });
 
 describe("roleBody", () => {
