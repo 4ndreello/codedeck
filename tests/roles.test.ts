@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  composeRolePrompt,
   composeRunPrompt,
   parseRole,
   readCore,
@@ -91,19 +90,6 @@ describe("roleBody", () => {
 
     expect(roleBody(dir, "reviewer")).toBe("One.\n\n---\n\nTwo.");
   });
-});
-
-describe("composeRolePrompt", () => {
-  it("prefixes the prompt with the role body", () => {
-    const dir = pluginWith({
-      "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n",
-    });
-
-    expect(composeRolePrompt(dir, "auditor", "check the diff")).toBe(
-      "You audit.\n\n---\n\ncheck the diff",
-    );
-  });
-
 });
 
 describe("readCore", () => {

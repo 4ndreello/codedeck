@@ -61,10 +61,6 @@ export function roleBody(pluginDir: string, role: Role): string {
   return (match ? raw.slice(match[0].length) : raw).trim();
 }
 
-export function composeRolePrompt(pluginDir: string, role: Role, prompt: string): string {
-  return `${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
-}
-
 /**
  * The shared core text. Generated agent files exclude it; the run path
  * prepends it here so every `run --role` worker receives the ultra
