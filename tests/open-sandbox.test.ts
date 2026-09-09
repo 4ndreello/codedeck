@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { launcherFor } from "../src/cli/commands/open.js";
 import { buildOpenArgs } from "../src/open/launchers/claude.js";
@@ -24,10 +27,18 @@ function expectNoCodexSandboxArgs(args: string[]): void {
 
 describe("open remains Codex-blind", () => {
   it("keeps Claude launch arguments free of Codex sandbox options", () => {
-    const args = buildOpenArgs("orchestrator", {}, "/opt/codedeck/plugin", [], "/worktree");
+    // buildOpenArgs fails fast on a missing ultra.md, so this runs against a
+    // fixture plugin dir instead of a fake path.
+    const pluginDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-plugin-"));
+    fs.writeFileSync(path.join(pluginDir, "ultra.md"), "ULTRA BASE\n");
+    try {
+      const args = buildOpenArgs("orchestrator", {}, pluginDir, [], "/worktree");
 
-    expect(args).toContain("--dangerously-skip-permissions");
-    expectNoCodexSandboxArgs(args);
+      expect(args).toContain("--dangerously-skip-permissions");
+      expectNoCodexSandboxArgs(args);
+    } finally {
+      fs.rmSync(pluginDir, { recursive: true, force: true });
+    }
   });
 
   it("keeps opencode launch arguments free of Codex sandbox options", () => {
