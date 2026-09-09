@@ -57,8 +57,11 @@ export function roleBody(pluginDir: string, role: Role): string {
   // newline after it used to leave the whole block in the body, which is how
   // `tools:` reached a prompt as if it were prose.
   // v1 boundary: this run-path strip removes frontmatter but does not scope tools.
-  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
-  return (match ? raw.slice(match[0].length) : raw).trim();
+  // Hand-edited files can carry a leading blank line or BOM before the
+  // delimiter, so strip those before the anchored match.
+  const text = raw.replace(/^\uFEFF/, "").trimStart();
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text);
+  return (match ? text.slice(match[0].length) : text).trim();
 }
 
 /**

@@ -90,6 +90,19 @@ describe("roleBody", () => {
 
     expect(roleBody(dir, "reviewer")).toBe("One.\n\n---\n\nTwo.");
   });
+
+  // Hand-edited files can carry a leading blank line, spaces, or a BOM before
+  // the delimiter. Without the pre-strip the anchored match misses and the
+  // whole block, `tools:` included, lands in the prompt as prose.
+  it.each([
+    ["a leading blank line", "\n---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+    ["a whitespace-only first line", "   \n---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+    ["a leading BOM", "\uFEFF---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+  ])("strips frontmatter after %s", (_label, source) => {
+    const dir = pluginWith({ "reviewer.md": source });
+
+    expect(roleBody(dir, "reviewer")).toBe("You review.");
+  });
 });
 
 describe("readCore", () => {

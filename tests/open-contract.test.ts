@@ -7,6 +7,7 @@ import {
   effectiveModel,
   judgeModelIn,
   resolveOpenModel,
+  resolveRoleBody,
   resolveRoleContract,
 } from "../src/open/contract.js";
 import type { HarnessModels } from "../src/core/models.js";
@@ -89,6 +90,24 @@ describe("resolveRoleContract", () => {
         path.join(dir, "agents", "reviewer.md"),
       );
       expect(() => resolveRoleContract(dir, "reviewer")).toThrow(/ultra prompt not found/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Hand-edited agent files can carry a leading blank line or BOM before the
+  // delimiter. Without the pre-strip the anchored match misses and `tools:`
+  // lands in the prompt as prose.
+  it.each([
+    ["a leading blank line", "\n---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+    ["a leading BOM", "\uFEFF---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+  ])("strips frontmatter after %s", (_label, source) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-contract-"));
+    try {
+      fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "agents", "reviewer.md"), source);
+
+      expect(resolveRoleBody(dir, "reviewer")).toBe("You review.");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
