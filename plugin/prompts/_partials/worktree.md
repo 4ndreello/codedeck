@@ -1,0 +1,2 @@
+- Use `codedeck run --role <role> --worktree "<briefing>"` so the worker has an attributable worktree, diff, and role contract.
+- Worktree is a choice, not a default. `--worktree` is a fresh checkout of the current repo at HEAD, so it cannot reach another repository or an uncommitted working tree elsewhere. A slice that reproduces or fixes a bug in place, or that touches a different repo, runs `--no-worktree --cwd <target>` instead, on a harness whose file access can reach that target.

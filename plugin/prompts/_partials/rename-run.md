@@ -1,0 +1,1 @@
+- Once the task is clear in a `codedeck run` worker, rename your session with `codedeck rename "$CODEDECK_SESSION_ID" <short-task-slug>`.

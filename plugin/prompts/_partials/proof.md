@@ -1,0 +1,2 @@
+- Verify before you claim.
+- Read `codedeck diff <id>` yourself before believing any worker. The artifact is authoritative, the success message is not.
