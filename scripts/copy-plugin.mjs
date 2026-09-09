@@ -73,11 +73,14 @@ function resolvePartial(manifestPath, role, entry) {
   if (entry === "proof" && role === "reviewer") {
     const scoped = text
       .split(/\r?\n/)
-      .filter((line) => !line.includes("before believing any worker"))
+      .filter((line) => !line.includes("Read `codedeck diff <id>` yourself before believing any worker."))
       .join("\n")
       .trim();
     if (!scoped.includes("Verify before you claim.")) {
       throw new Error(`${manifestPath}: reviewer proof scoping dropped the verify sentence`);
+    }
+    if (scoped.includes("codedeck diff")) {
+      throw new Error(`${manifestPath}: reviewer proof scoping kept worker-dispatch semantics`);
     }
     return scoped;
   }

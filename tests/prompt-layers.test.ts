@@ -205,8 +205,8 @@ describe("prompt layers: Appendix A containment gate", () => {
     });
   });
 
-  it("reviewer never gains the run-worker diff sentence", () => {
-    expect(agentBody("reviewer")).not.toContain("before believing any worker");
+  it("reviewer never gains worker-dispatch semantics", () => {
+    expect(agentBody("reviewer")).not.toContain("codedeck diff");
   });
 
   // Role bodies may extend a concept with role-specific detail but must not
