@@ -85,7 +85,9 @@ function resolvePartial(manifestPath, role, entry) {
 }
 
 function generateAgents() {
-  mkdirSync(AGENTS, { recursive: true });
+  // Validate every manifest before writing any file: a failed build must
+  // leave plugin/agents/ and dist/ untouched.
+  const pending = new Map();
   for (const file of readdirSync(MANIFESTS).filter((f) => f.endsWith(".md")).sort()) {
     const role = file.replace(/\.md$/, "");
     const manifestPath = join(MANIFESTS, file);
@@ -104,7 +106,11 @@ function generateAgents() {
     ];
     if (manifest.tools) lines.push(`tools: ${manifest.tools}`);
     lines.push("---", "", sections.join("\n\n") + "\n");
-    writeFileSync(join(AGENTS, `${role}.md`), lines.join("\n"));
+    pending.set(role, lines.join("\n"));
+  }
+  mkdirSync(AGENTS, { recursive: true });
+  for (const [role, content] of pending) {
+    writeFileSync(join(AGENTS, `${role}.md`), content);
   }
 }
 

@@ -278,4 +278,49 @@ describe("prompt layers: build reproduces generated files", () => {
     }
     expect(fs.existsSync(path.join(agentsDir, "zz-bogus.md"))).toBe(false);
   });
+
+  it("leaves plugin/agents/ and dist/ untouched when the build fails", () => {
+    const before = snapshotAgents();
+    const mtimes = new Map(
+      ROLES.map((role) => [role, fs.statSync(path.join(agentsDir, `${role}.md`)).mtimeMs]),
+    );
+    const distAgents = path.join(root, "dist", "plugin", "agents");
+    const distBefore = fs.existsSync(distAgents)
+      ? new Map(
+        fs.readdirSync(distAgents).filter((f) => f.endsWith(".md")).map((f) => [
+          f,
+          fs.readFileSync(path.join(distAgents, f), "utf8"),
+        ]),
+      )
+      : new Map();
+    const bad = path.join(manifestsDir, "zz-bogus.md");
+    fs.writeFileSync(
+      bad,
+      "---\nname: zz-bogus\ndescription: Bogus role.\nincludes:\n  - nope\n---\n\nBody.\n",
+    );
+    try {
+      expect(() => execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" })).toThrow(
+        /zz-bogus.*nope/s,
+      );
+      for (const role of ROLES) {
+        expect(fs.readFileSync(path.join(agentsDir, `${role}.md`), "utf8"), role).toBe(
+          before.get(role),
+        );
+        expect(fs.statSync(path.join(agentsDir, `${role}.md`)).mtimeMs, role).toBe(
+          mtimes.get(role),
+        );
+      }
+      expect(fs.existsSync(path.join(agentsDir, "zz-bogus.md"))).toBe(false);
+      if (fs.existsSync(distAgents)) {
+        for (const [file, content] of distBefore) {
+          expect(fs.readFileSync(path.join(distAgents, file), "utf8"), file).toBe(content);
+        }
+        expect(fs.existsSync(path.join(distAgents, "zz-bogus.md"))).toBe(false);
+      }
+    } finally {
+      fs.rmSync(bad, { force: true });
+      fs.rmSync(path.join(agentsDir, "zz-bogus.md"), { force: true });
+      execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" });
+    }
+  });
 });
