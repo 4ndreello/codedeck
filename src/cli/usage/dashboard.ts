@@ -136,16 +136,21 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
 
     // Tab 0: Overview
     if (currentTab === 0) {
-      // Executive KPI Box
       const boxWidth = Math.min(width - 6, 120);
-      const costText = `${c.bold(formatCurrency(totals.costUsd, totals.costComplete))} USD`;
+      const inner = Math.max(20, boxWidth - 8);
+      const leftW = Math.max(20, Math.floor(inner * 0.36));
+      const rightW = Math.max(20, inner - leftW - 2);
+      const costText = `${formatCurrency(totals.costUsd, totals.costComplete)} USD`;
       const tokText = `${formatTokens(totals.totalTokens)} (${formatTokens(totals.inputTokens)} in · ${formatTokens(totals.outputTokens)} out · ${formatTokens(totals.cachedTokens)} cached)`;
       const sessText = `${totals.sessionCount} (${totals.completedSessionCount} completed, ${totals.failedSessionCount} failed${totals.activeSessionCount > 0 ? `, ${totals.activeSessionCount} active` : ""})`;
+      const costCell = ellipsizeEnd(`${c.bold("Total Cost:")} ${costText}`, leftW);
+      const sessCell = ellipsizeEnd(`${c.bold("Sessions:")} ${sessText}`, rightW);
+      const tokCell = ellipsizeEnd(`${c.bold("Tokens:")} ${tokText}`, inner);
 
-      lines.push(`  ┌── EXECUTIVE SUMMARY ${"─".repeat(Math.max(0, boxWidth - 24))}┐`);
-      lines.push(`  │  ${c.bold("Total Cost:")} ${padToWidth(costText, 24)}  ${c.bold("Sessions:")} ${padToWidth(sessText, 38)} │`);
-      lines.push(`  │  ${c.bold("Tokens:")}      ${padToWidth(tokText, 66)} │`);
-      lines.push(`  └──${"─".repeat(Math.max(0, boxWidth - 4))}┘`);
+      lines.push(`  ┌── EXECUTIVE SUMMARY ${"─".repeat(Math.max(0, inner - 18))}┐`);
+      lines.push(`  │  ${padToWidth(costCell, leftW)}  ${padToWidth(sessCell, rightW)} │`);
+      lines.push(`  │  ${padToWidth(tokCell, inner)} │`);
+      lines.push(`  └──${"─".repeat(Math.max(0, inner + 1))}┘`);
       lines.push("");
 
       // Bar Chart for daily cost
@@ -181,7 +186,6 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
         if (stacked.legend) lines.push(`  ${stacked.legend}`);
         lines.push("");
       }
-
       if (byModel.length > 0) {
         lines.push(`  ${c.dim("-- TOKEN DISTRIBUTION BY MODEL " + "-".repeat(Math.max(0, width - 45)))}`);
         const modelSegments = byModel.slice(0, 6).map((m) => ({
@@ -189,12 +193,12 @@ export async function runDashboard(fetcher: DashboardFetcher, io: DashboardIO): 
           label: m.key.replace("claude-", "").replace("gemini-", "").replace("meta/", ""),
           value: m.totalTokens,
         }));
-        const stacked = renderStackedBar(modelSegments, distWidth, { color: true });
+        const stacked = renderStackedBar(modelSegments, distWidth, { color: true, formatValue: (v) => `${formatTokens(v)} tokens` });
         lines.push(`  ${stacked.bar}`);
         if (stacked.legend) lines.push(`  ${stacked.legend}`);
         lines.push("");
       }
-    }
+      }
 
     // Tab 1: Projects (Clean Normalized Repositories)
     if (currentTab === 1) {

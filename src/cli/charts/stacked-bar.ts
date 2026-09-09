@@ -6,6 +6,7 @@ export interface StackSegment {
 
 export interface StackedBarOptions {
   color?: boolean;
+  formatValue?: (value: number) => string;
 }
 
 export interface StackedBarResult {
@@ -75,10 +76,10 @@ export function renderStackedBar(
     if (count > 0) {
       barChars += `${color}${"█".repeat(count)}${reset}`;
     }
-
     // Only show items that have at least 1% share
     if (pct >= 1) {
-      legendParts.push(`${color}■${reset} ${validSegments[i].label} (${pct}%)`);
+      const formatted = options.formatValue ? ` · ${options.formatValue(validSegments[i].value)}` : "";
+      legendParts.push(`${color}■${reset} ${validSegments[i].label} (${pct}%${formatted})`);
     }
   }
 
