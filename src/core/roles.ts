@@ -62,17 +62,19 @@ export function roleBody(pluginDir: string, role: Role): string {
 }
 
 /**
- * The shared core text. Generated agent files exclude it; the run path
- * prepends it here so every `run --role` worker receives the ultra
- * inviolables. The open path never calls this: it reads ultra.md through its
- * own separate reader and delivers it on a different channel.
+ * The shared core text, byte-identical to what the open path ships.
+ * Generated agent files exclude it; the run path prepends it here so every
+ * `run --role` worker receives the ultra inviolables. Untrimmed like
+ * readUltra: the composer owns the joining. The open path never calls this:
+ * it reads ultra.md through its own separate reader and delivers it on a
+ * different channel.
  */
 export function readCore(pluginDir: string): string {
   const coreFile = path.join(pluginDir, "ultra.md");
   if (!fs.existsSync(coreFile)) {
     throw new Error(`CodeDeck ultra prompt not found at ${coreFile}. The CodeDeck plugin is incomplete.`);
   }
-  return fs.readFileSync(coreFile, "utf8").trim();
+  return fs.readFileSync(coreFile, "utf8");
 }
 
 /**
@@ -81,7 +83,7 @@ export function readCore(pluginDir: string): string {
  * and the shared prefix aids cache reuse across roles.
  */
 export function composeRunPrompt(pluginDir: string, role: Role, prompt: string): string {
-  return `${readCore(pluginDir)}\n\n---\n\n${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
+  return `${readCore(pluginDir).trimEnd()}\n\n---\n\n${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
 }
 
 /**

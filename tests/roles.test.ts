@@ -93,10 +93,12 @@ describe("roleBody", () => {
 });
 
 describe("readCore", () => {
-  it("reads the ultra text the open path ships separately", () => {
+  // Raw like readUltra: no trim here, the composer owns the joining.
+  it("reads the ultra text byte-identical to the open path", () => {
     const dir = pluginWith({});
 
-    expect(readCore(dir)).toBe("# CodeDeck Ultra\n\nCore text.");
+    expect(readCore(dir)).toBe("# CodeDeck Ultra\n\nCore text.\n");
+    expect(readCore(dir)).toBe(fs.readFileSync(path.join(dir, "ultra.md"), "utf8"));
   });
 
   it("fails loud when ultra.md is missing", () => {
@@ -111,6 +113,19 @@ describe("composeRunPrompt", () => {
     const dir = pluginWith({
       "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n",
     });
+
+    expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+    );
+  });
+
+  // The composer owns the joining: trailing newlines in ultra.md never leak
+  // extra blank lines into the prompt.
+  it("trims ultra's trailing newlines before joining", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+    fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "ultra.md"), "# CodeDeck Ultra\n\nCore text.\n\n\n");
+    fs.writeFileSync(path.join(dir, "agents", "auditor.md"), "---\nname: auditor\n---\n\nYou audit.\n");
 
     expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
       "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
