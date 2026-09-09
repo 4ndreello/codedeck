@@ -279,6 +279,14 @@ reordering from composition is allowed, dropping is not).
 must-sentences below (they arrive via the partial instead) and keep the noted
 role-specific detail. No body restates a must-sentence after the drop.
 
+The `orchestrator-read` and `orchestrator-edit` variants are open-only by
+design (finding 1, closed as documented design). They are reachable only via
+the open path mode routing (`resolveRoleFile` in `src/open/contract.ts`
+selects `orchestrator-<tools>.md` from the orchestrator mode) and are
+intentionally NOT addressable via `run --role` (`parseRole` in
+`src/core/roles.ts` accepts only the 4 `ROLES`: `general`, `orchestrator`,
+`reviewer`, `auditor`).
+
 | Role | `tools:` | Includes | Drops from body (exact must-sentences) | Keeps |
 | ---- | -------- | -------- | -------------------------------------- | ----- |
 | `general` | (none) | `review-self`, `worktree`, `dispatch`, `proof`, `rename-run`, `commit`, `pr-writer` | All four `review-self` must-sentences ("Before declaring a file-changing task ready, dispatch `codedeck run --role reviewer --no-worktree \"<briefing>\"` on your own change.", "The review is read-only, so use `--no-worktree`. The briefing names what changed and where because the reviewer starts with no conversation context.", "Act on the review result before declaring the task ready.", "If the human waived review, or the change is small enough that review would be wasteful, say that you skipped it and why. Do not skip silently."); both `worktree` must-sentences ("Use `codedeck run --role <role> --worktree \"<briefing>\"` so the worker has an attributable worktree, diff, and role contract.", "Worktree is a choice, not a default. `--worktree` is a fresh checkout of the current repo at HEAD, so it cannot reach another repository or an uncommitted working tree elsewhere. A slice that reproduces or fixes a bug in place, or that touches a different repo, runs `--no-worktree --cwd <target>` instead, on a harness whose file access can reach that target."); all five `dispatch` must-sentences (the "Always include `--role`." sentence, the "Without `--role`, `codedeck run` uses the default harness..." sentence, the "The role owns the harness and the model..." sentence, the "Slice by ownership..." sentence, the "Workers start with none of this context..." sentence); the bare "Verify before you claim." (keeping "Run the focused command and quote its output."); the run-worker diff sentence "Read `codedeck diff <id>` yourself before believing any worker. The artifact is authoritative, the success message is not."; the rename sentence "Once the task is clear in a `codedeck run` worker, rename your session with `codedeck rename \"$CODEDECK_SESSION_ID\" <short-task-slug>`." | Identity sentence, operating-contract extensions (scoped test runs, merge-conflict rule, `gh pr checks`/SonarCloud gate rule), delegate header context, closing report line |
@@ -344,12 +352,12 @@ the generated file only.
 
 | Role | Budget | Basis and headroom |
 | ---- | ------ | ------------------ |
-| `general` | 16384 bytes (16KB) | Measured base about 12899 bytes (current `general.md` 3773 + commit skill file 4160 + pr-writer skill file 4966, excluding core 706) plus roughly 150 bytes of frontmatter marker, about 13050 total. 16KB leaves about 3.3KB (25 percent) headroom for the 3 skill adaptations and wording fixes |
-| `orchestrator` | 14336 bytes (14KB) | Measured base 11559 bytes on disk today; after dropping generic must-sentences and adding roughly 150 bytes of marker, about 10700 to 11700. 14KB leaves about 2.7KB (23 percent) headroom. The review's cited 12265 figure is this file plus core; core is now excluded, so the budget covers the file alone |
-| `orchestrator-read` | 8192 bytes (8KB) | Measured base 6107 bytes on disk; after drops plus marker, about 5300 to 6300. 8KB leaves about 2KB (30 percent) headroom. The review's cited 6813 figure is this file plus core; core is now excluded |
-| `orchestrator-edit` | 8192 bytes (8KB) | Measured base 6120 bytes on disk; same arithmetic as the read variant, about 2KB (30 percent) headroom |
-| `reviewer` | 8192 bytes (8KB) | Measured base 2743 bytes on disk plus the verify sentence and marker, under 3KB. 8KB is generous headroom for review-contract growth |
-| `auditor` | 8192 bytes (8KB) | Measured base 3829 bytes on disk plus composed dispatch/proof/rename sentences (about 1.5KB) and marker, about 5.5KB. 8KB leaves about 2.5KB headroom |
+| `general` | 16384 bytes (16KB) | Measured generated 12764 bytes; 16KB leaves about 3.6KB (22 percent) free for the 3 skill adaptations and wording fixes |
+| `orchestrator` | 14336 bytes (14KB) | Measured generated 12232 bytes; 14KB leaves about 2.1KB (15 percent) free. The review's cited 12265 figure is this file plus core; core is now excluded, so the budget covers the file alone |
+| `orchestrator-read` | 8192 bytes (8KB) | Measured generated about 7124 bytes; 8KB leaves about 1KB (about 13 percent) free, thin headroom accepted. The review's cited 6813 figure is this file plus core; core is now excluded |
+| `orchestrator-edit` | 8192 bytes (8KB) | Measured generated about 7137 bytes; 8KB leaves about 1KB (about 13 percent) free, same arithmetic as the read variant, thin headroom accepted |
+| `reviewer` | 8192 bytes (8KB) | Measured generated 2916 bytes, about 64 percent free; generous headroom for review-contract growth |
+| `auditor` | 8192 bytes (8KB) | Measured generated 4478 bytes, about 45 percent free |
 
 ## Out of Scope
 
@@ -357,12 +365,13 @@ Explicitly excluded:
 
 | Feature | Reason |
 | ------- | ------ |
-| Any implementation (partials, manifests, build script, tests) | This spec only defines the system; implementation is a separate task |
+| Any implementation (partials, manifests, build script, tests) | Scoping history, now superseded: true when the spec was written alone, but this program delivered the implementation on the same branch |
 | `tlc-spec-driven` vendoring | Separate sourcing decision, not part of prompt dedup |
 | `create-branch` vendoring | Deliberately not vendored; replaced by a one-line branch rule (see commit.md adaptation 1) |
 | Runtime context injection (v2) | Dynamic prompt assembly at launch is a later version; v1 is static generation plus the one run-path composer change |
 | Open launcher or driver changes | Zero changes: `src/open/contract.ts` and both launchers keep their existing ultra delivery exactly as today |
 | General refactor of `src/core/roles.ts` | Exactly one minimal change allowed: the run-path composer that prepends core. Build script plus test changes allowed |
+| `run --role` for `orchestrator-read` / `orchestrator-edit` | Open-only by design (finding 1, closed as documented design): the two variants are reachable only via the open path mode routing, never via `run --role`, whose `parseRole` accepts only the 4 `ROLES` |
 
 ## Acceptance Criteria
 
@@ -393,15 +402,15 @@ Explicitly excluded:
 
 | Requirement ID | Requisito | Status |
 | -------------- | --------- | ------ |
-| PL-01 | Single-source partials and manifests; agents files generated with DO NOT EDIT marker inside frontmatter; run-path composer plus zero open changes | Pending |
-| PL-02 | Build regenerates agents from manifests plus partials; generated files committed; source and dist in sync | Pending |
-| PL-03 | core.md is ultra.md verbatim, delivered out-of-band (run-path prepend, open path unchanged), never inlined in generated files | Pending |
-| PL-04 | Shared partials hold canonical must-sentences (worktree, dispatch, proof, review-self, rename-run with general/reviewer/auditor-only scope) | Pending |
-| PL-05 | commit and pr-writer as separate full-text partials with source header and 3 adaptations; general-only | Pending |
-| PL-06 | Open auto-rename untouched; core free of rename commands | Pending |
-| PL-07 | Composition order (includes then body; shared-first accepted change), parsed-YAML frontmatter, no marker leak | Pending |
-| PL-08 | Test pins: validity, run-path core-first, open no-dup, markers, frontmatter, size budgets on file bytes, roles/open-contract/open-args updates | Pending |
-| PL-09 | general fully specified; all six roles in the migration table with tools and drop/keep | Pending |
+| T-01 | Single-source partials and manifests; agents files generated with DO NOT EDIT marker inside frontmatter; run-path composer plus zero open changes | Verified |
+| T-02 | Build regenerates agents from manifests plus partials; generated files committed; source and dist in sync | Verified |
+| T-03 | core.md is ultra.md verbatim, delivered out-of-band (run-path prepend, open path unchanged), never inlined in generated files | Verified |
+| T-04 | Shared partials hold canonical must-sentences (worktree, dispatch, proof, review-self, rename-run with general/reviewer/auditor-only scope) | Verified |
+| T-05 | commit and pr-writer as separate full-text partials with source header and 3 adaptations; general-only | Verified |
+| T-06 | Open auto-rename untouched; core free of rename commands | Verified |
+| T-07 | Composition order (includes then body; shared-first accepted change), parsed-YAML frontmatter, no marker leak | Verified |
+| T-08 | Test pins: validity, run-path core-first, open no-dup, markers, frontmatter, size budgets on file bytes, roles/open-contract/open-args updates | Verified |
+| T-09 | general fully specified; all six roles in the migration table with tools and drop/keep; orchestrator-read/edit open-only via mode routing, not via run | Verified |
 
 **ID format:** `[CATEGORY]-[NUMBER]`
 
@@ -502,7 +511,7 @@ addressed; no finding is left open:
    plus the admitted run-path composer change and the unchanged open path.
    See Problem Statement, Goals, Source Layout (Generated files), core.md,
    Build, Tests (run-path core-first, open no-duplication), Out of Scope
-   (open zero-changes row plus minimal `src/core/roles.ts` row), PL-03, PL-09.
+   (open zero-changes row plus minimal `src/core/roles.ts` row), PL-03, T-09.
 2. `DO NOT EDIT` header breaking the frontmatter strip: fixed by placing the
    marker as YAML comment lines inside the frontmatter. The existing strip
    expression is unchanged. Frontmatter is compared as parsed YAML, never as
