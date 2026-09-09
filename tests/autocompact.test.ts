@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   AUTOCOMPACT_MAX_TOKENS,
@@ -11,6 +14,14 @@ import { buildClaudeArgs } from "../src/drivers/claude/driver.js";
 import { buildOpenArgs } from "../src/open/launchers/claude.js";
 
 const base = { sessionId: "test-session", prompt: "do it", cwd: "/work" };
+
+// buildOpenArgs fails fast on a missing ultra.md, so the open tests below run
+// against a fixture plugin dir instead of a fake path.
+const PLUGIN = (() => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-plugin-"));
+  fs.writeFileSync(path.join(dir, "ultra.md"), "ULTRA BASE\n");
+  return dir;
+})();
 
 describe("resolveAutocompactTokens", () => {
   it.each([
@@ -124,7 +135,7 @@ describe("Claude autocompact argument builders", () => {
     const args = buildOpenArgs(
       "general",
       { autocompact: "auto" },
-      "/opt/codedeck/plugin",
+      PLUGIN,
       ["--add-dir", "/tmp/work"],
     );
     const compactIndex = args.indexOf("--autocompact");
@@ -137,7 +148,7 @@ describe("Claude autocompact argument builders", () => {
     const configured = buildOpenArgs(
       "general",
       {},
-      "/opt/codedeck/plugin",
+      PLUGIN,
       [],
       undefined,
       undefined,
@@ -146,7 +157,7 @@ describe("Claude autocompact argument builders", () => {
     const disabled = buildOpenArgs(
       "general",
       { autocompact: false },
-      "/opt/codedeck/plugin",
+      PLUGIN,
       [],
     );
 
@@ -159,7 +170,7 @@ describe("Claude autocompact argument builders", () => {
     const args = buildOpenArgs(
       "general",
       {},
-      "/opt/codedeck/plugin",
+      PLUGIN,
       ["--autocompact", "auto"],
     );
 

@@ -57,12 +57,36 @@ export function roleBody(pluginDir: string, role: Role): string {
   // newline after it used to leave the whole block in the body, which is how
   // `tools:` reached a prompt as if it were prose.
   // v1 boundary: this run-path strip removes frontmatter but does not scope tools.
-  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
-  return (match ? raw.slice(match[0].length) : raw).trim();
+  // Hand-edited files can carry a leading blank line or BOM before the
+  // delimiter, so strip those before the anchored match.
+  const text = raw.replace(/^\uFEFF/, "").trimStart();
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text);
+  return (match ? text.slice(match[0].length) : text).trim();
 }
 
-export function composeRolePrompt(pluginDir: string, role: Role, prompt: string): string {
-  return `${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
+/**
+ * The shared core text, byte-identical to what the open path ships.
+ * Generated agent files exclude it; the run path prepends it here so every
+ * `run --role` worker receives the ultra inviolables. Untrimmed like
+ * readUltra: the composer owns the joining. The open path never calls this:
+ * it reads ultra.md through its own separate reader and delivers it on a
+ * different channel.
+ */
+export function readCore(pluginDir: string): string {
+  const coreFile = path.join(pluginDir, "ultra.md");
+  if (!fs.existsSync(coreFile)) {
+    throw new Error(`CodeDeck ultra prompt not found at ${coreFile}. The CodeDeck plugin is incomplete.`);
+  }
+  return fs.readFileSync(coreFile, "utf8");
+}
+
+/**
+ * The run-path composer: core first, then the role body, then the task.
+ * Core-first is deliberate: the inviolables take precedence over role detail
+ * and the shared prefix aids cache reuse across roles.
+ */
+export function composeRunPrompt(pluginDir: string, role: Role, prompt: string): string {
+  return `${readCore(pluginDir).trimEnd()}\n\n---\n\n${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
 }
 
 /**
@@ -90,5 +114,5 @@ export function resolveRolePrompt(
     throw new Error(`Role "${role}" has no agent file at ${file}. The CodeDeck plugin is incomplete.`);
   }
 
-  return composeRolePrompt(pluginDir, role, prompt);
+  return composeRunPrompt(pluginDir, role, prompt);
 }

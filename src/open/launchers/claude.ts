@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
@@ -147,7 +148,13 @@ export function buildOpenArgs(
  * original, cheaper contract.
  */
 function appendSystemPromptArgs(pluginDir: string, prose: string): string[] {
-  if (!prose) return ["--append-system-prompt-file", path.join(pluginDir, "ultra.md")];
+  if (!prose) {
+    const ultraFile = path.join(pluginDir, "ultra.md");
+    if (!fs.existsSync(ultraFile)) {
+      throw new Error(`CodeDeck ultra prompt not found at ${ultraFile}. The CodeDeck plugin is incomplete.`);
+    }
+    return ["--append-system-prompt-file", ultraFile];
+  }
   return ["--append-system-prompt", `${readUltra(pluginDir).trimEnd()}\n\n${prose}`];
 }
 

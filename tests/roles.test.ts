@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  composeRolePrompt,
+  composeRunPrompt,
   parseRole,
+  readCore,
   resolvePluginDir,
   resolveRolePrompt,
   roleBody,
@@ -15,6 +16,7 @@ import {
 function pluginWith(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
   fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "ultra.md"), "# CodeDeck Ultra\n\nCore text.\n");
   for (const [name, body] of Object.entries(files)) {
     fs.writeFileSync(path.join(dir, "agents", name), body);
   }
@@ -48,6 +50,13 @@ describe("parseRole", () => {
   });
 
   it.each(["ord", "orchestrators"])("rejects a non-matching prefix: %s", (input) => {
+    expect(parseRole(input)).toBeUndefined();
+  });
+
+  // The orchestrator read/edit variants are open-only by design: the open
+  // path routes to them through the tools mode, while `run --role` only
+  // addresses the four base roles.
+  it.each(["orchestrator-read", "orchestrator-edit"])("leaves %s to the open path", (input) => {
     expect(parseRole(input)).toBeUndefined();
   });
 });
@@ -88,19 +97,60 @@ describe("roleBody", () => {
 
     expect(roleBody(dir, "reviewer")).toBe("One.\n\n---\n\nTwo.");
   });
+
+  // Hand-edited files can carry a leading blank line, spaces, or a BOM before
+  // the delimiter. Without the pre-strip the anchored match misses and the
+  // whole block, `tools:` included, lands in the prompt as prose.
+  it.each([
+    ["a leading blank line", "\n---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+    ["a whitespace-only first line", "   \n---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+    ["a leading BOM", "\uFEFF---\nname: reviewer\ntools: Read, Bash\n---\n\nYou review.\n"],
+  ])("strips frontmatter after %s", (_label, source) => {
+    const dir = pluginWith({ "reviewer.md": source });
+
+    expect(roleBody(dir, "reviewer")).toBe("You review.");
+  });
 });
 
-describe("composeRolePrompt", () => {
-  it("prefixes the prompt with the role body", () => {
+describe("readCore", () => {
+  // Raw like readUltra: no trim here, the composer owns the joining.
+  it("reads the ultra text byte-identical to the open path", () => {
+    const dir = pluginWith({});
+
+    expect(readCore(dir)).toBe("# CodeDeck Ultra\n\nCore text.\n");
+    expect(readCore(dir)).toBe(fs.readFileSync(path.join(dir, "ultra.md"), "utf8"));
+  });
+
+  it("fails loud when ultra.md is missing", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+
+    expect(() => readCore(dir)).toThrow(/ultra prompt not found/);
+  });
+});
+
+describe("composeRunPrompt", () => {
+  it("prepends core, then the role body, then the prompt", () => {
     const dir = pluginWith({
       "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n",
     });
 
-    expect(composeRolePrompt(dir, "auditor", "check the diff")).toBe(
-      "You audit.\n\n---\n\ncheck the diff",
+    expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
     );
   });
 
+  // The composer owns the joining: trailing newlines in ultra.md never leak
+  // extra blank lines into the prompt.
+  it("trims ultra's trailing newlines before joining", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+    fs.mkdirSync(path.join(dir, "agents"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "ultra.md"), "# CodeDeck Ultra\n\nCore text.\n\n\n");
+    fs.writeFileSync(path.join(dir, "agents", "auditor.md"), "---\nname: auditor\n---\n\nYou audit.\n");
+
+    expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+    );
+  });
 });
 
 describe("resolveRolePrompt", () => {
@@ -110,11 +160,11 @@ describe("resolveRolePrompt", () => {
     expect(resolveRolePrompt(dir, undefined, "check the diff")).toBe("check the diff");
   });
 
-  it("composes when the flag names a real role", () => {
+  it("composes core plus the role when the flag names a real role", () => {
     const dir = pluginWith({ "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n" });
 
     expect(resolveRolePrompt(dir, " AUDITOR ", "check the diff")).toBe(
-      "You audit.\n\n---\n\ncheck the diff",
+      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
     );
   });
 

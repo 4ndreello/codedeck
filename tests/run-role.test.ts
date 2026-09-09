@@ -81,7 +81,8 @@ describe("codedeck run --role", () => {
 
     expect(request).toHaveBeenCalledWith("session.create", expect.any(Object));
     const [, params] = request.mock.calls[0];
-    expect(params.prompt).toMatch(/^You are the CodeDeck reviewer\./);
+    expect(params.prompt).toMatch(/^# CodeDeck Ultra\n\nYou are running inside a CodeDeck session\./);
+    expect(params.prompt).toContain("You are the CodeDeck reviewer.");
     expect(params.prompt).toMatch(/\n\n---\n\ndo the thing$/);
     expect(params.prompt).not.toMatch(/^---/);
   });
@@ -108,7 +109,7 @@ describe("codedeck run --role", () => {
 
     const [, params] = request.mock.calls[0];
     expect(params.name).toBe("fix-oauth-login");
-    expect(params.prompt).toMatch(/^You are the CodeDeck reviewer\./);
+    expect(params.prompt).toContain("You are the CodeDeck reviewer.");
     expect(params.name).not.toContain("reviewer");
   });
 

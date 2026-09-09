@@ -49,8 +49,12 @@ export function resolveRoleBody(
 ): string {
   const file = resolveRoleFile(pluginDir, role, mode);
   const raw = fs.readFileSync(file, "utf8");
-  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(raw);
-  return (match ? raw.slice(match[0].length) : raw).trim();
+  // Like the run-path strip: tolerate a leading blank line or BOM before the
+  // anchored frontmatter match so hand-edited files cannot smuggle `tools:`
+  // into the prompt as prose.
+  const text = raw.replace(/^\uFEFF/, "").trimStart();
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text);
+  return (match ? text.slice(match[0].length) : text).trim();
 }
 
 /**

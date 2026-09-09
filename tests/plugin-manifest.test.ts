@@ -296,7 +296,13 @@ describe("CodeDeck plugin manifest contract", () => {
     expect(orchestrator).toContain('codedeck run --role <role> "<briefing>" --bg --json');
     expect(orchestrator).toContain("Always dispatch in the background.");
     expect(orchestrator).toContain("codedeck diff <id> --stat");
-    expect(orchestrator).not.toMatch(/codedeck diff <id>(?! --stat)/);
+    // The shared proof partial ships the canonical run-worker diff sentence to
+    // every dispatching role, so the only bare `codedeck diff <id>` the
+    // orchestrator may carry is that sentence. Its own proof contract still
+    // reads `--stat` snapshots, never the full diff.
+    expect(orchestrator).toContain("Read `codedeck diff <id>` yourself before believing any worker.");
+    const bare = orchestrator.match(/codedeck diff <id>(?! --stat)/g) ?? [];
+    expect(bare).toHaveLength(1);
     expect(orchestrator).toContain("codedeck stop <id>");
     expect(general).toContain('codedeck run --role reviewer --no-worktree "<briefing>"');
 

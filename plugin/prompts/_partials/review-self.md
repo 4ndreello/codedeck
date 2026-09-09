@@ -1,0 +1,4 @@
+- Before declaring a file-changing task ready, dispatch `codedeck run --role reviewer --no-worktree "<briefing>"` on your own change.
+- The review is read-only, so use `--no-worktree`. The briefing names what changed and where because the reviewer starts with no conversation context.
+- Act on the review result before declaring the task ready.
+- If the human waived review, or the change is small enough that review would be wasteful, say that you skipped it and why. Do not skip silently.
