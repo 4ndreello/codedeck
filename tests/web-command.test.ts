@@ -319,6 +319,7 @@ describe("canvas page", () => {
     ["hidden-by-default filter", ['qp0.get("hide") !== "0"', 'qp.set("hide", "0")']],
     ["wheel skips zoom inside the detail panel", ['closest("#detail")']],
     ["roomier chat with dark thin scrollbars", ["52vh", "scrollbar-width", "::-webkit-scrollbar"]],
+    ["technical action feed with counter aggregation", [".feed-count", ".feed-text", "shortPath", "×"]],
   ];
   for (const [feature, needs] of markerGroups) {
     it(`has the ${feature}`, () => {
@@ -336,6 +337,10 @@ describe("canvas page", () => {
   it("keeps the template literal intact (no backticks or interpolation)", () => {
     expect(CANVAS_PAGE).not.toContain("`");
     expect(CANVAS_PAGE).not.toContain("${");
+  });
+
+  it("does not contain robotic 'começou:' prefix in action feed", () => {
+    expect(CANVAS_PAGE).not.toContain("começou:");
   });
 });
 
