@@ -319,6 +319,10 @@ describe("canvas page", () => {
     ["hidden-by-default filter", ['qp0.get("hide") !== "0"', 'qp.set("hide", "0")']],
     ["wheel skips zoom inside the detail panel", ['closest("#detail")']],
     ["roomier chat with dark thin scrollbars", ["52vh", "scrollbar-width", "::-webkit-scrollbar"]],
+    [
+      "distinct opencode and orchestrator logos",
+      ["LOGO_OPENCODE", "LOGO_ORCH", 'agent === "opencode") return LOGO_OPENCODE;'],
+    ],
     ["technical action feed with counter aggregation", [".feed-count", ".feed-text", "shortPath", "×"]],
   ];
   for (const [feature, needs] of markerGroups) {
