@@ -40,20 +40,22 @@ export function initialPrompt(
 /**
  * TOML-escape a contract for `-c developer_instructions="""..."""`. The value
  * is parsed as TOML, so a raw `"` or `\` would break out of the string and
- * inject a second config assignment. Raw newlines stay: multiline basic
- * strings allow them, and the fallback raw-string path would keep the
- * backslashes literally. Other C0 controls have no raw form and go as
- * `\uXXXX`.
+ * inject a second config assignment. LF stays raw, which multiline basic
+ * strings allow; every other C0 control and DEL goes as `\uXXXX`, which has
+ * no raw form. No control literal appears in the source below: the branch is
+ * on the char code, so linters that flag control escapes stay quiet.
  */
 export function developerInstructionsOverride(prompt: string): string {
-  const escaped = prompt
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")
-    .replace(/\u0008/g, "\\b")
-    .replace(/\f/g, "\\f")
-    .replace(/[\u0000-\u0007\u000B\u000E-\u001F\u007F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`);
+  let escaped = "";
+  for (const c of prompt) {
+    const code = c.codePointAt(0) ?? 0;
+    if (c === "\\") escaped += "\\\\";
+    else if (c === '"') escaped += '\\"';
+    else if (c === "\n") escaped += c;
+    else if (code < 0x20 || code === 0x7f) {
+      escaped += `\\u${code.toString(16).padStart(4, "0").toUpperCase()}`;
+    } else escaped += c;
+  }
   return `developer_instructions="""${escaped}"""`;
 }
 

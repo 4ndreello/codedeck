@@ -153,6 +153,21 @@ describe("developerInstructionsOverride", () => {
     expect(override).toContain('\\"hi\\"');
     expect(override).toContain("\\\\");
   });
+
+  it("emits other C0 controls as unicode escapes, keeping LF raw", () => {
+    const bell = String.fromCharCode(7);
+    const backspace = String.fromCharCode(8);
+    const tab = String.fromCharCode(9);
+    const vt = String.fromCharCode(11);
+    const override = developerInstructionsOverride(`a${bell}b${backspace}c${tab}d\ne${vt}f`);
+
+    expect(override).toContain("\\u0007");
+    expect(override).toContain("\\u0008");
+    expect(override).toContain("\\u0009");
+    expect(override).toContain("d\ne");
+    expect(override).not.toContain(bell);
+    expect(override).not.toContain(vt);
+  });
 });
 
 describe("judgeModel", () => {
