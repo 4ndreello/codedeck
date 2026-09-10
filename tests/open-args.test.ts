@@ -486,7 +486,7 @@ describe("open command pure helpers", () => {
     expect(spinnerTips()[0]).toMatch(/^codedeck-dev run/);
     expect(spinnerTips().every((tip) => !tip.startsWith("codedeck "))).toBe(true);
     expect(
-      harnessMismatch("reviewer", { harness: "codex", model: "gpt-5.6-luna" }),
+      harnessMismatch("reviewer", { harness: "omp", model: "gpt-5.6-luna" }),
     ).toContain("codedeck-dev run --role reviewer");
   });
 
@@ -855,22 +855,23 @@ describe("open command pure helpers", () => {
 // elsewhere would run a session under a name whose configuration it ignores.
 describe("an agent bound to another harness", () => {
   it("refuses, naming the harness and the way out", () => {
-    const message = harnessMismatch("reviewer", { harness: "codex", model: "gpt-5.6-luna" });
+    const message = harnessMismatch("reviewer", { harness: "omp", model: "gpt-5.6-luna" });
 
-    expect(message).toContain("codex");
+    expect(message).toContain("omp");
     expect(message).toContain("codedeck run --role reviewer");
   });
 
-  it("allows an agent bound to claude or opencode, and one nobody bound at all", () => {
+  it("allows an agent bound to claude, opencode or codex, and one nobody bound at all", () => {
     expect(harnessMismatch("general", { harness: "claude", model: "claude-opus-5" })).toBeUndefined();
     expect(harnessMismatch("general", { harness: "opencode", model: "prov/m" })).toBeUndefined();
+    expect(harnessMismatch("general", { harness: "codex", model: "gpt-5" })).toBeUndefined();
     expect(harnessMismatch("general", undefined)).toBeUndefined();
   });
 
   // An explicit --model changes which binary runs, never whether it is the
   // right harness, so it is no escape from the refusal.
   it("refuses every harness without a launcher", () => {
-    for (const harness of ["codex", "omp"] as const) {
+    for (const harness of ["omp", "antigravity"] as const) {
       expect(harnessMismatch("auditor", { harness, model: "whatever" })).toContain(harness);
     }
   });

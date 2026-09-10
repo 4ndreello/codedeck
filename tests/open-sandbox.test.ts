@@ -51,13 +51,13 @@ describe("open remains Codex-blind", () => {
     expectNoCodexSandboxArgs(args);
   });
 
-  it("selects only Claude or opencode launchers", () => {
+  it("selects only Claude, opencode or codex launchers", () => {
     expect(launcherFor("general", undefined)).toBe("claude");
     expect(launcherFor("reviewer", { harness: "claude", model: "claude-opus-4-8" })).toBe("claude");
     expect(launcherFor("reviewer", { harness: "opencode", model: "anthropic/claude-sonnet-4-6" })).toBe(
       "opencode",
     );
-    expect(() => launcherFor("reviewer", { harness: "codex", model: "gpt-5" })).toThrow(/codex/);
+    expect(launcherFor("reviewer", { harness: "codex", model: "gpt-5" })).toBe("codex");
     expect(() => launcherFor("reviewer", { harness: "omp", model: "gpt-5" })).toThrow(/omp/);
   });
 });
