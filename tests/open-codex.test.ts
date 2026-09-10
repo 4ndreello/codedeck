@@ -7,6 +7,7 @@ import {
   buildOpenArgs,
   CODEX_NOT_FOUND,
   codexSessionsDir,
+  developerInstructionsOverride,
   diffCodexRollouts,
   diffCodexRolloutsAcross,
   initialPrompt,
@@ -83,14 +84,17 @@ describe("buildOpenArgs", () => {
     expect(args).toContain("/wrk");
   });
 
-  it("delivers the role contract as the opening prompt before the passthrough", () => {
+  it("delivers the role contract as developer_instructions with no opening prompt", () => {
     const args = buildOpenArgs("reviewer", {}, pluginDir, ["--search"], "/wrk");
-    const body = roleBody(pluginDir, "reviewer");
-    const promptIndex = args.findIndex((arg) => arg.includes(body));
+    const expected = developerInstructionsOverride(initialPrompt(pluginDir, "reviewer"));
 
-    expect(promptIndex).toBeGreaterThan(-1);
+    expect(args).toContain(expected);
+    expect(args).not.toContain(initialPrompt(pluginDir, "reviewer"));
     expect(args.at(-1)).toBe("--search");
-    expect(promptIndex).toBeLessThan(args.length - 1);
+    // The -c value sits adjacent to its flag, or codex reads the next flag
+    // as the value.
+    const flagIndex = args.indexOf("-c");
+    expect(args[flagIndex + 1]).toBe(expected);
   });
 
   it("passes an explicit model and effort, and drops the bypass on demand", () => {
@@ -115,7 +119,7 @@ describe("buildOpenArgs", () => {
       .toThrow(/Invalid effort/);
   });
 
-  it("resumes without sandbox, cwd or contract prompt", () => {
+  it("resumes without sandbox, cwd or contract instructions", () => {
     const args = buildOpenArgs(
       "reviewer",
       { model: "gpt-5.6", resume: "thread-1" },
@@ -128,8 +132,41 @@ describe("buildOpenArgs", () => {
     expect(args).not.toContain("-s");
     expect(args).not.toContain("-C");
     expect(args).not.toContain(roleBody(pluginDir, "reviewer"));
+    expect(args.some((arg) => arg.startsWith("developer_instructions="))).toBe(false);
     expect(args).toContain("-m");
     expect(args.at(-1)).toBe("hello again");
+  });
+});
+
+describe("developerInstructionsOverride", () => {
+  it("wraps the contract as a TOML multiline string", () => {
+    const override = developerInstructionsOverride("line1\nline2");
+
+    expect(override.startsWith('developer_instructions="""')).toBe(true);
+    expect(override.endsWith('"""')).toBe(true);
+    expect(override).toContain("line1\nline2");
+  });
+
+  it("escapes quotes and backslashes so the contract cannot inject config", () => {
+    const override = developerInstructionsOverride('say "hi" \\ done');
+
+    expect(override).toContain('\\"hi\\"');
+    expect(override).toContain("\\\\");
+  });
+
+  it("emits other C0 controls as unicode escapes, keeping LF raw", () => {
+    const bell = String.fromCharCode(7);
+    const backspace = String.fromCharCode(8);
+    const tab = String.fromCharCode(9);
+    const vt = String.fromCharCode(11);
+    const override = developerInstructionsOverride(`a${bell}b${backspace}c${tab}d\ne${vt}f`);
+
+    expect(override).toContain("\\u0007");
+    expect(override).toContain("\\u0008");
+    expect(override).toContain("\\u0009");
+    expect(override).toContain("d\ne");
+    expect(override).not.toContain(bell);
+    expect(override).not.toContain(vt);
   });
 });
 
