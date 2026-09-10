@@ -323,6 +323,7 @@ describe("canvas page", () => {
       "distinct opencode and orchestrator logos",
       ["LOGO_OPENCODE", "LOGO_ORCH", 'agent === "opencode") return LOGO_OPENCODE;'],
     ],
+    ["technical action feed with counter aggregation", [".feed-count", ".feed-text", "shortPath", "×"]],
   ];
   for (const [feature, needs] of markerGroups) {
     it(`has the ${feature}`, () => {
@@ -340,6 +341,10 @@ describe("canvas page", () => {
   it("keeps the template literal intact (no backticks or interpolation)", () => {
     expect(CANVAS_PAGE).not.toContain("`");
     expect(CANVAS_PAGE).not.toContain("${");
+  });
+
+  it("does not contain robotic 'começou:' prefix in action feed", () => {
+    expect(CANVAS_PAGE).not.toContain("começou:");
   });
 });
 

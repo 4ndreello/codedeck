@@ -42,12 +42,17 @@ export const CANVAS_PAGE: string = `<!doctype html>
   .dot.resting { background: #636366; }
   .dot.done { background: #3a3a3c; }
   .dot.failed { background: #ff453a; box-shadow: 0 0 8px rgba(255,69,58,.8); }
-  #feed { left: 16px; top: 112px; width: 300px; }
+  #feed { left: 16px; top: 112px; width: 330px; }
   #feed h2 { font-size: 11px; letter-spacing: .06em; color: #98989f; margin: 0 0 8px; }
-  #feed ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
-  #feed li { font-size: 12.5px; color: #98989f; display: flex; gap: 8px; animation: feedIn .3s ease-out; }
-  #feed li b { color: #f5f5f7; white-space: nowrap; }
+  #feed ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #feed li { font-size: 12px; color: #98989f; display: flex; align-items: baseline; gap: 7px; animation: feedIn .3s ease-out; line-height: 1.35; }
+  #feed li b { color: #f5f5f7; white-space: nowrap; font-weight: 600; font-size: 12px; }
   #feed li.fresh { color: #f5f5f7; }
+  #feed li.warn { color: #ff9f0a; }
+  #feed li.bad { color: #ff453a; }
+  #feed .feed-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11.5px; }
+  #feed .feed-count { font-size: 11px; color: #636366; font-weight: 600; margin-left: 2px; white-space: nowrap; flex-shrink: 0; font-family: system-ui, sans-serif; }
+  #feed li.fresh .feed-count { color: #8e8e93; }
   @keyframes feedIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; } }
   #hint { left: 50%; transform: translateX(-50%); bottom: 16px; font-size: 12px; color: #98989f; white-space: nowrap; }
   #detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 94vw); z-index: 20;
@@ -176,28 +181,41 @@ function toolHuman(name) {
   if (name === "bash" || name === "Bash") return "terminal";
   return name;
 }
+function shortPath(s) {
+  if (!s || typeof s !== "string") return "";
+  var clean = s.replace(/\\/g, "/").replace(/\/+$/, "");
+  var parts = clean.split("/").filter(Boolean);
+  if (parts.length > 2) return parts.slice(-2).join("/");
+  return parts.join("/") || s;
+}
 /* Pedaco do input real da ferramenta: primeira string interessante, cortada.
    "terminal" sozinho nao diz nada; "podman ps" diz. */
 function inputSnippet(input) {
   if (!input) return "";
   if (typeof input === "string") return clip(input);
   if (typeof input !== "object") return "";
-  var keys = ["command", "cmd", "file", "path", "query", "pattern", "message", "text", "url"];
-  for (var i = 0; i < keys.length; i++) {
-    var v = input[keys[i]];
-    if (typeof v === "string" && v.trim() !== "") return clip(v);
+  if (Array.isArray(input.todos)) return "(" + input.todos.length + " tarefas)";
+  var pathKeys = ["filePath", "file_path", "filename", "file", "path", "target", "dest", "directory", "dir"];
+  for (var p = 0; p < pathKeys.length; p++) {
+    var pv = input[pathKeys[p]];
+    if (typeof pv === "string" && pv.trim() !== "") return clip(shortPath(pv.trim()));
+  }
+  var textKeys = ["command", "cmd", "script", "query", "pattern", "regex", "title", "message", "text", "prompt", "url"];
+  for (var t = 0; t < textKeys.length; t++) {
+    var tv = input[textKeys[t]];
+    if (typeof tv === "string" && tv.trim() !== "") return clip(tv.trim());
   }
   return "";
 }
 function clip(s) {
   var one = String(s).replace(/\s+/g, " ").trim();
-  return one.length > 42 ? one.slice(0, 42) + "…" : one;
+  return one.length > 40 ? one.slice(0, 40) + "…" : one;
 }
 function toolLabel(tool) {
   var name = (tool && tool.name) || "";
-  var snip = inputSnippet(tool && tool.input);
-  if (!name) return snip || "uma tarefa";
-  if (name === "bash" || name === "Bash") return snip ? '"' + snip + '"' : "terminal";
+  var snip = (tool && tool.title && typeof tool.title === "string") ? clip(tool.title) : inputSnippet(tool && tool.input);
+  if (!name) return snip || "tarefa";
+  if (name === "bash" || name === "Bash") return snip ? "$ " + snip : "terminal";
   return snip ? name + " " + snip : name;
 }
 function timeAgo(iso) {
@@ -321,13 +339,37 @@ function paintNode(n) {
   n.el.classList.toggle("alert", n.status === "needs_input");
   n.el.title = "sessão " + n.id + (n.label ? " · " + n.label : "");
 }
-function feed(agent, text) {
+function feed(agent, text, kind) {
+  if (!text) return;
+  var top = feedList.firstElementChild;
+  if (top && top._agent === agent && top._text === text) {
+    var count = (top._count || 1) + 1;
+    top._count = count;
+    var badge = top.querySelector(".feed-count");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "feed-count";
+      top.appendChild(badge);
+    }
+    badge.textContent = "×" + count;
+    top.classList.remove("fresh");
+    void top.offsetWidth;
+    top.classList.add("fresh");
+    return;
+  }
   var li = document.createElement("li");
-  li.className = "fresh";
+  li.className = "fresh" + (kind ? " " + kind : "");
+  li._agent = agent;
+  li._text = text;
+  li._count = 1;
+  li.title = agent + ": " + text;
   var b = document.createElement("b");
   b.textContent = agent;
   li.appendChild(b);
-  li.appendChild(document.createTextNode(text));
+  var span = document.createElement("span");
+  span.className = "feed-text";
+  span.textContent = text;
+  li.appendChild(span);
   feedList.insertBefore(li, feedList.firstChild);
   while (feedList.children.length > 6) feedList.removeChild(feedList.lastChild);
   var items = feedList.children;
@@ -563,15 +605,16 @@ function onEvent(n, ev) {
     spawnRing(n, "#0a84ff");
     spawnFlow(n, "#0a84ff", 1);
     touch(n, toolLabel(ev.tool));
-    feed(agentName(n.agent), "começou: " + toolLabel(ev.tool));
+    feed(agentName(n.agent), toolLabel(ev.tool));
   } else if (ev.type === "tool.completed") {
     var bad = ev.tool && ev.tool.success === false;
     touch(n, toolLabel(ev.tool) + (bad ? " (com erro)" : " ✓"));
-    if (bad) feed(agentName(n.agent), "ferramenta falhou");
+    if (bad) feed(agentName(n.agent), "falhou: " + toolLabel(ev.tool), "bad");
   } else if (ev.type === "message") {
     if (ev.role === "assistant") {
       touch(n, "respondendo");
-      feed(agentName(n.agent), String(ev.content || "").slice(0, 90));
+      var textSnippet = clip(ev.content || "");
+      if (textSnippet) feed(agentName(n.agent), textSnippet);
     }
   } else if (ev.type === "message.queued") {
     touch(n, "mensagem na fila");
@@ -580,20 +623,20 @@ function onEvent(n, ev) {
   } else if (ev.type === "turn.started") {
     if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
   } else if (ev.type === "turn.completed") {
-    feed(agentName(n.agent), "etapa concluída");
+    // turn completion is recorded on node activity
   } else if (ev.type === "file.changed") {
-    feed(agentName(n.agent), "mudou " + (ev.path || "um arquivo"));
+    feed(agentName(n.agent), "salvou " + shortPath(ev.path || "arquivo"));
   } else if (ev.type === "permission.requested") {
     n.status = "needs_input";
     touch(n, "quer sua aprovação para continuar");
     paintSummary();
     spawnRing(n, "#ff9f0a");
-    feed(agentName(n.agent), "pedindo sua aprovação");
+    feed(agentName(n.agent), "precisa de aprovação", "warn");
   } else if (ev.type === "session.completed" || ev.type === "session.failed") {
     n.status = ev.type === "session.failed" ? "failed" : "completed";
     touch(n, ev.type === "session.failed" ? ("falhou: " + (ev.error || "")) : "concluída");
     paintSummary();
-    feed(agentName(n.agent), ev.type === "session.failed" ? "falhou" : "concluída");
+    feed(agentName(n.agent), ev.type === "session.failed" ? "falhou" : "concluída", ev.type === "session.failed" ? "bad" : "");
     // Stop/release cancels the queue server-side: drop a stale "na fila"
     // hint on the open detail, mirroring the turn.started branch.
     if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
@@ -973,14 +1016,14 @@ function selectSession(id) {
       } else if (ev.type === "message" && ev.role === "assistant" && ev.content) {
         chat.appendChild(chatMsg(agentName(s.agent), String(ev.content), "assistant"));
       } else if (ev.type === "tool.started") {
-        chat.appendChild(chatEvt("começou: " + toolLabel(ev.tool)));
+        chat.appendChild(chatEvt(toolLabel(ev.tool)));
       } else if (ev.type === "tool.completed") {
         var bad = ev.tool && ev.tool.success === false;
-        chat.appendChild(chatEvt("terminou: " + toolLabel(ev.tool) + (bad ? " (com erro)" : "")));
+        if (bad) chat.appendChild(chatEvt("falhou: " + toolLabel(ev.tool)));
       } else if (ev.type === "permission.requested") {
-        chat.appendChild(chatEvt("pediu aprovação: " + (ev.tool || "uma ação")));
+        chat.appendChild(chatEvt("precisa de aprovação: " + (ev.tool || "uma ação")));
       } else if (ev.type === "file.changed") {
-        chat.appendChild(chatEvt("mudou " + (ev.path || "um arquivo")));
+        chat.appendChild(chatEvt("salvou " + shortPath(ev.path || "arquivo")));
       }
     }
     if (!chat.children.length) {
