@@ -1,14 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi, afterEach } from "vitest";
-
-vi.mock("../src/drivers/helpers.js", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../src/drivers/helpers.js")>();
-  return { ...mod, detectBinary: vi.fn() };
-});
-
-import { DISPATCHER_PRESET, type OrchestratorMode } from "../src/config/orchestrator-mode.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DISPATCHER_PRESET } from "../src/config/orchestrator-mode.js";
 import {
   buildOpenArgs,
   CODEX_NOT_FOUND,
@@ -31,14 +25,15 @@ import { detectBinary } from "../src/drivers/helpers.js";
 import { resolvePluginDir, roleBody } from "../src/core/roles.js";
 import { composeOrchestratorProse } from "../src/open/orchestrator-prose.js";
 
-const mockedDetect = vi.mocked(detectBinary);
-
-const pluginDir = resolvePluginDir();
-
-const mode = (overrides: Partial<OrchestratorMode> = {}): OrchestratorMode => ({
-  ...DISPATCHER_PRESET,
-  ...overrides,
+// Hoisted above the imports it shadows: only the codex binary lookup is
+// faked, everything else in the helpers module stays real.
+vi.mock("../src/drivers/helpers.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/drivers/helpers.js")>();
+  return { ...mod, detectBinary: vi.fn() };
 });
+
+const mockedDetect = vi.mocked(detectBinary);
+const pluginDir = resolvePluginDir();
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -65,7 +60,7 @@ describe("initialPrompt", () => {
   });
 
   it("adds orchestrator prose only for the orchestrator", () => {
-    const proseMode = mode({ parallelism: 3 });
+    const proseMode = { ...DISPATCHER_PRESET, parallelism: 3 };
     expect(composeOrchestratorProse(proseMode)).not.toBe("");
     expect(initialPrompt(pluginDir, "orchestrator", proseMode)).toContain(
       composeOrchestratorProse(proseMode),
@@ -156,38 +151,36 @@ describe("judgeModel", () => {
 });
 
 describe("preflight", () => {
-  it("warns and continues when discovery throws", async () => {
+  const catalogListing = (...ids: string[]) => [
+    {
+      agent: "codex",
+      available: true,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          models: ids.map((id) => ({ id, name: id, provider: "openai" })),
+        },
+      ],
+    },
+  ];
+
+  it("pins the launch to whatever the codex catalog answers", async () => {
+    const discover = vi.spyOn(models, "getCachedOrDiscoverModels");
+    discover.mockResolvedValueOnce([]);
+    await preflight("gpt-5", false);
+    expect(discover).toHaveBeenCalledWith(expect.anything(), { agent: "codex" });
+
+    discover.mockResolvedValueOnce(catalogListing("gpt-5"));
+    await expect(preflight("gpt-zzz", false)).rejects.toThrow(/not in the Codex catalog/);
+  });
+
+  it("treats an unreachable catalog as unknown, not as rejection", async () => {
     vi.spyOn(models, "getCachedOrDiscoverModels").mockRejectedValueOnce(new Error("net down"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await expect(preflight("gpt-5", false)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("unavailable"));
-  });
-
-  it("consults the codex catalog, not another harness", async () => {
-    const discover = vi.spyOn(models, "getCachedOrDiscoverModels").mockResolvedValueOnce([]);
-
-    await preflight("gpt-5", false);
-
-    expect(discover).toHaveBeenCalledWith(expect.anything(), { agent: "codex" });
-  });
-
-  it("rejects a model the codex catalog does not list", async () => {
-    vi.spyOn(models, "getCachedOrDiscoverModels").mockResolvedValueOnce([
-      {
-        agent: "codex",
-        available: true,
-        providers: [
-          {
-            provider: "openai",
-            displayName: "OpenAI",
-            models: [{ id: "gpt-5", name: "gpt-5", provider: "openai" }],
-          },
-        ],
-      },
-    ]);
-
-    await expect(preflight("gpt-zzz", false)).rejects.toThrow(/not in the Codex catalog/);
   });
 });
 

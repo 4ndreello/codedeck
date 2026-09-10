@@ -267,6 +267,39 @@ export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenH
   );
 }
 
+export interface OpenWorktree {
+  openCwd: string;
+  wtInfo?: { path: string; branch?: string; baseCommit?: string | null };
+}
+
+/**
+ * Shared `--worktree` preamble for the worktree-capable launchers. A creation
+ * failure propagates before the spawn: a launch would rather fail than open
+ * in the wrong cwd, and the native harness flag stays unused so the daemon
+ * keeps tracking the checkout for diff.
+ */
+export async function prepareOpenWorktree(
+  cwd: string,
+  worktree: boolean | undefined,
+  runId: string,
+  role: Role,
+): Promise<OpenWorktree> {
+  if (!worktree) return { openCwd: cwd };
+  const gitInfo = await getGitInfo(cwd);
+  if (!gitInfo) {
+    throw new Error(
+      `--worktree needs a git repository, and the current directory is outside one.`,
+    );
+  }
+  const wt = await createWorktree({
+    repoRoot: gitInfo.root,
+    sessionId: runId,
+    prompt: role,
+    name: role,
+  });
+  return { openCwd: wt.path, wtInfo: wt };
+}
+
 
 
 
@@ -535,26 +568,7 @@ export function registerOpenCommand(program: Command): void {
       let patchPromise: Promise<unknown> | undefined;
       try {
         if (launcher === "opencode") {
-          let openCwd = cwd;
-          let wtInfo: { path: string; branch?: string; baseCommit?: string | null } | undefined;
-          if (opts.worktree) {
-            const gitInfo = await getGitInfo(cwd);
-            if (!gitInfo) {
-              throw new Error(
-                `--worktree needs a git repository, and the current directory is outside one.`,
-              );
-            }
-            // A creation failure propagates before the spawn: OP-14 would
-            // rather fail than open in the wrong cwd.
-            const wt = await createWorktree({
-              repoRoot: gitInfo.root,
-              sessionId: runId,
-              prompt: role,
-              name: role,
-            });
-            wtInfo = wt;
-            openCwd = wt.path;
-          }
+          const { openCwd, wtInfo } = await prepareOpenWorktree(cwd, opts.worktree, runId, role);
           const model = passthroughModel ?? boundModel!;
           await preflightOpencode(model, fromConfig);
           const opencodeBin = await resolveOpencodeBinary();
@@ -642,28 +656,7 @@ export function registerOpenCommand(program: Command): void {
         }
 
         if (launcher === "codex") {
-          let openCwd = cwd;
-          let wtInfo: { path: string; branch?: string; baseCommit?: string | null } | undefined;
-          if (opts.worktree) {
-            const gitInfo = await getGitInfo(cwd);
-            if (!gitInfo) {
-              throw new Error(
-                `--worktree needs a git repository, and the current directory is outside one.`,
-              );
-            }
-            // A creation failure propagates before the spawn: like opencode,
-            // codex would rather fail than open in the wrong cwd. The native
-            // --worktree stays unused so the daemon keeps tracking the
-            // checkout for diff.
-            const wt = await createWorktree({
-              repoRoot: gitInfo.root,
-              sessionId: runId,
-              prompt: role,
-              name: role,
-            });
-            wtInfo = wt;
-            openCwd = wt.path;
-          }
+          const { openCwd, wtInfo } = await prepareOpenWorktree(cwd, opts.worktree, runId, role);
           // No CodeDeck-side model default: without an explicit model the
           // flag is omitted and the codex config.toml answers, so there is
           // nothing to preflight either.
