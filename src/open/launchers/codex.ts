@@ -19,11 +19,12 @@ import { SESSION_ID_PATTERN } from "../runtime.js";
 
 /**
  * Codex has no system-prompt flag on its interactive TUI (no equivalent of
- * Claude's --append-system-prompt-file), and its config keys for inline
- * instructions were never probed against this CLI version. The role contract
- * therefore travels as the session's first prompt, the same channel `run`
- * already uses for every role. The TUI shows it as the opening message and
- * starts the turn immediately.
+ * Claude's --append-system-prompt-file), so the role contract travels as a
+ * `-c developer_instructions` override instead of the session's first prompt.
+ * Probed against codex-cli 0.154.0: the key lands as the opening `developer`
+ * message (visible via `codex debug prompt-input`), the TUI starts empty, and
+ * no turn is spent. `model_instructions_file` is deliberately avoided: it
+ * replaces the sanctioned model instructions instead of appending to them.
  */
 export function initialPrompt(
   pluginDir: string,
@@ -34,6 +35,26 @@ export function initialPrompt(
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
   const body = orchestratorProse ? `${agentBody}\n\n${orchestratorProse}` : agentBody;
   return `${ultra.trimEnd()}\n\n${body}`;
+}
+
+/**
+ * TOML-escape a contract for `-c developer_instructions="""..."""`. The value
+ * is parsed as TOML, so a raw `"` or `\` would break out of the string and
+ * inject a second config assignment. Raw newlines stay: multiline basic
+ * strings allow them, and the fallback raw-string path would keep the
+ * backslashes literally. Other C0 controls have no raw form and go as
+ * `\uXXXX`.
+ */
+export function developerInstructionsOverride(prompt: string): string {
+  const escaped = prompt
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
+    .replace(/\u0008/g, "\\b")
+    .replace(/\f/g, "\\f")
+    .replace(/[\u0000-\u0007\u000B\u000E-\u001F\u007F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`);
+  return `developer_instructions="""${escaped}"""`;
 }
 
 /**
@@ -59,6 +80,11 @@ export function roleSandbox(role: Role): CodexSandbox {
  * against codex-cli 0.154.0): resume is a subcommand, a resumed thread keeps
  * its policy and working root, and effort is a TOML config override.
  *
+ * The role contract travels as `-c developer_instructions`, never as the
+ * positional [PROMPT]: the TUI starts empty and no turn is spent. Multiple
+ * `-c` flags coexist (effort + instructions), each kept adjacent to its
+ * value or codex reads the next flag as the value.
+ *
  * No model default is pinned here: without an explicit model the flag is
  * omitted and the codex config.toml answers.
  */
@@ -79,10 +105,10 @@ export function buildOpenArgs(
   // Validated, never interpolated raw: the value lands inside a TOML string
   // and an unescaped quote would inject a second config assignment.
   if (flags.effort) args.push("-c", `model_reasoning_effort="${parseEffort(flags.effort)}"`);
-  if (!isResume) args.push("-C", openCwd);
   // The resume slot takes an optional follow-up prompt, so a resumed thread
   // never gets the role contract re-injected as a new message.
-  if (!isResume) args.push(initialPrompt(pluginDir, role, mode));
+  if (!isResume) args.push("-c", developerInstructionsOverride(initialPrompt(pluginDir, role, mode)));
+  if (!isResume) args.push("-C", openCwd);
   args.push(...passthrough);
   return args;
 }
