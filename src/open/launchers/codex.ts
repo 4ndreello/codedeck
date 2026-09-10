@@ -4,7 +4,7 @@ import path from "node:path";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
-import type { CodexSandbox } from "../../core/driver.js";
+import { parseEffort, type CodexSandbox } from "../../core/driver.js";
 import type { Role } from "../../core/roles.js";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
 import {
@@ -76,7 +76,9 @@ export function buildOpenArgs(
   if (flags.model) args.push("-m", flags.model);
   if (!isResume) args.push("-s", roleSandbox(role));
   if (flags.bypass !== false) args.push("--dangerously-bypass-approvals-and-sandbox");
-  if (flags.effort) args.push("-c", `model_reasoning_effort="${flags.effort}"`);
+  // Validated, never interpolated raw: the value lands inside a TOML string
+  // and an unescaped quote would inject a second config assignment.
+  if (flags.effort) args.push("-c", `model_reasoning_effort="${parseEffort(flags.effort)}"`);
   if (!isResume) args.push("-C", openCwd);
   // The resume slot takes an optional follow-up prompt, so a resumed thread
   // never gets the role contract re-injected as a new message.
@@ -160,8 +162,9 @@ export function codexSessionsDir(
 }
 
 /**
- * Best-effort snapshot of the day's rollout files, or undefined. Capture is
- * allowed to fail: no snapshot means no resume hint, never a failed launch.
+ * Best-effort snapshot of the day's rollout files. A missing directory means
+ * no rollouts yet, not a failed capture; any other read failure stays
+ * undefined so the close path refuses the diff instead of guessing.
  */
 export function readCodexRollouts(dir: string = codexSessionsDir()): string[] | undefined {
   try {
@@ -170,35 +173,87 @@ export function readCodexRollouts(dir: string = codexSessionsDir()): string[] | 
       .filter((file) => file.startsWith("rollout-") && file.endsWith(".jsonl"))
       .sort();
   } catch {
+    try {
+      if (!fs.existsSync(dir)) return [];
+    } catch {}
     return undefined;
   }
 }
 
+export interface CodexRolloutIdentity {
+  id: string;
+  cwd?: string;
+}
+
 /**
- * The thread id a rollout file belongs to, read off its opening session_meta
- * line. Anything unparseable means "cannot tell", and a missing hint beats a
+ * Who a rollout file belongs to, read off its opening session_meta line.
+ * Anything unparseable means "cannot tell", and a missing hint beats a
  * wrong one.
  */
-export function threadIdFromRollout(file: string): string | undefined {
+export function rolloutIdentity(file: string): CodexRolloutIdentity | undefined {
   try {
     const first = fs.readFileSync(file, "utf8").split("\n", 1)[0] ?? "";
-    const line = JSON.parse(first) as { type?: unknown; payload?: { id?: unknown } };
+    const line = JSON.parse(first) as {
+      type?: unknown;
+      payload?: { id?: unknown; cwd?: unknown };
+    };
     const id = line?.payload?.id;
-    return typeof id === "string" && SESSION_ID_PATTERN.test(id) ? id : undefined;
+    if (typeof id !== "string" || !SESSION_ID_PATTERN.test(id)) return undefined;
+    const cwd = line?.payload?.cwd;
+    return { id, ...(typeof cwd === "string" && cwd ? { cwd } : {}) };
   } catch {
     return undefined;
   }
 }
 
 /**
+ * The thread id a rollout file belongs to. When the launching cwd is known
+ * it must match the rollout's own cwd: two concurrent launches in different
+ * directories must never record each other's session.
+ */
+export function threadIdFromRollout(file: string, expectedCwd?: string): string | undefined {
+  const identity = rolloutIdentity(file);
+  if (!identity) return undefined;
+  if (expectedCwd !== undefined && identity.cwd !== expectedCwd) return undefined;
+  return identity.id;
+}
+
+export interface RolloutSnapshot {
+  dir: string;
+  files: string[];
+}
+
+/**
  * The id of the session created between snapshots, or undefined. Zero or
- * ambiguous new files mean "cannot tell". A resumed thread appends to its
+ * ambiguous new files mean "cannot tell". Snapshots span directories so a
+ * session crossing midnight is still found; a resumed thread appends to its
  * existing rollout, so resumes fall back to the --resume value at the close
  * path instead of this diff.
  */
-export function diffCodexRollouts(dir: string, before: string[], after: string[]): string | undefined {
+export function diffCodexRolloutsAcross(
+  before: string[],
+  snapshots: RolloutSnapshot[],
+  expectedCwd?: string,
+): string | undefined {
   const known = new Set(before);
-  const fresh = after.filter((file) => !known.has(file));
+  const fresh: Array<{ dir: string; file: string }> = [];
+  for (const snapshot of snapshots) {
+    for (const file of snapshot.files) {
+      if (!known.has(file)) fresh.push({ dir: snapshot.dir, file });
+    }
+  }
   if (fresh.length !== 1) return undefined;
-  return threadIdFromRollout(path.join(dir, fresh[0]));
+  return threadIdFromRollout(path.join(fresh[0].dir, fresh[0].file), expectedCwd);
+}
+
+/**
+ * Single-day form of the across-directories diff.
+ */
+export function diffCodexRollouts(
+  dir: string,
+  before: string[],
+  after: string[],
+  expectedCwd?: string,
+): string | undefined {
+  return diffCodexRolloutsAcross(before, [{ dir, files: after }], expectedCwd);
 }

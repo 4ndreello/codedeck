@@ -50,7 +50,7 @@ import {
   buildOpenArgs as buildCodexOpenArgs,
   CODEX_NOT_FOUND,
   codexSessionsDir,
-  diffCodexRollouts,
+  diffCodexRolloutsAcross,
   preflight as preflightCodex,
   readCodexRollouts,
   resolveBinary as resolveCodexBinary,
@@ -694,11 +694,22 @@ export function registerOpenCommand(program: Command): void {
           const codexDir = codexSessionsDir();
           const rolloutsBefore = readCodexRollouts(codexDir);
           const closeCodex = async () => {
-            const after = readCodexRollouts(codexDir);
-            const diffedId = after === undefined || rolloutsBefore === undefined
+            // The day directory is re-resolved at close: a session crossing
+            // midnight writes its rollout into the new day.
+            const afterDir = codexSessionsDir();
+            const snapshots = [
+              { dir: codexDir, files: readCodexRollouts(codexDir) ?? [] },
+              ...(afterDir !== codexDir
+                ? [{ dir: afterDir, files: readCodexRollouts(afterDir) ?? [] }]
+                : []),
+            ];
+            const diffedId = rolloutsBefore === undefined
               ? undefined
-              : diffCodexRollouts(codexDir, rolloutsBefore, after);
-            const id = diffedId ?? (opts.resume && SESSION_ID_PATTERN.test(opts.resume) ? opts.resume : undefined);
+              : diffCodexRolloutsAcross(rolloutsBefore, snapshots, openCwd);
+            // Codex resumes by UUID or session name, so the raw value is
+            // preserved even when it fails the id pattern (which still gates
+            // the printed hint, never the stored native id).
+            const id = diffedId ?? opts.resume;
             if (id !== undefined) {
               try {
                 fs.writeFileSync(sessionFile, id);

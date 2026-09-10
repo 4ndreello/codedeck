@@ -14,12 +14,14 @@ import {
   CODEX_NOT_FOUND,
   codexSessionsDir,
   diffCodexRollouts,
+  diffCodexRolloutsAcross,
   initialPrompt,
   judgeModel,
   preflight,
   readCodexRollouts,
   resolveBinary,
   roleSandbox,
+  rolloutIdentity,
   threadIdFromRollout,
 } from "../src/open/launchers/codex.js";
 import { isNonInteractiveLaunch } from "../src/cli/commands/open.js";
@@ -111,6 +113,11 @@ describe("buildOpenArgs", () => {
     expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     // Model before sandbox, mirroring the exec driver's flag order.
     expect(args.slice(0, 4)).toEqual(["-m", "gpt-5.6", "-s", "workspace-write"]);
+  });
+
+  it("rejects an effort outside the known levels instead of interpolating it", () => {
+    expect(() => buildOpenArgs("general", { effort: '" approval_policy="never' }, pluginDir, [], "/wrk"))
+      .toThrow(/Invalid effort/);
   });
 
   it("resumes without sandbox, cwd or contract prompt", () => {
@@ -215,11 +222,11 @@ describe("codexSessionsDir", () => {
 describe("codex rollout capture", () => {
   const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
 
-  const writeRollout = (dir: string, name: string, id: unknown): string => {
+  const writeRollout = (dir: string, name: string, id: unknown, cwd = "/wrk"): string => {
     const file = path.join(dir, name);
     fs.writeFileSync(
       file,
-      `${JSON.stringify({ type: "session_meta", payload: { id } })}\n{}\n`,
+      `${JSON.stringify({ type: "session_meta", payload: { id, cwd } })}\n{}\n`,
     );
     return file;
   };
@@ -234,14 +241,24 @@ describe("codex rollout capture", () => {
     expect(readCodexRollouts(dir)).toEqual(["rollout-a.jsonl"]);
   });
 
-  it("returns undefined when the directory is missing", () => {
-    expect(readCodexRollouts(path.join(os.tmpdir(), "codedeck-codex-missing"))).toBeUndefined();
+  it("reads a missing directory as empty, not as failed capture", () => {
+    expect(readCodexRollouts(path.join(os.tmpdir(), "codedeck-codex-missing"))).toEqual([]);
   });
 
   it("reads the thread id off the session_meta line", () => {
     const dir = tempDir();
     const file = writeRollout(dir, "rollout-a.jsonl", sessionId);
 
+    expect(threadIdFromRollout(file)).toBe(sessionId);
+    expect(rolloutIdentity(file)).toEqual({ id: sessionId, cwd: "/wrk" });
+  });
+
+  it("refuses a rollout from another working directory when cwd is known", () => {
+    const dir = tempDir();
+    const file = writeRollout(dir, "rollout-a.jsonl", sessionId, "/other");
+
+    expect(threadIdFromRollout(file, "/wrk")).toBeUndefined();
+    expect(threadIdFromRollout(file, "/other")).toBe(sessionId);
     expect(threadIdFromRollout(file)).toBe(sessionId);
   });
 
@@ -262,7 +279,36 @@ describe("codex rollout capture", () => {
     const before = readCodexRollouts(dir) ?? [];
     writeRollout(dir, "rollout-b.jsonl", sessionId);
 
-    expect(diffCodexRollouts(dir, before, readCodexRollouts(dir) ?? [])).toBe(sessionId);
+    expect(diffCodexRollouts(dir, before, readCodexRollouts(dir) ?? [], "/wrk")).toBe(sessionId);
+    expect(diffCodexRollouts(dir, before, readCodexRollouts(dir) ?? [], "/other")).toBeUndefined();
+  });
+
+  it("finds a session that crossed midnight into a new day directory", () => {
+    const dayOne = tempDir();
+    const dayTwo = tempDir();
+    writeRollout(dayOne, "rollout-a.jsonl", sessionId);
+    const before = readCodexRollouts(dayOne) ?? [];
+    writeRollout(dayTwo, "rollout-b.jsonl", sessionId);
+
+    expect(
+      diffCodexRolloutsAcross(
+        before,
+        [
+          { dir: dayOne, files: readCodexRollouts(dayOne) ?? [] },
+          { dir: dayTwo, files: readCodexRollouts(dayTwo) ?? [] },
+        ],
+        "/wrk",
+      ),
+    ).toBe(sessionId);
+  });
+
+  it("captures the first session of a day with no before snapshot", () => {
+    const dir = tempDir();
+    writeRollout(dir, "rollout-a.jsonl", sessionId);
+
+    expect(
+      diffCodexRolloutsAcross([], [{ dir, files: readCodexRollouts(dir) ?? [] }], "/wrk"),
+    ).toBe(sessionId);
   });
 
   it("calls zero or ambiguous snapshots cannot-tell", () => {
