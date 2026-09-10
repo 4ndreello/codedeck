@@ -410,8 +410,8 @@ describe("launcherFor", () => {
     expect(launcherFor("reviewer", { harness: "opencode", model: "prov/m" })).toBe("opencode");
   });
 
-  it("throws instead of rounding codex down to the wrong session", () => {
-    expect(() => launcherFor("reviewer", { harness: "codex", model: "m" })).toThrow(/codex/);
+  it("opens codex for a codex binding", () => {
+    expect(launcherFor("reviewer", { harness: "codex", model: "m" })).toBe("codex");
   });
 
   it("throws instead of rounding omp down to the wrong session", () => {

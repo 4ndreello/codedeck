@@ -47,6 +47,15 @@ import {
   resolveBinary,
 } from "../../open/launchers/claude.js";
 import {
+  buildOpenArgs as buildCodexOpenArgs,
+  CODEX_NOT_FOUND,
+  codexSessionsDir,
+  diffCodexRolloutsAcross,
+  preflight as preflightCodex,
+  readCodexRollouts,
+  resolveBinary as resolveCodexBinary,
+} from "../../open/launchers/codex.js";
+import {
   SESSION_ID_PATTERN,
   SPINNER_VERBS,
   assertPluginDirectory,
@@ -157,16 +166,16 @@ export const SPINNER_VERB_WIDTH = 12;
  * which binary runs, never whether it is the right harness.
  */
 export function harnessMismatch(role: Role, binding: RoleBinding | undefined): string | undefined {
-  if (!binding || binding.harness === "claude" || binding.harness === "opencode") {
+  if (!binding || binding.harness === "claude" || binding.harness === "opencode" || binding.harness === "codex") {
     return undefined;
   }
   return (
-    `Agent "${role}" runs on ${binding.harness}, and ${getCliName()} open only launches claude and opencode sessions. ` +
+    `Agent "${role}" runs on ${binding.harness}, and ${getCliName()} open only launches claude, opencode and codex sessions. ` +
     `Use \`${getCliName()} run --role ${role} "<prompt>"\`, or move it with \`${getCliName()} setup\`.`
   );
 }
 
-export type OpenHarness = "claude" | "opencode";
+export type OpenHarness = "claude" | "opencode" | "codex";
 
 export interface OpencodeSessionRow {
   id: unknown;
@@ -251,11 +260,44 @@ export function diffOpencodeSession(
  */
 export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenHarness {
   const harness = binding?.harness ?? "claude";
-  if (harness === "claude" || harness === "opencode") return harness;
+  if (harness === "claude" || harness === "opencode" || harness === "codex") return harness;
   const mismatch = harnessMismatch(role, binding);
   throw new Error(
     mismatch ?? `Agent "${role}" runs on ${harness}, which ${getCliName()} open does not launch.`,
   );
+}
+
+export interface OpenWorktree {
+  openCwd: string;
+  wtInfo?: { path: string; branch?: string; baseCommit?: string | null };
+}
+
+/**
+ * Shared `--worktree` preamble for the worktree-capable launchers. A creation
+ * failure propagates before the spawn: a launch would rather fail than open
+ * in the wrong cwd, and the native harness flag stays unused so the daemon
+ * keeps tracking the checkout for diff.
+ */
+export async function prepareOpenWorktree(
+  cwd: string,
+  worktree: boolean | undefined,
+  runId: string,
+  role: Role,
+): Promise<OpenWorktree> {
+  if (!worktree) return { openCwd: cwd };
+  const gitInfo = await getGitInfo(cwd);
+  if (!gitInfo) {
+    throw new Error(
+      `--worktree needs a git repository, and the current directory is outside one.`,
+    );
+  }
+  const wt = await createWorktree({
+    repoRoot: gitInfo.root,
+    sessionId: runId,
+    prompt: role,
+    name: role,
+  });
+  return { openCwd: wt.path, wtInfo: wt };
 }
 
 
@@ -311,7 +353,11 @@ function selectRole(): Promise<Role> {
  * role for. A terminal check alone does not catch this: under a pty (CI scripts,
  * `script`, most CI runners) stdout is a TTY and the prompt would block forever.
  */
-export function isNonInteractiveLaunch(passthrough: string[]): boolean {
+export function isNonInteractiveLaunch(passthrough: string[], harness: OpenHarness = "claude"): boolean {
+  // Codex `-p` is --profile, not --print; its non-interactive spelling is the
+  // `exec` subcommand, which open never builds, so a codex launch is always
+  // interactive.
+  if (harness === "codex") return false;
   return passthrough.some((arg) => arg === "-p" || arg === "--print");
 }
 
@@ -449,7 +495,7 @@ function getInvocation(command: Command, roleArg: string | undefined): OpenInvoc
 export function registerOpenCommand(program: Command): void {
   program
     .command("open [role]")
-    .description(`Open a configured Claude Code session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
+    .description(`Open a configured agent session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
     .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
     .option("--autocompact [value]", "native auto-compact: Claude window size is auto or 100000-1000000 tokens; OpenCode toggles its native setting")
@@ -463,7 +509,24 @@ export function registerOpenCommand(program: Command): void {
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
       const autocompact = parseAutocompact(opts.autocompact);
-      const interactive = !isNonInteractiveLaunch(invocation.passthrough);
+      // Launching never opens the wizard. Asking a model per harness was the
+      // wrong question to greet someone with, and `codedeck setup` is the place
+      // to answer it deliberately.
+      const config = loadConfig();
+      const orchestratorMode = resolveOrchestratorMode(config);
+
+      // The print-flag check is harness-specific (-p is --profile on codex),
+      // so peek at the launcher through the requested role before deciding.
+      // An unparseable role falls back to claude semantics; the real refusal
+      // still happens below, from the same launcherFor.
+      const hintRole = invocation.roleInput !== undefined ? parseRole(invocation.roleInput) : DEFAULT_ROLE;
+      let hintLauncher: OpenHarness = "claude";
+      try {
+        if (hintRole !== undefined) hintLauncher = launcherFor(hintRole, resolveRoleBinding(hintRole, config));
+      } catch {
+        hintLauncher = "claude";
+      }
+      const interactive = !isNonInteractiveLaunch(invocation.passthrough, hintLauncher);
       const role = await resolveRole(invocation.roleInput, interactive);
       const pluginDir = resolvePluginDir();
       assertPluginDirectory(pluginDir);
@@ -471,12 +534,6 @@ export function registerOpenCommand(program: Command): void {
 
       const client = new IpcClient();
       await client.ensureDaemonStarted();
-
-      // Launching never opens the wizard. Asking a model per harness was the
-      // wrong question to greet someone with, and `codedeck setup` is the place
-      // to answer it deliberately.
-      const config = loadConfig();
-      const orchestratorMode = resolveOrchestratorMode(config);
 
       const binding = resolveRoleBinding(role, config);
       const launcher = launcherFor(role, binding);
@@ -499,7 +556,7 @@ export function registerOpenCommand(program: Command): void {
         );
       }
 
-      const initialModel = passthroughModel ?? boundModel ?? (launcher === "opencode" ? undefined : DEFAULT_MODEL);
+      const initialModel = passthroughModel ?? boundModel ?? (launcher === "claude" ? DEFAULT_MODEL : undefined);
       const adoptRes = await client.request<SessionAdoptResult>("session.adopt", {
         agent: launcher,
         model: initialModel,
@@ -511,26 +568,7 @@ export function registerOpenCommand(program: Command): void {
       let patchPromise: Promise<unknown> | undefined;
       try {
         if (launcher === "opencode") {
-          let openCwd = cwd;
-          let wtInfo: { path: string; branch?: string; baseCommit?: string | null } | undefined;
-          if (opts.worktree) {
-            const gitInfo = await getGitInfo(cwd);
-            if (!gitInfo) {
-              throw new Error(
-                `--worktree needs a git repository, and the current directory is outside one.`,
-              );
-            }
-            // A creation failure propagates before the spawn: OP-14 would
-            // rather fail than open in the wrong cwd.
-            const wt = await createWorktree({
-              repoRoot: gitInfo.root,
-              sessionId: runId,
-              prompt: role,
-              name: role,
-            });
-            wtInfo = wt;
-            openCwd = wt.path;
-          }
+          const { openCwd, wtInfo } = await prepareOpenWorktree(cwd, opts.worktree, runId, role);
           const model = passthroughModel ?? boundModel!;
           await preflightOpencode(model, fromConfig);
           const opencodeBin = await resolveOpencodeBinary();
@@ -603,6 +641,95 @@ export function registerOpenCommand(program: Command): void {
               model,
               notFoundMessage: OPENCODE_NOT_FOUND,
               onClose: closeOpencode,
+              onSpawn: (child) => {
+                if (child.pid) {
+                  patchPromise = client.request("session.patch", {
+                    id: runId,
+                    pid: child.pid,
+                    ...(wtInfo ? { worktree: wtInfo.path, branch: wtInfo.branch, baseCommit: wtInfo.baseCommit ?? undefined, cwd: wtInfo.path } : {}),
+                  });
+                }
+              },
+            },
+          );
+          return;
+        }
+
+        if (launcher === "codex") {
+          const { openCwd, wtInfo } = await prepareOpenWorktree(cwd, opts.worktree, runId, role);
+          // No CodeDeck-side model default: without an explicit model the
+          // flag is omitted and the codex config.toml answers, so there is
+          // nothing to preflight either.
+          const model = passthroughModel ?? boundModel;
+          if (model !== undefined) await preflightCodex(model, fromConfig);
+          const codexBin = await resolveCodexBinary();
+          const effort = opts.effort ?? "default";
+          const modelLabel = model ?? "default";
+
+          // Codex has no mapped autocompact channel; an explicit flag warns
+          // instead of dying silently, mirroring --effort on opencode.
+          if (opts.autocompact !== undefined) {
+            console.error(
+              'Warning: --autocompact has no effect on codex (no mapped channel); continuing without it.',
+            );
+          }
+
+          // --no-theme asks for no CodeDeck styling, and an animation is styling.
+          if (opts.theme === false) {
+            process.stdout.write(renderBanner(role, modelLabel, effort));
+          } else {
+            await playBoot(role, modelLabel, effort);
+          }
+
+          // Snapshot before the spawn so the close path can tell which
+          // rollout this launch created. A resumed thread appends to its
+          // existing file, so resumes fall back to the --resume value.
+          const codexDir = codexSessionsDir();
+          const rolloutsBefore = readCodexRollouts(codexDir);
+          const closeCodex = async () => {
+            // The day directory is re-resolved at close: a session crossing
+            // midnight writes its rollout into the new day.
+            const afterDir = codexSessionsDir();
+            const snapshots = [
+              { dir: codexDir, files: readCodexRollouts(codexDir) ?? [] },
+              ...(afterDir !== codexDir
+                ? [{ dir: afterDir, files: readCodexRollouts(afterDir) ?? [] }]
+                : []),
+            ];
+            const diffedId = rolloutsBefore === undefined
+              ? undefined
+              : diffCodexRolloutsAcross(rolloutsBefore, snapshots, openCwd);
+            // Codex resumes by UUID or session name, so the raw value is
+            // preserved even when it fails the id pattern (which still gates
+            // the printed hint, never the stored native id).
+            const id = diffedId ?? opts.resume;
+            if (id !== undefined) {
+              try {
+                fs.writeFileSync(sessionFile, id);
+              } catch {}
+            }
+            const nativeSessionId = finishOpenSession(role, sessionFile);
+            try {
+              if (patchPromise) await patchPromise;
+            } catch {}
+            try {
+              await client.request("session.release", {
+                id: runId,
+                nativeSessionId,
+              });
+            } catch {}
+          };
+
+          await spawnHarness(
+            codexBin,
+            buildCodexOpenArgs(role, { ...opts, model }, pluginDir, invocation.passthrough, openCwd, orchestratorMode),
+            {
+              cwd: openCwd,
+              envExtra: { CODEDECK_RUN_ID: runId },
+              sessionFile,
+              model,
+              notFoundMessage: CODEX_NOT_FOUND,
+              onClose: closeCodex,
               onSpawn: (child) => {
                 if (child.pid) {
                   patchPromise = client.request("session.patch", {
