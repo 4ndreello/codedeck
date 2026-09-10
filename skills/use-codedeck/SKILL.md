@@ -23,12 +23,15 @@ Examples here use `codedeck`. If the checkout runs under another name (for examp
 | `reviewer` | no | no | one review pass, no fan-out |
 
 Three-letter prefixes work (`--role gen`). The role owns the harness and the model: `--agent` and `--model` are ignored for a role that carries a binding (run warns and keeps the binding), so a worker cannot move itself onto another harness. Change the pairing in `codedeck setup`, not on the dispatch line.
+An unbound role warns and falls back to the default harness — same as no `--role`. `codedeck doctor` shows every binding under Roles; that is the only binding check. Never probe `dist/`, `~/.config`, `daemon.sock`, or `setup --help` to discover it.
+Workers always go through `run --role ... --bg --json`. `open <role>` is an interactive human TUI, never a dispatch path.
 
 ## Worktree is a choice, not a default
 
 `--worktree` is a fresh checkout of the current repo at HEAD. It cannot see uncommitted edits in your working tree, and it cannot see another repository. Reach for it when concurrent coding tasks must compile and commit without colliding. One worktree per task, one session ID per task, never shared. `codedeck show <id> --json` reports the path under `.worktree`.
 
 Run `--no-worktree` when the task needs the live tree: reproducing or fixing a bug that only shows with your current uncommitted edits, or touching a different repo with `--cwd <path>`. Send that work to a harness whose file access can reach the target.
+A briefing that names gitignored or untracked files (e.g. `.specs/`) always runs `--no-worktree`: a fresh worktree at HEAD does not contain them.
 
 ## Run in the background, wait without blocking
 
@@ -87,6 +90,7 @@ A success message is a claim, the diff is the fact. `codedeck diff <id> --stat` 
 | `codedeck logs <id> [--follow]` | what the worker reported |
 | `codedeck send <id> "<msg>"` | answer `needs_input`, or resume `interrupted` |
 | `codedeck stop <id>` | cancel a running session on purpose |
+| `codedeck doctor` | bindings, harnesses, daemon, database health |
 
 ## Red flags
 
@@ -97,5 +101,8 @@ A success message is a claim, the diff is the fact. `codedeck diff <id> --stat` 
 - Reading terminal state from the exit code instead of `.status`.
 - Forgetting `interrupted`, or letting a worker parked on `needs_input` hang the waiter.
 - Believing a worker's success message without reading `codedeck diff --stat`.
+- Probing `dist/`, `~/.config`, `daemon.sock`, or `setup --help` to discover bindings instead of reading `codedeck doctor`.
+- Dispatching via `open <role>` instead of `run --role ... --bg --json`.
+- `--worktree` on a briefing that names gitignored/untracked files.
 
 To decide what to parallelize and how to slice ownership, see the parallel-workers skill.

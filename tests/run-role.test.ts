@@ -196,7 +196,7 @@ describe("the harness and model a role is bound to", () => {
   });
 
   // Skipping an agent in setup leaves it unbound, and an unbound role is not an
-  // error: it falls back exactly like a run that names no role at all.
+  // error: it warns and falls back exactly like a run that names no role at all.
   it("falls back to the per-harness model for a role nobody bound", async () => {
     writeConfig({ defaultAgent: "claude", models: { claude: "claude-configured" }, agents: {} });
 
@@ -204,5 +204,6 @@ describe("the harness and model a role is bound to", () => {
       agent: "claude",
       model: "claude-configured",
     });
+    expect(errors.join("\n")).toMatch(/role "auditor" is not bound/);
   });
 });

@@ -1,0 +1,26 @@
+NOTICE
+
+CodeDeck is released under the MIT License (see LICENSE).
+
+Attribution for an inspiration source
+-------------------------------------
+
+Parts of the CodeDeck workflow design were inspired by the skill
+"tlc-spec-driven" (version 3.3.0), created by Felipe Rodrigues
+(github.com/felipfr) and originally distributed under the Creative
+Commons Attribution 4.0 International License (CC-BY-4.0). The full
+license text for CC-BY-4.0 is available at:
+
+  https://creativecommons.org/licenses/by/4.0/
+
+What this means in practice
+---------------------------
+
+Our spec-driven workflow files in this repository are an original,
+lean reimplementation written in our own words. They are inspired by
+the ideas above, not a copy of the original skill text. No content
+was pasted from the original SKILL.md or its reference files.
+
+Where the CC-BY-4.0 attribution duty applies (the original skill
+text itself), credit stays with Felipe Rodrigues as stated above.
+Where our own files apply, the MIT License in LICENSE governs.
