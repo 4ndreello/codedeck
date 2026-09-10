@@ -7,11 +7,13 @@ tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
 - Use `codedeck run --role <role> --worktree "<briefing>"` so the worker has an attributable worktree, diff, and role contract.
-- Worktree is a choice, not a default. `--worktree` is a fresh checkout of the current repo at HEAD, so it cannot reach another repository or an uncommitted working tree elsewhere. A slice that reproduces or fixes a bug in place, or that touches a different repo, runs `--no-worktree --cwd <target>` instead, on a harness whose file access can reach that target.
+- Worktree is a choice, not a default. `--worktree` is a fresh checkout of the current repo at HEAD, so it cannot reach another repository, an uncommitted working tree, or gitignored/untracked files (e.g. `.specs/`) elsewhere. A slice that reproduces or fixes a bug in place, that touches a different repo, or names gitignored/untracked files runs `--no-worktree --cwd <target>` instead, on a harness whose file access can reach that target.
 
 - Always include `--role`. It selects the harness and model the human configured for that role. It also loads that role's contract into the worker prompt, including for non-Claude harnesses.
 - Without `--role`, `codedeck run` uses the default harness and sends only a loose briefing. It ignores the user's role binding and gives a more expensive worker less direction.
 - The role owns the harness and the model. `--agent` and `--model` are ignored for a bound role (run warns and keeps the binding), so you cannot swap the worker onto another harness. Changing the pairing is a `codedeck setup` decision, not a dispatch flag.
+- Dispatch only via `run --role ... --bg --json`; `open` is interactive, never dispatch.
+- `doctor` shows Role bindings; never probe `dist/` or `setup --help`, and an unbound role warns.
 - Slice by ownership. A worker owns its files end to end. Two workers in one file is a merge you will pay for.
 - Workers start with none of this context. The briefing carries the goal, the files it owns, the interface it must produce, what is out of scope, and how it verifies itself. Never write "see the conversation".
 

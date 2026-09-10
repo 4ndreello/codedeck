@@ -72,6 +72,11 @@ Resume with: ${getCliName()} send <id> "continue"
         const resolvedAgent = opts.agent ? normalizeAgentId(opts.agent) ?? opts.agent : undefined;
         agent = (resolvedAgent || cfg.defaultAgent || "claude") as AgentId;
         model = resolveModel(agent, opts.model, cfg);
+        if (parseRole(opts.role)) {
+          console.error(
+            `Warning: role "${opts.role}" is not bound; using ${agent}${model ? ` / ${model}` : ""} fallback. Change it with ${getCliName()} setup.`,
+          );
+        }
       }
 
       // `open` hands the role to Claude as `--agent`, which no other harness

@@ -9,6 +9,8 @@ tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Task
 - Always include `--role`. It selects the harness and model the human configured for that role. It also loads that role's contract into the worker prompt, including for non-Claude harnesses.
 - Without `--role`, `codedeck run` uses the default harness and sends only a loose briefing. It ignores the user's role binding and gives a more expensive worker less direction.
 - The role owns the harness and the model. `--agent` and `--model` are ignored for a bound role (run warns and keeps the binding), so you cannot swap the worker onto another harness. Changing the pairing is a `codedeck setup` decision, not a dispatch flag.
+- Dispatch only via `run --role ... --bg --json`; `open` is interactive, never dispatch.
+- `doctor` shows Role bindings; never probe `dist/` or `setup --help`, and an unbound role warns.
 - Slice by ownership. A worker owns its files end to end. Two workers in one file is a merge you will pay for.
 - Workers start with none of this context. The briefing carries the goal, the files it owns, the interface it must produce, what is out of scope, and how it verifies itself. Never write "see the conversation".
 
