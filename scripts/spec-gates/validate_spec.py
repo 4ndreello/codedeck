@@ -8,7 +8,7 @@ core (goal, acceptance criteria, out-of-scope); the Requirement
 Traceability check was dropped (our specs do not all carry IDs); the
 assumptions section matches either "Assumptions" or "Open questions";
 invoked from the repo root as `python3 scripts/spec-gates/validate_spec.py`;
-every file read is confined under --root (path-injection guard).
+opened paths are built from directory listings, never from CLI text.
 
 What it checks (heuristic markdown inspection, not a full parser):
   ERROR  - no goal section (Goal/Goals/Problem Statement)
@@ -21,11 +21,11 @@ What it checks (heuristic markdown inspection, not a full parser):
   WARN   - open questions are not explicitly resolved
 
 Usage:
-  python3 scripts/spec-gates/validate_spec.py [target] [--root DIR] [--strict]
+  python3 scripts/spec-gates/validate_spec.py [feature] [--strict]
 
-  target    Path to a spec.md, a feature directory, or a feature name under
-            .specs/features/. Omitted -> auto-detect the single feature.
-  --root    Project root that contains .specs/ (default: current dir).
+  Run from the repo root. feature is a bare feature name under
+  .specs/features/ (never a path). Omitted -> auto-detect the single
+  feature.
   --strict  Treat warnings as errors.
 
 Exit codes: 0 pass, 1 errors found (or warnings under --strict), 2 usage error.
@@ -40,8 +40,7 @@ import sys
 def _read_text_file(path, root):
     """Read a UTF-8 text file, refusing paths that escape root.
 
-    Every file these gates open must live under --root (default: the repo
-    you run from). An agent passing a faulty absolute path gets a clean
+    Every file these gates open must live under the repo you run from. An agent passing a faulty absolute path gets a clean
     usage error, never foreign content. Exits 2 on refusal.
     """
     base = os.path.realpath(root)
@@ -63,39 +62,37 @@ OUT_OF_SCOPE = "out of scope"
 PLACEHOLDER_RE = re.compile(r"^\s*\[.+\]\s*$")
 
 
-def resolve_spec(target, root):
-    """Return the path to a spec.md from a file, dir, name, or auto-detect."""
-    if target:
-        if os.path.isfile(target):
-            return target
-        if os.path.isdir(target):
-            cand = os.path.join(target, "spec.md")
-            if os.path.isfile(cand):
-                return cand
-            return _autodetect(target)
-        cand = os.path.join(root, ".specs", "features", target, "spec.md")
-        if os.path.isfile(cand):
-            return cand
-        return None
-    return _autodetect(root)
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+FEATURES_DIR = os.path.join(".specs", "features")
 
 
-def _autodetect(root):
-    base = os.path.join(root, ".specs", "features")
-    if not os.path.isdir(base):
+def resolve_spec(target):
+    """Return the spec.md path for a feature NAME. Run from the repo root.
+
+    Names only, never paths: the returned path is built from a
+    directory-listing entry, so no caller-controlled text reaches the
+    filesystem.
+    """
+    if target is not None and not NAME_RE.match(target):
+        print(f"validate_spec: pass a feature name (letters, digits, '-' and '_'), not a path: {target!r}", file=sys.stderr)
+        raise SystemExit(2)
+    if not os.path.isdir(FEATURES_DIR):
         return None
-    features = [
-        d for d in sorted(os.listdir(base))
-        if os.path.isfile(os.path.join(base, d, "spec.md"))
-    ]
-    if len(features) == 1:
-        return os.path.join(base, features[0], "spec.md")
-    if len(features) == 0:
+    entries = sorted(os.listdir(FEATURES_DIR))
+    if target is None:
+        with_spec = [e for e in entries if os.path.isfile(os.path.join(FEATURES_DIR, e, "spec.md"))]
+        if len(with_spec) == 1:
+            return os.path.join(FEATURES_DIR, with_spec[0], "spec.md")
+        if not with_spec:
+            return None
+        raise SystemExit(
+            "validate_spec: multiple features found; pass one explicitly:\n  "
+            + "\n  ".join(with_spec)
+        )
+    match = next((e for e in entries if e == target), None)
+    if match is None or not os.path.isfile(os.path.join(FEATURES_DIR, match, "spec.md")):
         return None
-    raise SystemExit(
-        "validate_spec: multiple features found; pass one explicitly:\n  "
-        + "\n  ".join(os.path.join(base, f, "spec.md") for f in features)
-    )
+    return os.path.join(FEATURES_DIR, match, "spec.md")
 
 
 def split_row(line):
@@ -231,16 +228,15 @@ def check(spec_path, root):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="validate_spec.py", description="Closure-gate checks for a feature spec.md.")
     p.add_argument("target", nargs="?", default=None)
-    p.add_argument("--root", default=".")
     p.add_argument("--strict", action="store_true")
     args = p.parse_args(argv)
 
-    spec = resolve_spec(args.target, args.root)
+    spec = resolve_spec(args.target)
     if not spec:
-        print("validate_spec: could not locate a spec.md. Pass a path or run from the project root.", file=sys.stderr)
+        print("validate_spec: could not locate a spec.md. Pass a feature name and run from the project root.", file=sys.stderr)
         return 2
 
-    errors, warnings = check(spec, os.path.abspath(args.root))
+    errors, warnings = check(spec, os.path.abspath("."))
     for w in warnings:
         print(f"  WARN  {w}")
     for e in errors:

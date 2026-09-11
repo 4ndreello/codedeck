@@ -21,6 +21,9 @@ function run(script: string, args: string[], cwd: string): { rc: number; out: st
   }
 }
 
+// A skeleton project root: .specs/features/demo with the given files.
+// Gate scripts take feature NAMES and run with cwd at the project root;
+// paths below are built from directory listings, never from CLI text.
 function featureRoot(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-"));
   const fdir = path.join(dir, ".specs", "features", "demo");
@@ -64,7 +67,7 @@ Something hurts.
 describe("spec gates: validate_spec", () => {
   it("passes a SHALL-shaped spec", () => {
     const dir = featureRoot({ "spec.md": GOOD_SPEC });
-    const r = run("validate_spec.py", ["demo", "--root", dir], dir);
+    const r = run("validate_spec.py", ["demo"], dir);
     expect(r.rc).toBe(0);
   });
 
@@ -74,7 +77,7 @@ describe("spec gates: validate_spec", () => {
       "1. Clicking should work nicely",
     );
     const dir = featureRoot({ "spec.md": bad });
-    const r = run("validate_spec.py", ["demo", "--root", dir], dir);
+    const r = run("validate_spec.py", ["demo"], dir);
     expect(r.rc).toBe(1);
     expect(r.out).toMatch(/no SHALL/);
   });
@@ -124,14 +127,14 @@ T1 -> T2
 
   it("passes well-formed tasks", () => {
     const dir = featureRoot({ "tasks.md": GOOD_TASKS });
-    const r = run("validate_tasks.py", ["demo", "--root", dir], dir);
+    const r = run("validate_tasks.py", ["demo"], dir);
     expect(r.rc).toBe(0);
   });
 
   it("fails a task missing its Tests field", () => {
     const bad = GOOD_TASKS.replace("**Tests**: unit\n**Gate**: quick\n\n### T2", "**Gate**: quick\n\n### T2");
     const dir = featureRoot({ "tasks.md": bad });
-    const r = run("validate_tasks.py", ["demo", "--root", dir], dir);
+    const r = run("validate_tasks.py", ["demo"], dir);
     expect(r.rc).toBe(1);
     expect(r.out).toMatch(/missing `Tests` field/);
   });
@@ -152,39 +155,10 @@ describe("spec gates: check_commit", () => {
     const notype = run("check_commit.py", ["--message", "just some words"], dir);
     expect(notype.rc).toBe(1);
   });
-});
 
-describe("spec gates: path confinement", () => {
-  it("refuses a spec outside the root", () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
-    fs.writeFileSync(path.join(outside, "spec.md"), GOOD_SPEC);
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
-    const r = run("validate_spec.py", [path.join(outside, "spec.md"), "--root", root], root);
-    expect(r.rc).toBe(2);
-    expect(r.out).toMatch(/outside project root/);
-  });
-
-  it("refuses a tasks file outside the root", () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
-    fs.writeFileSync(path.join(outside, "tasks.md"), "anything");
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
-    const r = run("validate_tasks.py", [path.join(outside, "tasks.md"), "--root", root], root);
-    expect(r.rc).toBe(2);
-  });
-
-  it("refuses a validation report outside the root", () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
-    fs.writeFileSync(path.join(outside, "validation.md"), "**Result**: PASS\n\n`src/a.ts:1`.");
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
-    const r = run("validate_state.py", [outside, "--root", root], root);
-    expect(r.rc).toBe(2);
-  });
-
-  it("refuses a commit message file outside the repo", () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
-    const msg = path.join(outside, "msg.txt");
-    fs.writeFileSync(msg, "feat(x): Thing");
-    const r = run("check_commit.py", [msg], root);
+  it("refuses a file path instead of message text", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-"));
+    const r = run("check_commit.py", ["/tmp/anything.txt"], dir);
     expect(r.rc).toBe(2);
   });
 });
@@ -194,14 +168,33 @@ describe("spec gates: validate_state", () => {
     const dir = featureRoot({
       "validation.md": "# Demo Validation\n\n**Result**: PASS\n\nCovered by `src/a.ts:42`.",
     });
-    const r = run("validate_state.py", ["demo", "--root", dir], dir);
+    const r = run("validate_state.py", ["demo"], dir);
     expect(r.rc).toBe(0);
   });
 
   it("fails a missing report", () => {
     const dir = featureRoot({});
-    const r = run("validate_state.py", ["demo", "--root", dir], dir);
+    const r = run("validate_state.py", ["demo"], dir);
     expect(r.rc).toBe(1);
     expect(r.out).toMatch(/no validation\.md/);
+  });
+});
+
+describe("spec gates: names only, never paths", () => {
+  it("rejects traversal and absolute targets with usage errors", () => {
+    const dir = featureRoot({ "spec.md": GOOD_SPEC });
+    for (const script of ["validate_spec.py", "validate_tasks.py", "validate_state.py"]) {
+      for (const target of ["../evil", "/abs/path", "a/b"]) {
+        const r = run(script, [target], dir);
+        expect(r.rc).toBe(2);
+      }
+    }
+  });
+
+  it("rejects unknown feature names without touching the disk", () => {
+    const dir = featureRoot({ "spec.md": GOOD_SPEC });
+    const r = run("validate_state.py", ["nope"], dir);
+    expect(r.rc).toBe(2);
+    expect(r.out).toMatch(/not found/);
   });
 });

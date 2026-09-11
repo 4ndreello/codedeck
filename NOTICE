@@ -25,9 +25,10 @@ The gate scripts in scripts/spec-gates/ (validate_spec.py,
 validate_tasks.py, check_commit.py, validate_state.py) are adapted from
 the scripts shipped with that skill. Adaptations: required sections and
 commit types fitted to this repo's conventions (capitalized subjects,
-ref/meta/license/revert types), the traceability-ID check dropped,
-invocation from the repo root, and every file read confined under the
-invocation root (path-injection guard). The originals remain CC-BY-4.0 by Felipe
+ref/meta/license/revert types), the traceability-ID check dropped, the
+CLI takes feature names only (scripts resolve paths from directory
+listings and never open caller-supplied paths), and invocation from the
+repo root. The originals remain CC-BY-4.0 by Felipe
 Rodrigues as stated above; our adaptations are released under the MIT
 License in LICENSE.
 

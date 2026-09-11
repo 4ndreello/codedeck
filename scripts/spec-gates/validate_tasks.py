@@ -8,7 +8,7 @@ Changes from the original: invocation from the repo root as
 because our tasks.md already follows the same shape (Test Coverage Matrix,
 Gate Check Commands, Execution Plan, Task Breakdown, T-tasks with Tests
 plus Gate, Depends on, fenced phase diagrams); every file read is confined
-under --root (path-injection guard).
+under the repo root (path-injection guard).
 
 What it checks (heuristic markdown inspection, not a full parser):
   ERROR  - a required section is missing
@@ -21,11 +21,11 @@ What it checks (heuristic markdown inspection, not a full parser):
   WARN   - the diagram could not be parsed confidently (cross-check skipped)
 
 Usage:
-  python3 scripts/spec-gates/validate_tasks.py [target] [--root DIR] [--strict]
+  python3 scripts/spec-gates/validate_tasks.py [feature] [--strict]
 
-  target    Path to a tasks.md, a feature directory, or a feature name under
-            .specs/features/. Omitted -> auto-detect the single feature.
-  --root    Project root that contains .specs/ (default: current dir).
+  Run from the repo root. feature is a bare feature name under
+  .specs/features/ (never a path). Omitted -> auto-detect the single
+  feature.
   --strict  Treat warnings as errors.
 
 Exit codes: 0 pass, 1 errors found (or warnings under --strict), 2 usage error.
@@ -40,8 +40,7 @@ import sys
 def _read_text_file(path, root):
     """Read a UTF-8 text file, refusing paths that escape root.
 
-    Every file these gates open must live under --root (default: the repo
-    you run from). An agent passing a faulty absolute path gets a clean
+    Every file these gates open must live under the repo you run from. An agent passing a faulty absolute path gets a clean
     usage error, never foreign content. Exits 2 on refusal.
     """
     base = os.path.realpath(root)
@@ -62,35 +61,37 @@ EDGE_RE = re.compile(r"\bT\d+\b")
 FILE_HINT_RE = re.compile(r"[\w./-]+\.\w{1,6}\b")
 
 
-def resolve_tasks(target, root):
-    if target:
-        if os.path.isfile(target):
-            return target
-        if os.path.isdir(target):
-            cand = os.path.join(target, "tasks.md")
-            if os.path.isfile(cand):
-                return cand
-            return _autodetect(target)
-        cand = os.path.join(root, ".specs", "features", target, "tasks.md")
-        if os.path.isfile(cand):
-            return cand
-        return None
-    return _autodetect(root)
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+FEATURES_DIR = os.path.join(".specs", "features")
 
 
-def _autodetect(root):
-    base = os.path.join(root, ".specs", "features")
-    if not os.path.isdir(base):
+def resolve_tasks(target):
+    """Return the tasks.md path for a feature NAME. Run from the repo root.
+
+    Names only, never paths: the returned path is built from a
+    directory-listing entry, so no caller-controlled text reaches the
+    filesystem.
+    """
+    if target is not None and not NAME_RE.match(target):
+        print(f"validate_tasks: pass a feature name (letters, digits, '-' and '_'), not a path: {target!r}", file=sys.stderr)
+        raise SystemExit(2)
+    if not os.path.isdir(FEATURES_DIR):
         return None
-    features = [d for d in sorted(os.listdir(base)) if os.path.isfile(os.path.join(base, d, "tasks.md"))]
-    if len(features) == 1:
-        return os.path.join(base, features[0], "tasks.md")
-    if len(features) == 0:
+    entries = sorted(os.listdir(FEATURES_DIR))
+    if target is None:
+        with_tasks = [e for e in entries if os.path.isfile(os.path.join(FEATURES_DIR, e, "tasks.md"))]
+        if len(with_tasks) == 1:
+            return os.path.join(FEATURES_DIR, with_tasks[0], "tasks.md")
+        if not with_tasks:
+            return None
+        raise SystemExit(
+            "validate_tasks: multiple features found; pass one explicitly:\n  "
+            + "\n  ".join(with_tasks)
+        )
+    match = next((e for e in entries if e == target), None)
+    if match is None or not os.path.isfile(os.path.join(FEATURES_DIR, match, "tasks.md")):
         return None
-    raise SystemExit(
-        "validate_tasks: multiple features found; pass one explicitly:\n  "
-        + "\n  ".join(os.path.join(base, f, "tasks.md") for f in features)
-    )
+    return os.path.join(FEATURES_DIR, match, "tasks.md")
 
 
 def section_present(lines, name):
@@ -235,16 +236,15 @@ def check(tasks_path, root):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="validate_tasks.py", description="Pre-approval checks for a feature tasks.md.")
     p.add_argument("target", nargs="?", default=None)
-    p.add_argument("--root", default=".")
     p.add_argument("--strict", action="store_true")
     args = p.parse_args(argv)
 
-    tasks_path = resolve_tasks(args.target, args.root)
+    tasks_path = resolve_tasks(args.target)
     if not tasks_path:
-        print("validate_tasks: could not locate a tasks.md. Pass a path or run from the project root.", file=sys.stderr)
+        print("validate_tasks: could not locate a tasks.md. Pass a feature name and run from the project root.", file=sys.stderr)
         return 2
 
-    errors, warnings = check(tasks_path, os.path.abspath(args.root))
+    errors, warnings = check(tasks_path, os.path.abspath("."))
     for w in warnings:
         print(f"  WARN  {w}")
     for e in errors:
