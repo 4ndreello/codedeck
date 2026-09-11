@@ -58,6 +58,16 @@ export const REVIEW_PAGE: string = `<!doctype html>
   tr.add td.code { background: rgba(48,209,88,.10); }
   tr.del td.code { background: rgba(255,69,58,.10); }
   tr.add td.no.new { color: #30d158; } tr.del td.no.old { color: #ff453a; }
+  .tok-k { color: #ff7b72; }
+  .tok-s { color: #a5d6ff; }
+  .tok-c { color: #8b949e; font-style: italic; }
+  .tok-n { color: #79c0ff; }
+  .tok-f { color: #d2a8ff; }
+  .sign { color: #636366; user-select: none; }
+  tr.chg td.code { background: rgba(255,159,10,.06); }
+  .wd, .wd-del { border-radius: 3px; }
+  .wd { background: rgba(48,209,88,.38); }
+  .wd-del { background: rgba(255,69,58,.38); text-decoration: line-through; }
   tr.cbox td { padding: 8px 12px 10px 54px; background: rgba(10,132,255,.07); }
   .cbox textarea { width: 100%; min-height: 64px; background: rgba(255,255,255,.06);
     border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #f5f5f7;
@@ -67,7 +77,7 @@ export const REVIEW_PAGE: string = `<!doctype html>
     border-radius: 8px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 12px; }
   .cbox button.ghost { background: transparent; }
   .cbox .ok { font-size: 11.5px; color: #30d158; }
-  .hasNote td.no.new, .hasNote td.no.old { text-decoration: underline dotted; text-underline-offset: 3px; }
+  .hasNote td.no { text-decoration: underline dotted; text-underline-offset: 3px; }
   tr.sel td.code { background: rgba(10,132,255,.20); }
   tr.sel td.no { background: rgba(10,132,255,.35); color: #fff; }
   tr.thread td { padding: 6px 12px 10px 54px; }
@@ -127,6 +137,75 @@ function langOf(p) {
     cs: "csharp", c: "c", h: "c", cpp: "cpp", hpp: "cpp", css: "css", scss: "scss", html: "html",
     xml: "xml", json: "json", yaml: "yaml", yml: "yaml", toml: "toml", md: "md", sh: "bash", sql: "sql" };
   return map[ext] || "";
+}
+/* Minimal inline syntax highlight (kept dependency-free so the page stays
+ * self-contained/offline): single-pass tokenizer, strings before comments so
+ * "//" inside a string is not a comment. md/plain stays uncolored. */
+var HI_C = /(\\/\\*[\\s\\S]*?\\*\\/|<!--[\\s\\S]*?-->)|("(?:[^"\\\\\\n]|\\\\.)*"|'(?:[^'\\\\\\n]|\\\\.)*'|\`(?:[^\`\\\\]|\\\\.)*\`)|(\\/\\/[^\\n]*)|\\b(\\d+(?:\\.\\d+)?)\\b|\\b(break|case|catch|class|const|continue|def|delete|do|else|elif|enum|export|extends|false|finally|for|from|function|if|import|in|instanceof|interface|let|new|null|return|struct|switch|this|throw|true|try|type|typeof|var|void|while|with|as|async|await|fn|impl|match|mut|pub|self|package|func|go|defer|nil|lambda|pass|raise|yield|private|public|protected|static|final|int|float|double|char|boolean|string|number|select|chan)\\b|([A-Za-z_$][\\w$]*)(?=\\()/g;
+var HI_H = /("""[\\s\\S]*?"""|"(?:[^"\\\\\\n]|\\\\.)*"|'(?:[^'\\\\\\n]|\\\\.)*'|\`(?:[^\`\\\\]|\\\\.)*\`)|(#[^\\n]*)|\\b(\\d+(?:\\.\\d+)?)\\b|\\b(break|case|catch|class|const|continue|def|delete|do|else|elif|enum|export|extends|false|finally|for|from|function|if|import|in|instanceof|interface|let|new|null|return|struct|switch|this|throw|true|try|type|typeof|var|void|while|with|as|async|await|fn|impl|match|mut|pub|self|package|func|go|defer|nil|lambda|pass|raise|yield|private|public|protected|static|final|int|float|double|char|boolean|string|number|select|chan)\\b|([A-Za-z_$][\\w$]*)(?=\\()/g;
+function hi(code, lang) {
+  if (!code) return "";
+  if (!lang || lang === "md") return esc(code);
+  var hash = lang === "py" || lang === "bash" || lang === "yaml" || lang === "toml" || lang === "ruby" || lang === "dockerfile";
+  var re = hash ? HI_H : HI_C;
+  re.lastIndex = 0;
+  var out = "", last = 0, m, cls;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    if (hash) cls = m[1] ? "tok-s" : m[2] ? "tok-c" : m[3] ? "tok-n" : m[4] ? "tok-k" : "tok-f";
+    else cls = m[1] ? "tok-c" : m[2] ? "tok-s" : m[3] ? "tok-c" : m[4] ? "tok-n" : m[5] ? "tok-k" : "tok-f";
+    out += '<span class="' + cls + '">' + esc(m[0]) + "</span>";
+    last = m.index + m[0].length;
+  }
+  return out + esc(code.slice(last));
+}
+/* Merged word-diff for paired del/add lines (same count in one change block):
+ * one row per line number: removed tokens struck (.wd-del), added (.wd).
+ * Token-count cap falls back to plain highlight on minified-line pairs. */
+function toks(s) {
+  var parts = String(s).match(/\\w+|\\s+|[^\\w\\s]/g) || [];
+  var out = [], pos = 0, k;
+  for (k = 0; k < parts.length; k++) { out.push({ t: parts[k], s: pos, e: pos + parts[k].length }); pos += parts[k].length; }
+  return out;
+}
+function mergeWords(oldCode, newCode, lang) {
+  var A = toks(oldCode), B = toks(newCode);
+  if (!A.length || !B.length) return hi(newCode, lang);
+  if (A.length * B.length > 10000) return hi(newCode, lang);
+  var n = A.length, m = B.length, i, j;
+  var len = [];
+  for (i = 0; i <= n; i++) { len.push([]); for (j = 0; j <= m; j++) len[i].push(0); }
+  for (i = n - 1; i >= 0; i--) {
+    for (j = m - 1; j >= 0; j--) {
+      len[i][j] = A[i].t === B[j].t ? len[i + 1][j + 1] + 1 : Math.max(len[i + 1][j], len[i][j + 1]);
+    }
+  }
+  var fa = [], fb = [];
+  for (i = 0; i < n; i++) fa.push(true);
+  for (j = 0; j < m; j++) fb.push(true);
+  i = 0; j = 0;
+  while (i < n && j < m) {
+    if (A[i].t === B[j].t) { fa[i] = false; fb[j] = false; i++; j++; }
+    else if (len[i + 1][j] >= len[i][j + 1]) i++;
+    else j++;
+  }
+  var out = "";
+  i = 0; j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && !fa[i] && !fb[j]) {
+      var ei = i, ej = j;
+      while (ei < n && ej < m && !fa[ei] && !fb[ej]) { ei++; ej++; }
+      out += hi(newCode.slice(B[j].s, B[ej - 1].e), lang);
+      i = ei; j = ej;
+    } else {
+      var oi = i, oj = j;
+      while (i < n && fa[i]) i++;
+      while (j < m && fb[j]) j++;
+      if (oi < i) out += '<span class="wd-del">' + hi(oldCode.slice(A[oi].s, A[i - 1].e), lang) + "</span>";
+      if (oj < j) out += '<span class="wd">' + hi(newCode.slice(B[oj].s, B[j - 1].e), lang) + "</span>";
+    }
+  }
+  return out;
 }
 /* Drafts: key codedeck-review:<file>:<line>[-<endLine>] -> { code, body, deleted } */
 function draftKey(file, line, endLine) { return "codedeck-review:" + file + ":" + line + (endLine && endLine !== line ? "-" + endLine : ""); }
@@ -294,7 +373,7 @@ function commentRow(file, line, code, deleted, endLine, onClose) {
   var tr = document.createElement("tr");
   tr.className = "cbox";
   var td = document.createElement("td");
-  td.colSpan = 3;
+  td.colSpan = 2;
   var spec = endLine && endLine !== line ? line + "-" + endLine : String(line);
   var ta = document.createElement("textarea");
   ta.placeholder = "comentar " + file + ":" + spec + "… (shift+enter envia)";
@@ -376,7 +455,7 @@ function renderThread(d) {
   tr.setAttribute("data-start", String(lo));
   tr.setAttribute("data-end", String(hi));
   var td = document.createElement("td");
-  td.colSpan = 3;
+  td.colSpan = 2;
   var box = document.createElement("div");
   box.className = "threadbox";
   var head = document.createElement("div");
@@ -452,6 +531,7 @@ function render(data) {
     var sec = document.createElement("section");
     sec.className = "file";
     sec.id = "f" + idx;
+    var lang = langOf(f.path);
     var h = document.createElement("h3");
     var title = f.status === "renamed" ? f.oldPath + " → " + f.path : f.path;
     h.innerHTML = '<span class="st ' + f.status[0].toUpperCase() + '">' + f.status[0].toUpperCase() + "</span><span>" + esc(title) + "</span>" +
@@ -475,25 +555,47 @@ function render(data) {
       sec.appendChild(hh);
       var table = document.createElement("table");
       table.className = "diff";
-      (hu.lines || []).forEach(function (ln) {
+      var wls = hu.lines || [], pmap = {}, pskip = {}, pb = 0;
+      while (pb < wls.length) {
+        if (wls[pb].type !== "add" && wls[pb].type !== "del") { pb++; continue; }
+        var pe = pb, pd = [], pa = [];
+        while (pe < wls.length && (wls[pe].type === "add" || wls[pe].type === "del")) {
+          if (wls[pe].type === "del") pd.push(pe); else pa.push(pe);
+          pe++;
+        }
+        if (pd.length && pd.length === pa.length) {
+          for (var pk = 0; pk < pd.length; pk++) {
+            pmap[pd[pk]] = pa[pk];
+            pskip[pa[pk]] = true;
+          }
+        }
+        pb = pe;
+      }
+      (hu.lines || []).forEach(function (ln, li) {
+        if (pskip[li]) return;
+        var pm = pmap[li] !== undefined ? wls[pmap[li]] : null;
         var tr = document.createElement("tr");
-        if (ln.type === "add") tr.className = "add";
+        if (pm) tr.className = "chg";
+        else if (ln.type === "add") tr.className = "add";
         else if (ln.type === "del") tr.className = "del";
-        var anchorLine = ln.newNo != null ? ln.newNo : ln.oldNo;
+        var anchorLine = pm ? pm.newNo : (ln.newNo != null ? ln.newNo : ln.oldNo);
+        var showNew = pm ? pm.newNo : ln.newNo;
+        var showCode = pm ? pm.text : ln.text;
         tr.setAttribute("data-file", f.path);
         tr.setAttribute("data-line", String(anchorLine));
-        tr.setAttribute("data-code", ln.text);
-        var tdO = document.createElement("td");
-        tdO.className = "no old";
-        tdO.textContent = ln.oldNo != null ? String(ln.oldNo) : "";
-        tdO.title = "arraste para selecionar · clique comenta a linha";
-        var tdN = document.createElement("td");
-        tdN.className = "no new";
-        tdN.textContent = ln.newNo != null ? String(ln.newNo) : "";
-        tdN.title = "arraste para selecionar · clique comenta a linha";
+        tr.setAttribute("data-code", showCode);
+        var tdG = document.createElement("td");
+        tdG.className = "no" + (pm ? "" : ln.type === "add" ? " new" : ln.type === "del" ? " old" : "");
+        var showNo = showNew != null ? showNew : ln.oldNo;
+        tdG.textContent = showNo != null ? String(showNo) : "";
+        tdG.title = "arraste para selecionar · clique comenta a linha" + (pm && ln.oldNo !== showNo ? " · era " + ln.oldNo + " no ref" : "");
         var tdC = document.createElement("td");
         tdC.className = "code";
-        tdC.textContent = (ln.type === "add" ? "+" : ln.type === "del" ? "-" : " ") + ln.text;
+        if (pm) tdC.innerHTML = mergeWords(ln.text, showCode, lang);
+        else {
+          var sign = ln.type === "add" ? "+" : ln.type === "del" ? "-" : " ";
+          tdC.innerHTML = '<span class="sign">' + esc(sign) + "</span>" + hi(ln.text, lang);
+        }
         function dragStart(ev) {
           if (ev.button !== undefined && ev.button !== 0) return;
           ev.preventDefault();
@@ -509,12 +611,9 @@ function render(data) {
           var slice = rowsBetween(sec, f.path, selAnchor.tr, tr);
           slice.forEach(function (r) { r.classList.add("sel"); });
         }
-        tdO.addEventListener("mousedown", dragStart);
-        tdN.addEventListener("mousedown", dragStart);
-        tdO.addEventListener("mouseover", dragOver);
-        tdN.addEventListener("mouseover", dragOver);
-        tr.appendChild(tdO);
-        tr.appendChild(tdN);
+        tdG.addEventListener("mousedown", dragStart);
+        tdG.addEventListener("mouseover", dragOver);
+        tr.appendChild(tdG);
         tr.appendChild(tdC);
         table.appendChild(tr);
       });

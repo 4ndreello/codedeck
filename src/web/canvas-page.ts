@@ -183,7 +183,7 @@ function toolHuman(name) {
 }
 function shortPath(s) {
   if (!s || typeof s !== "string") return "";
-  var clean = s.replace(/\\/g, "/").replace(/\/+$/, "");
+  var clean = s.replace(/\\\\/g, "/").replace(/\\/\\/+$/, "");
   var parts = clean.split("/").filter(Boolean);
   if (parts.length > 2) return parts.slice(-2).join("/");
   return parts.join("/") || s;
@@ -208,7 +208,7 @@ function inputSnippet(input) {
   return "";
 }
 function clip(s) {
-  var one = String(s).replace(/\s+/g, " ").trim();
+  var one = String(s).replace(/\\s+/g, " ").trim();
   return one.length > 40 ? one.slice(0, 40) + "…" : one;
 }
 function toolLabel(tool) {
