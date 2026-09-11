@@ -154,6 +154,41 @@ describe("spec gates: check_commit", () => {
   });
 });
 
+describe("spec gates: path confinement", () => {
+  it("refuses a spec outside the root", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
+    fs.writeFileSync(path.join(outside, "spec.md"), GOOD_SPEC);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
+    const r = run("validate_spec.py", [path.join(outside, "spec.md"), "--root", root], root);
+    expect(r.rc).toBe(2);
+    expect(r.out).toMatch(/outside project root/);
+  });
+
+  it("refuses a tasks file outside the root", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
+    fs.writeFileSync(path.join(outside, "tasks.md"), "anything");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
+    const r = run("validate_tasks.py", [path.join(outside, "tasks.md"), "--root", root], root);
+    expect(r.rc).toBe(2);
+  });
+
+  it("refuses a validation report outside the root", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
+    fs.writeFileSync(path.join(outside, "validation.md"), "**Result**: PASS\n\n`src/a.ts:1`.");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-root-"));
+    const r = run("validate_state.py", [outside, "--root", root], root);
+    expect(r.rc).toBe(2);
+  });
+
+  it("refuses a commit message file outside the repo", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "spec-gates-out-"));
+    const msg = path.join(outside, "msg.txt");
+    fs.writeFileSync(msg, "feat(x): Thing");
+    const r = run("check_commit.py", [msg], root);
+    expect(r.rc).toBe(2);
+  });
+});
+
 describe("spec gates: validate_state", () => {
   it("passes a PASS report with file:line evidence", () => {
     const dir = featureRoot({

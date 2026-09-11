@@ -7,7 +7,8 @@ Changes from the original: required sections fitted to the CodeDeck fixed
 core (goal, acceptance criteria, out-of-scope); the Requirement
 Traceability check was dropped (our specs do not all carry IDs); the
 assumptions section matches either "Assumptions" or "Open questions";
-invoked from the repo root as `python3 scripts/spec-gates/validate_spec.py`.
+invoked from the repo root as `python3 scripts/spec-gates/validate_spec.py`;
+every file read is confined under --root (path-injection guard).
 
 What it checks (heuristic markdown inspection, not a full parser):
   ERROR  - no goal section (Goal/Goals/Problem Statement)
@@ -34,6 +35,26 @@ import argparse
 import os
 import re
 import sys
+
+
+def _read_text_file(path, root):
+    """Read a UTF-8 text file, refusing paths that escape root.
+
+    Every file these gates open must live under --root (default: the repo
+    you run from). An agent passing a faulty absolute path gets a clean
+    usage error, never foreign content. Exits 2 on refusal.
+    """
+    base = os.path.realpath(root)
+    target = os.path.realpath(path)
+    if os.path.commonpath([base, target]) != base:
+        print(f"refusing to read outside project root {base}: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    if not os.path.isfile(target):
+        print(f"not a file: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
 
 GOAL_TITLES = {"goal", "goals", "problem statement"}
 AC_TITLE = "acceptance criteria"
@@ -132,9 +153,8 @@ def classify_ears(text):
     return (True, "warn: SHALL present but no EARS lead keyword")
 
 
-def check(spec_path):
-    with open(spec_path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
+def check(spec_path, root):
+    lines = _read_text_file(spec_path, root).splitlines()
     errors, warnings = [], []
 
     # 1. Goal section.
@@ -220,7 +240,7 @@ def main(argv=None):
         print("validate_spec: could not locate a spec.md. Pass a path or run from the project root.", file=sys.stderr)
         return 2
 
-    errors, warnings = check(spec)
+    errors, warnings = check(spec, os.path.abspath(args.root))
     for w in warnings:
         print(f"  WARN  {w}")
     for e in errors:

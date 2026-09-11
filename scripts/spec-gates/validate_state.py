@@ -32,6 +32,25 @@ import sys
 EVIDENCE_RE = re.compile(r"[\w./-]+\.[A-Za-z0-9]+:\d+")
 
 
+def _read_text_file(path, root):
+    """Read a UTF-8 text file, refusing paths that escape root.
+
+    Every file these gates open must live under --root (default: the repo
+    you run from). An agent passing a faulty absolute path gets a clean
+    usage error, never foreign content. Exits 2 on refusal.
+    """
+    base = os.path.realpath(root)
+    target = os.path.realpath(path)
+    if os.path.commonpath([base, target]) != base:
+        print(f"refusing to read outside project root {base}: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    if not os.path.isfile(target):
+        print(f"not a file: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
 def _feature_dirs(root):
     base = os.path.join(root, ".specs", "features")
     if not os.path.isdir(base):
@@ -64,14 +83,14 @@ def _verdict(text):
     return None
 
 
-def _appears_complete(fdir):
+def _appears_complete(fdir, root):
     """Conservative completeness heuristic for the cross-check mode."""
     if os.path.exists(os.path.join(fdir, "validation.md")):
         return True
     tasks = os.path.join(fdir, "tasks.md")
     if not os.path.exists(tasks):
         return False
-    body = open(tasks, encoding="utf-8", errors="replace").read()
+    body = _read_text_file(tasks, root)
     if not re.search(r"^#{2,4}\s+T\d+\s*:", body, re.MULTILINE):
         return False
     if re.search(r"^\s*-\s*\[\s\]", body, re.MULTILINE):
@@ -79,7 +98,7 @@ def _appears_complete(fdir):
     return True
 
 
-def _check_feature(fdir, name):
+def _check_feature(fdir, name, root):
     """Return list of error strings for one feature (empty = pass)."""
     errors = []
     vpath = os.path.join(fdir, "validation.md")
@@ -89,7 +108,7 @@ def _check_feature(fdir, name):
             f"is written and independent. Dispatch validation before marking done."
         )
         return errors
-    text = open(vpath, encoding="utf-8", errors="replace").read()
+    text = _read_text_file(vpath, root)
     verdict = _verdict(text)
     if verdict is None:
         errors.append(f"{name}: validation.md has no PASS/FAIL verdict (a prose-only report does not count)")
@@ -104,21 +123,24 @@ def _check_feature(fdir, name):
 
 def _resolve(root, feature):
     base, dirs = _feature_dirs(root)
-    if not os.path.isdir(base):
-        print(f"validate_state: no {base} directory - nothing to check.")
-        return []
     if feature:
+        # An explicit target is always honored, even when root has no
+        # .specs tree; otherwise the gate would silently pass ("nothing to
+        # check") on exactly the feature the caller named.
         fdir = feature if os.path.isdir(feature) else os.path.join(base, feature)
         if not os.path.isdir(fdir):
             print(f"validate_state: feature not found: {feature}", file=sys.stderr)
             raise SystemExit(2)
         return [(fdir, os.path.basename(fdir.rstrip("/")))]
+    if not os.path.isdir(base):
+        print(f"validate_state: no {base} directory - nothing to check.")
+        return []
     if len(dirs) == 1:
         return [(os.path.join(base, dirs[0]), dirs[0])]
     if not dirs:
         print("validate_state: no features under .specs/features/ - nothing to check.")
         return []
-    picked = [(os.path.join(base, d), d) for d in dirs if _appears_complete(os.path.join(base, d))]
+    picked = [(os.path.join(base, d), d) for d in dirs if _appears_complete(os.path.join(base, d), root)]
     if not picked:
         print("validate_state: no completed feature detected (all in progress) - nothing to gate.")
     return picked
@@ -134,7 +156,7 @@ def main(argv=None):
     targets = _resolve(root, args.feature)
     all_errors = []
     for fdir, name in targets:
-        all_errors += _check_feature(fdir, name)
+        all_errors += _check_feature(fdir, name, root)
 
     for e in all_errors:
         print(f"  ERROR {e}")

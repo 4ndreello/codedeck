@@ -7,7 +7,8 @@ Changes from the original: invocation from the repo root as
 `python3 scripts/spec-gates/validate_tasks.py`; check logic unchanged
 because our tasks.md already follows the same shape (Test Coverage Matrix,
 Gate Check Commands, Execution Plan, Task Breakdown, T-tasks with Tests
-plus Gate, Depends on, fenced phase diagrams).
+plus Gate, Depends on, fenced phase diagrams); every file read is confined
+under --root (path-injection guard).
 
 What it checks (heuristic markdown inspection, not a full parser):
   ERROR  - a required section is missing
@@ -34,6 +35,26 @@ import argparse
 import os
 import re
 import sys
+
+
+def _read_text_file(path, root):
+    """Read a UTF-8 text file, refusing paths that escape root.
+
+    Every file these gates open must live under --root (default: the repo
+    you run from). An agent passing a faulty absolute path gets a clean
+    usage error, never foreign content. Exits 2 on refusal.
+    """
+    base = os.path.realpath(root)
+    target = os.path.realpath(path)
+    if os.path.commonpath([base, target]) != base:
+        print(f"refusing to read outside project root {base}: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    if not os.path.isfile(target):
+        print(f"not a file: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
 
 REQUIRED_SECTIONS = ["Test Coverage Matrix", "Gate Check Commands", "Execution Plan", "Task Breakdown"]
 TASK_RE = re.compile(r"^#{2,4}\s+(T\d+)\s*:", re.IGNORECASE)
@@ -152,9 +173,8 @@ def parse_diagram_edges(lines):
     return edges, found_any_arrow
 
 
-def check(tasks_path):
-    with open(tasks_path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
+def check(tasks_path, root):
+    lines = _read_text_file(tasks_path, root).splitlines()
     errors, warnings = [], []
 
     for name in REQUIRED_SECTIONS:
@@ -224,7 +244,7 @@ def main(argv=None):
         print("validate_tasks: could not locate a tasks.md. Pass a path or run from the project root.", file=sys.stderr)
         return 2
 
-    errors, warnings = check(tasks_path)
+    errors, warnings = check(tasks_path, os.path.abspath(args.root))
     for w in warnings:
         print(f"  WARN  {w}")
     for e in errors:
