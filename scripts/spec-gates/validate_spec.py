@@ -37,22 +37,7 @@ import re
 import sys
 
 
-def _read_text_file(path, root):
-    """Read a UTF-8 text file, refusing paths that escape root.
-
-    Every file these gates open must live under the repo you run from. An agent passing a faulty absolute path gets a clean
-    usage error, never foreign content. Exits 2 on refusal.
-    """
-    base = os.path.realpath(root)
-    target = os.path.realpath(path)
-    if os.path.commonpath([base, target]) != base:
-        print(f"refusing to read outside project root {base}: {path}", file=sys.stderr)
-        raise SystemExit(2)
-    if not os.path.isfile(target):
-        print(f"not a file: {path}", file=sys.stderr)
-        raise SystemExit(2)
-    with open(target, "r", encoding="utf-8", errors="replace") as f:
-        return f.read()
+from _gate_io import read_text_file as _read_text_file
 
 
 GOAL_TITLES = {"goal", "goals", "problem statement"}
