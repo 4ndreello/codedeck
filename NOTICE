@@ -16,11 +16,20 @@ license text for CC-BY-4.0 is available at:
 What this means in practice
 ---------------------------
 
-Our spec-driven workflow files in this repository are an original,
-lean reimplementation written in our own words. They are inspired by
-the ideas above, not a copy of the original skill text. No content
-was pasted from the original SKILL.md or its reference files.
+Our prompt prose (plugin/prompts/_partials/spec-gates.md,
+plugin/prompts/spec-workflow.md, and the orchestrator wording that cites
+them) is an original, lean reimplementation written in our own words. No
+content was pasted from the original SKILL.md or its reference files.
 
-Where the CC-BY-4.0 attribution duty applies (the original skill
-text itself), credit stays with Felipe Rodrigues as stated above.
+The gate scripts in scripts/spec-gates/ (validate_spec.py,
+validate_tasks.py, check_commit.py, validate_state.py) are adapted from
+the scripts shipped with that skill. Adaptations: required sections and
+commit types fitted to this repo's conventions (capitalized subjects,
+ref/meta/license/revert types), the traceability-ID check dropped, and
+invocation from the repo root. The originals remain CC-BY-4.0 by Felipe
+Rodrigues as stated above; our adaptations are released under the MIT
+License in LICENSE.
+
+Where the CC-BY-4.0 attribution duty applies (the original skill text
+and scripts), credit stays with Felipe Rodrigues as stated above.
 Where our own files apply, the MIT License in LICENSE governs.
