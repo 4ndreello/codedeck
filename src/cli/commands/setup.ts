@@ -21,14 +21,19 @@ import { ROLES, type Role } from "../../core/roles.js";
 import { getPaths } from "../../config/paths.js";
 import {
   BALANCED_PRESET,
+  baseConfig,
   DISPATCHER_PRESET,
   EXPLORER_PRESET,
+  getProfileSnapshot,
   ORCHESTRATOR_PRESETS,
   createSetupConfigStore,
   DEFAULT_CONFIG,
+  extractProfileSnapshot,
   isOrchestratorMode,
   loadConfig,
   orchestratorModeLabel,
+  parseProfileName,
+  resolveEffectiveConfig,
   resolveOrchestratorMode,
   saveConfig,
   serializeConfig,
@@ -405,6 +410,7 @@ export function collectOrchestratorSelection(
 
 export interface ModelWizardOptions {
   config?: RunAgentConfig;
+  profile?: string;
   registry?: DriverRegistry;
   input?: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode?(value: boolean): void };
   output?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
@@ -435,8 +441,14 @@ export function needsModelSetup(
   if (!isTTY) return false;
   // `agents` is what setup writes now. A config carrying only the older
   // per-harness `models` has never answered the per-role question, so it still
-  // counts as unset.
-  return config == null || config.agents == null;
+  // counts as unset. The active profile answers too: its agents are the ones
+  // a launch would use.
+  if (config == null) return true;
+  try {
+    return resolveEffectiveConfig(config).agents == null;
+  } catch {
+    return config.agents == null;
+  }
 }
 
 /**
@@ -611,7 +623,11 @@ function watchResize(listener: () => void): () => void {
 }
 
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
-  const config = options.config ?? loadConfig();
+  const loaded = options.config ?? loadConfig();
+  const profile = options.profile !== undefined ? parseProfileName(options.profile) : undefined;
+  const config = profile === undefined
+    ? loaded
+    : { ...baseConfig(loaded), ...getProfileSnapshot(loaded, profile) };
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
   const output = options.output ?? process.stdout;
@@ -758,9 +774,15 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     }
   }
   updatedConfig.agents = { ...agents };
+  const toSave: RunAgentConfig = profile === undefined
+    ? updatedConfig
+    : {
+        ...loaded,
+        profiles: { ...loaded.profiles, [profile]: extractProfileSnapshot(updatedConfig) },
+      };
   let saved = false;
   try {
-    (options.save ?? saveConfig)(updatedConfig);
+    (options.save ?? saveConfig)(toSave);
     saved = true;
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
@@ -794,6 +816,7 @@ export interface SetupCliOptions {
   dryRun: boolean;
   binds: ParsedSetupBinding[];
   batch: boolean;
+  profile?: string;
 }
 
 export class SetupUsageError extends Error {
@@ -859,11 +882,33 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
   let refresh = false;
   let nonInteractive = false;
   let dryRun = false;
+  let profile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--refresh") {
       refresh = true;
+      continue;
+    }
+    if (arg === "--profile") {
+      const value = args[index + 1];
+      if (value === undefined || isSetupFlag(value)) {
+        return parseError('Option "--profile" expects a name.', json);
+      }
+      index += 1;
+      try {
+        profile = parseProfileName(value);
+      } catch (error) {
+        return parseError(error instanceof Error ? error.message : String(error), json);
+      }
+      continue;
+    }
+    if (arg.startsWith("--profile=")) {
+      try {
+        profile = parseProfileName(arg.slice("--profile=".length));
+      } catch (error) {
+        return parseError(error instanceof Error ? error.message : String(error), json);
+      }
       continue;
     }
     if (arg === "--non-interactive") {
@@ -912,6 +957,7 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
       dryRun,
       binds,
       batch: nonInteractive || json || dryRun || binds.length > 0,
+      ...(profile === undefined ? {} : { profile }),
     },
   };
 }
@@ -1315,19 +1361,32 @@ export async function runSetupBatch(
   }
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
+  // --profile edits one saved setup instead of the active one. A name nobody
+  // saved yet starts from the base config, so creating a profile needs no
+  // separate gesture.
+  const profile = options.profile;
+  const target: RunAgentConfig = profile === undefined
+    ? current
+    : { ...baseConfig(current), ...getProfileSnapshot(current, profile) };
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
-  const existingAgents = jsonObject(current.agents) ? current.agents : {};
+  const existingAgents = jsonObject(target.agents) ? target.agents : {};
+  const updatedAgents = {
+    ...existingAgents,
+    ...Object.fromEntries(winning.map(({ role, binding }) => [role, binding])),
+  };
   const proposed: RunAgentConfig = options.binds.length === 0
     ? { ...current }
-    : {
-        ...current,
-        agents: {
-          ...existingAgents,
-          ...Object.fromEntries(winning.map(({ role, binding }) => [role, binding])),
-        },
-      };
+    : profile === undefined
+      ? { ...current, agents: updatedAgents }
+      : {
+          ...current,
+          profiles: {
+            ...current.profiles,
+            [profile]: { ...extractProfileSnapshot(target), agents: updatedAgents },
+          },
+        };
   const changes = diffConfig(current, proposed);
 
   let catalog: Awaited<ReturnType<typeof getBatchModels>> | undefined;
@@ -1429,7 +1488,10 @@ export async function runSetupBatch(
   }
 
   const message = "Configuration saved.";
-  if (!options.json) writeLine(stderr, `saved: ${configSummary(proposed)}`);
+  const summarized = profile === undefined ? proposed : (proposed.profiles?.[profile] ?? proposed);
+  if (!options.json) {
+    writeLine(stderr, profile === undefined ? `saved: ${configSummary(summarized)}` : `saved profile "${profile}": ${configSummary(summarized)}`);
+  }
   return {
     code: 0,
     envelope: { proposta: proposed, validacoes: validations, mudancas: changes, resultado: { status: "applied", code: 0, saved: true, message } },
@@ -1450,6 +1512,7 @@ function commandTokens(opts: Record<string, unknown>, command: Command): string[
   if (opts.nonInteractive) tokens.push("--non-interactive");
   if (opts.json) tokens.push("--json");
   if (opts.dryRun) tokens.push("--dry-run");
+  if (typeof opts.profile === "string") tokens.push("--profile", opts.profile);
   const binds = Array.isArray(opts.bind) ? opts.bind : opts.bind === undefined ? [] : [opts.bind];
   for (const bind of binds) {
     tokens.push("--bind");
@@ -1493,6 +1556,7 @@ export async function executeSetupAction(
       discoverModels: dependencies.wizardDiscoverModels,
       save: dependencies.saveConfig,
       isTTY: tty,
+      ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
     });
     return { code: 0 };
   }
@@ -1512,6 +1576,7 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")
     .option("--dry-run", "show the proposed config without writing it")
+    .option("--profile <name>", "edit a saved profile instead of the active setup")
     .option(
       "--bind [binding]",
       "bind a role to a harness and model",

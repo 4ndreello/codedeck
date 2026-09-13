@@ -8,6 +8,7 @@ import { IpcClient } from "../../daemon/ipc.js";
 import type { SessionAdoptResult } from "../../daemon/protocol.js";
 import {
   loadConfig,
+  resolveEffectiveConfig,
   resolveRoleBinding,
   resolveOrchestratorMode,
   type RoleBinding,
@@ -520,6 +521,7 @@ export function registerOpenCommand(program: Command): void {
     .option("--no-autocompact", "disable native auto-compaction in Claude and OpenCode")
     .option("--resume <session>", "resume an interactive session")
     .option("--worktree", "ask Claude Code to create an isolated worktree")
+    .option("--profile <name>", "use a saved setup profile instead of the active one (see profile list)")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
     .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
     .option("--no-pty", "do not run the session under a pty, which also drops the automatic rename")
@@ -529,8 +531,9 @@ export function registerOpenCommand(program: Command): void {
       const autocompact = parseAutocompact(opts.autocompact);
       // Launching never opens the wizard. Asking a model per harness was the
       // wrong question to greet someone with, and `codedeck setup` is the place
-      // to answer it deliberately.
-      const config = loadConfig();
+      // to answer it deliberately. The profile resolves once here, so every
+      // binding, model and effort below comes from the same setup.
+      const config = resolveEffectiveConfig(loadConfig(), opts.profile);
       const orchestratorMode = resolveOrchestratorMode(config);
 
       // The print-flag check is harness-specific (-p is --profile on codex),
