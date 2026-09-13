@@ -24,6 +24,7 @@ export interface OpenFlags {
   theme?: boolean;
   remoteControl?: boolean;
   pty?: boolean;
+  profile?: string;
 }
 
 export interface OpenModelInput {

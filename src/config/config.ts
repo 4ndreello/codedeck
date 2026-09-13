@@ -38,6 +38,13 @@ export interface RoleBinding {
   effort?: ReasoningEffort;
 }
 
+/**
+ * The setup a profile saves: everything `codedeck setup` writes plus the
+ * fallback defaults a launch reads. Stored without nesting, so a profile
+ * never contains profiles of its own.
+ */
+export type ProfileSnapshot = Omit<RunAgentConfig, "profiles" | "activeProfile">;
+
 export interface RunAgentConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
@@ -45,6 +52,13 @@ export interface RunAgentConfig {
   remoteControl?: boolean;
   defaultSandbox?: CodexSandbox;
   autocompact?: AutocompactConfig;
+  /**
+   * Named setups saved by `codedeck profile save`. The top level stays the
+   * fallback: a profile only overrides the fields it sets.
+   */
+  profiles?: Record<string, ProfileSnapshot>;
+  /** Name picked by `codedeck profile use`. Empty or absent means the base config. */
+  activeProfile?: string;
   /**
    * Run interactive sessions under a pty CodeDeck owns, which is what lets it
    * type harness commands — today the `/rename` that names a Claude Code
@@ -59,6 +73,91 @@ export interface RunAgentConfig {
   models?: Partial<Record<AgentId, string>>;
   agents?: Partial<Record<Role, RoleBinding>>;
   orchestrator?: OrchestratorMode;
+}
+
+export const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9-_]{0,63}$/;
+
+/**
+ * Normalizes a profile name from a flag or a stored pointer. Lowercased so
+ * `Max` and `max` cannot become two profiles. Throws rather than guessing:
+ * the name addresses a whole setup, so a typo must fail loud.
+ */
+export function parseProfileName(input: string | undefined): string {
+  const normalized = (input ?? "").trim().toLowerCase();
+  if (!PROFILE_NAME_PATTERN.test(normalized)) {
+    throw new Error(
+      `Invalid profile "${input ?? ""}". Use lowercase letters, digits, "-" or "_", starting with a letter or digit (max 64 characters).`,
+    );
+  }
+  return normalized;
+}
+
+/** Profile names present in the file, sorted. Hand-edited junk is skipped. */
+export function listProfiles(config: RunAgentConfig = {}): string[] {
+  if (!isJsonObject(config.profiles)) return [];
+  return Object.keys(config.profiles)
+    .filter((name) => PROFILE_NAME_PATTERN.test(name) && isJsonObject(config.profiles?.[name]))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+/** One saved setup, or undefined when nobody saved it under that name. */
+export function getProfileSnapshot(
+  config: RunAgentConfig = {},
+  name: string,
+): ProfileSnapshot | undefined {
+  if (!isJsonObject(config.profiles)) return undefined;
+  const snapshot = config.profiles[name];
+  return isJsonObject(snapshot) ? (snapshot as ProfileSnapshot) : undefined;
+}
+
+/** The config without its profile keys: the fallback every profile builds on. */
+export function baseConfig(config: RunAgentConfig = {}): ProfileSnapshot {
+  const rest: Record<string, unknown> = { ...config };
+  delete rest.profiles;
+  delete rest.activeProfile;
+  return rest as ProfileSnapshot;
+}
+
+/**
+ * A snapshot of the setup a launch would use right now: exactly what
+ * `codedeck setup` writes (agents, orchestrator, sandbox, autocompact).
+ * Everything else (defaultAgent, worktree, pty and friends) stays global in
+ * the base config, so a profile never pins a fallback it did not mean to.
+ */
+const PROFILE_SNAPSHOT_KEYS = ["agents", "orchestrator", "defaultSandbox", "autocompact"] as const;
+
+export function extractProfileSnapshot(config: RunAgentConfig): ProfileSnapshot {
+  const snapshot: ProfileSnapshot = {};
+  for (const key of PROFILE_SNAPSHOT_KEYS) {
+    const value = config[key];
+    if (value !== undefined) {
+      (snapshot as Record<string, unknown>)[key] = value;
+    }
+  }
+  return snapshot;
+}
+
+/**
+ * The config a launch resolves: the base with the picked profile overlaid.
+ * An explicit name (a --profile flag) wins over the stored active profile.
+ * An unknown or malformed name throws: launching on the wrong setup after a
+ * typo would cost a full session.
+ */
+export function resolveEffectiveConfig(
+  config: RunAgentConfig = {},
+  profile?: string,
+): RunAgentConfig {
+  const wanted = profile ?? config.activeProfile;
+  if (wanted === undefined || wanted.trim() === "") return baseConfig(config);
+  const name = parseProfileName(wanted);
+  const snapshot = getProfileSnapshot(config, name);
+  if (!snapshot) {
+    const available = listProfiles(config);
+    throw new Error(
+      `Unknown profile "${name}". Available: ${available.join(", ") || "none"}. Save one with "profile save <name>".`,
+    );
+  }
+  return { ...baseConfig(config), ...snapshot };
 }
 
 /**

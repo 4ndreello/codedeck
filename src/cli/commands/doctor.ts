@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { IpcClient, isDaemonRunning } from "../../daemon/ipc.js";
 import { getPaths } from "../../config/paths.js";
-import { loadConfig, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
+import { loadConfig, resolveEffectiveConfig, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
 import { ROLES, type Role } from "../../core/roles.js";
 import type { AgentId } from "../../core/session.js";
 
@@ -108,7 +108,14 @@ export function registerDoctorCommand(program: Command): void {
         process.exit(1);
       }
 
-      const roles = resolveRoleReadiness(loadConfig());
+      const loaded = loadConfig();
+      // Readiness follows the active profile. A dangling pointer still gets
+      // a report: fall back to the base config instead of failing the check.
+      let effective = loaded;
+      try {
+        effective = resolveEffectiveConfig(loaded);
+      } catch {}
+      const roles = resolveRoleReadiness(effective);
 
       if (opts.json) {
         console.log(JSON.stringify({ ...result, power: resolvePowerInfo(result), roles }, null, 2));

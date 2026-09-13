@@ -83,6 +83,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 |---------|-------------|
 | `npx codedeck open [role] [--no-bypass] [--no-theme] [--no-pty] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
 | `npx codedeck setup` | Choose the harness and model each agent should run on |
+| `npx codedeck profile <list\|show\|save\|use\|delete>` | Save and switch named setups |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
 | `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
@@ -186,6 +187,20 @@ The catalog is cached for four hours. `codedeck setup --refresh` ignores the cac
 `codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model, rather than hand one harness another's id.
 
 Anything the bindings do not answer falls back the way it always did. The harness comes from `defaultAgent`, then claude; the model from `models[harness]`, then `defaultModel`, then whatever the driver picks for itself. A role nobody bound, because it was skipped in setup, lands in that same fallback instead of failing.
+
+### Profiles
+
+A profile is a named snapshot of what `setup` writes (agents, orchestrator, sandbox, autocompact). The rest of the config stays global.
+
+```bash
+npx codedeck profile save max      # snapshot the current setup
+npx codedeck profile use max       # make it the active setup
+npx codedeck setup --profile max   # edit that profile directly
+npx codedeck run "task" --profile max --bg
+npx codedeck open reviewer --profile max
+```
+
+`use` sets the default. `--profile` overrides it for one launch, so two profiles run side by side with no switching. An unknown name fails loud instead of launching on the wrong setup.
 
 ## Session
 

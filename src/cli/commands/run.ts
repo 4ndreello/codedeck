@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding } from "../../config/config.js";
+import { loadConfig, resolveDefaultSandbox, resolveEffectiveConfig, resolveModel, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
@@ -24,6 +24,7 @@ export function registerRunCommand(program: Command): void {
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5; ignored for a role with a binding)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")} (required unless the role binds one; opencode ignores)`)
     .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
+    .option("--profile <name>", "use a saved setup profile instead of the active one (see profile list)")
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
     .option("--sandbox <mode>", `codex sandbox: ${CODEX_SANDBOXES.join(" | ")} (default: workspace-write)`)
     .option("--dangerously-bypass-approvals-and-sandbox", "codex: bypass sandbox and approvals (sets sandbox to danger-full-access)")
@@ -46,7 +47,16 @@ Resume with: ${getCliName()} send <id> "continue"
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const sessionName = opts.name ?? slugify(prompt);
-      const cfg = loadConfig();
+      // Resolved once here so a --profile run carries its own setup even
+      // while another profile runs beside it. The daemon only sees the
+      // concrete values below, never the profile name.
+      let cfg: RunAgentConfig;
+      try {
+        cfg = resolveEffectiveConfig(loadConfig(), opts.profile);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        process.exit(3); // usage error — infra class
+      }
       // A bound role owns both halves. The worker dispatches the role and the
       // role decides the harness and model; --agent/--model cannot override a
       // bound role. They used to, which let every worker force the run onto its
@@ -184,6 +194,8 @@ Resume with: ${getCliName()} send <id> "continue"
       }
 
       const background = !!opts.detach;
+      // Without flags the daemon would fall back to the base config, which
+      // ignores the profile. Pass the effective answer explicitly instead.
       const params: any = {
         prompt: rolePrompt,
         runId: runIdFromEnvironment(),
@@ -195,8 +207,8 @@ Resume with: ${getCliName()} send <id> "continue"
         dangerouslyBypassApprovalsAndSandbox: agent === "codex" ? dangerouslyBypass : undefined,
         name: sessionName,
         cwd,
-        worktree: opts.worktree,
-        noWorktree: opts.noWorktree,
+        worktree: opts.worktree ?? (cfg.worktree === true ? true : undefined),
+        noWorktree: opts.noWorktree ?? (opts.worktree === undefined && cfg.worktree === false ? true : undefined),
         detach: background,
       };
 
