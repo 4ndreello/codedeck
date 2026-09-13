@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveRoleBinding } from "../src/config/config.js";
 
 const request = vi.fn();
 
@@ -60,6 +61,12 @@ function writeConfig(config: unknown): void {
 
 async function created(argv: string[]): Promise<Record<string, unknown>> {
   await expect(runProgram([...argv, "--effort", "high", "--bg"])).rejects.toThrow(Exited);
+  const [, params] = request.mock.calls[0] as [string, Record<string, unknown>];
+  return params;
+}
+
+async function createdRaw(argv: string[]): Promise<Record<string, unknown>> {
+  await expect(runProgram([...argv, "--bg"])).rejects.toThrow(Exited);
   const [, params] = request.mock.calls[0] as [string, Record<string, unknown>];
   return params;
 }
@@ -123,5 +130,93 @@ describe("codedeck run sandbox resolution", () => {
 
     expect(params.sandbox).toBeUndefined();
     expect(errors.join("\n")).toContain(`--sandbox has no effect on ${agent}`);
+  });
+});
+
+describe("resolveRoleBinding effort", () => {
+  it("keeps a valid binding effort", () => {
+    expect(
+      resolveRoleBinding("reviewer", {
+        agents: { reviewer: { harness: "codex", model: "gpt", effort: "max" } },
+      }),
+    ).toEqual({ harness: "codex", model: "gpt", effort: "max" });
+  });
+
+  it("drops an invalid hand-edited effort without killing the binding", () => {
+    expect(
+      resolveRoleBinding("reviewer", {
+        agents: { reviewer: { harness: "codex", model: "gpt", effort: "maximum" as never } },
+      }),
+    ).toEqual({ harness: "codex", model: "gpt" });
+  });
+});
+
+describe("codedeck run effort resolution", () => {
+  it("refuses to create a session without a flag or a bound effort", async () => {
+    writeConfig({ defaultAgent: "codex" });
+
+    await expect(runProgram(["do the thing", "--agent", "codex", "--bg"])).rejects.toThrow(
+      expect.objectContaining({ code: 3 }),
+    );
+
+    expect(request).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/No effort bound.*setup/);
+  });
+
+  it("uses the role binding effort", async () => {
+    writeConfig({
+      defaultAgent: "codex",
+      agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna", effort: "high" } },
+    });
+
+    const params = await createdRaw(["do the thing", "--agent", "codex", "--role", "reviewer"]);
+
+    expect(params.effort).toBe("high");
+  });
+
+  it("prefers an explicit flag over the role binding", async () => {
+    writeConfig({
+      defaultAgent: "codex",
+      agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna", effort: "high" } },
+    });
+
+    const params = await createdRaw(["do the thing", "--agent", "codex", "--role", "reviewer", "--effort", "max"]);
+
+    expect(params.effort).toBe("max");
+  });
+
+  it("refuses when the binding effort is invalid and no flag is passed", async () => {
+    writeConfig({
+      defaultAgent: "codex",
+      agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna", effort: "maximum" } },
+    });
+
+    await expect(
+      runProgram(["do the thing", "--agent", "codex", "--role", "reviewer", "--bg"]),
+    ).rejects.toThrow(expect.objectContaining({ code: 3 }));
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown level before reaching the daemon", async () => {
+    writeConfig({ defaultAgent: "codex" });
+
+    await expect(
+      runProgram(["do the thing", "--agent", "codex", "--effort", "maximum", "--bg"]),
+    ).rejects.toThrow(expect.objectContaining({ code: 3 }));
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("drops effort for opencode with a warning instead of persisting a lie", async () => {
+    writeConfig({
+      defaultAgent: "opencode",
+      agents: { reviewer: { harness: "opencode", model: "prov/m", effort: "max" } },
+    });
+
+    const params = await createdRaw(["do the thing", "--agent", "opencode", "--role", "reviewer"]);
+
+    expect(params.effort).toBeUndefined();
+    expect(errors.join("\n")).toContain('effort "max" has no effect on opencode');
   });
 });

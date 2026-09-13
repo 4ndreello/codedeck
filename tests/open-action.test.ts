@@ -27,6 +27,12 @@ function writeConfig(config: Record<string, unknown>): void {
   fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify(config));
 }
 
+function mockClaudeLaunch(): void {
+  vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
+  vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
+  vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+}
+
 describe("opencode dispatch", () => {
   it("guarantees the daemon before spawning, in order", async () => {
     await runOpen(["reviewer", "--no-theme"]);
@@ -392,9 +398,7 @@ describe("claude dispatch", () => {
     const configDir = process.env.RUN_AGENT_CONFIG_DIR;
     if (!configDir) throw new Error("test config directory is missing");
     fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remoteControl: false, agents: { general: { harness: "claude", model: "m", effort: "high" } } }));
-    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
-    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
-    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+    mockClaudeLaunch();
 
     await runOpen(["general", "--no-theme"]);
 
@@ -412,9 +416,7 @@ describe("claude dispatch", () => {
         parallelism: 2,
       },
     });
-    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
-    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
-    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+    mockClaudeLaunch();
 
     await runOpen(["orchestrator", "--no-theme"]);
 
@@ -433,9 +435,7 @@ describe("claude dispatch", () => {
     writeConfig({
       agents: { general: { harness: "claude", model: "m", effort: "max" } },
     });
-    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
-    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
-    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+    mockClaudeLaunch();
 
     await runOpen(["general", "--no-theme"]);
 
