@@ -54,6 +54,7 @@ export interface AdoptSessionRequest {
   params: {
     agent: AgentId;
     model?: string;
+    effort?: ReasoningEffort;
     cwd: string;
     name?: string;
     worktree?: string;

@@ -29,6 +29,7 @@ function runProgram(argv: string[]) {
 }
 
 let errors: string[];
+const originalTopConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
 
 beforeEach(() => {
   errors = [];
@@ -41,10 +42,15 @@ beforeEach(() => {
   vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
     throw new Exited(code ?? 0);
   }) as never);
+  const dir = mkdtempSync(path.join(tmpdir(), "codedeck-run-effort-"));
+  process.env.RUN_AGENT_CONFIG_DIR = dir;
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({}), "utf-8");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (originalTopConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
+  else process.env.RUN_AGENT_CONFIG_DIR = originalTopConfigDir;
 });
 
 // The helpers are covered directly in roles.test.ts. What is only covered here
@@ -56,7 +62,7 @@ describe("codedeck run --role", () => {
     process.env.CODEDECK_RUN_ID = "run-from-open";
 
     try {
-      await expect(runProgram(["do the thing", "--agent", "codex", "--bg"]))
+      await expect(runProgram(["do the thing", "--agent", "codex", "--effort", "high", "--bg"]))
         .rejects.toThrow(Exited);
     } finally {
       if (previousRunId === undefined) delete process.env.CODEDECK_RUN_ID;
@@ -76,7 +82,7 @@ describe("codedeck run --role", () => {
   });
 
   it("sends the composed prompt to session.create", async () => {
-    await expect(runProgram(["do the thing", "--agent", "codex", "--role", "reviewer", "--bg"]))
+    await expect(runProgram(["do the thing", "--agent", "codex", "--role", "reviewer", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     expect(request).toHaveBeenCalledWith("session.create", expect.any(Object));
@@ -88,7 +94,7 @@ describe("codedeck run --role", () => {
   });
 
   it("sends the prompt untouched without the flag", async () => {
-    await expect(runProgram(["do the thing", "--agent", "codex", "--bg"]))
+    await expect(runProgram(["do the thing", "--agent", "codex", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     const [, params] = request.mock.calls[0];
@@ -96,7 +102,7 @@ describe("codedeck run --role", () => {
   });
 
   it("derives the session name from the raw task prompt", async () => {
-    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--bg"]))
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     const [, params] = request.mock.calls[0];
@@ -104,7 +110,7 @@ describe("codedeck run --role", () => {
   });
 
   it("derives the session name from the raw prompt before role composition", async () => {
-    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--role", "reviewer", "--bg"]))
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--role", "reviewer", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     const [, params] = request.mock.calls[0];
@@ -114,7 +120,7 @@ describe("codedeck run --role", () => {
   });
 
   it("keeps an explicitly supplied session name verbatim", async () => {
-    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--name", "OAuth / v2", "--bg"]))
+    await expect(runProgram(["Fix OAuth login!!!", "--agent", "codex", "--name", "OAuth / v2", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     const [, params] = request.mock.calls[0];
@@ -144,20 +150,14 @@ describe("the harness and model a role is bound to", () => {
     process.env.RUN_AGENT_CONFIG_DIR = dir;
     writeFileSync(path.join(dir, "config.json"), JSON.stringify(config), "utf-8");
   }
-
-  afterEach(() => {
-    if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-    else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
-  });
-
   const bound = {
     defaultAgent: "claude",
     models: { claude: "claude-configured" },
-    agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna" } },
+    agents: { reviewer: { harness: "codex", model: "gpt-5.6-luna", effort: "max" } },
   };
 
   async function created(argv: string[]): Promise<{ agent: string; model?: string }> {
-    await expect(runProgram([...argv, "--bg"])).rejects.toThrow(Exited);
+    await expect(runProgram([...argv, "--effort", "high", "--bg"])).rejects.toThrow(Exited);
     const [, params] = request.mock.calls[0];
     return { agent: params.agent, model: params.model };
   }
@@ -196,7 +196,6 @@ describe("the harness and model a role is bound to", () => {
   });
 
   // Skipping an agent in setup leaves it unbound, and an unbound role is not an
-  // error: it warns and falls back exactly like a run that names no role at all.
   it("falls back to the per-harness model for a role nobody bound", async () => {
     writeConfig({ defaultAgent: "claude", models: { claude: "claude-configured" }, agents: {} });
 

@@ -32,7 +32,7 @@ describe("open remains Codex-blind", () => {
     const pluginDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-plugin-"));
     fs.writeFileSync(path.join(pluginDir, "ultra.md"), "ULTRA BASE\n");
     try {
-      const args = buildOpenArgs("orchestrator", {}, pluginDir, [], "/worktree");
+      const args = buildOpenArgs("orchestrator", { effort: "xhigh" }, pluginDir, [], "/worktree");
 
       expect(args).toContain("--dangerously-skip-permissions");
       expectNoCodexSandboxArgs(args);

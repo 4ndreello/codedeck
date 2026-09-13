@@ -134,7 +134,7 @@ describe("Claude autocompact argument builders", () => {
   it("adds the resolved flag to open before the user's passthrough", () => {
     const args = buildOpenArgs(
       "general",
-      { autocompact: "auto" },
+      { autocompact: "auto", effort: "xhigh" },
       PLUGIN,
       ["--add-dir", "/tmp/work"],
     );
@@ -145,18 +145,14 @@ describe("Claude autocompact argument builders", () => {
   });
 
   it("uses configured compaction for open and keeps an explicit disable", () => {
-    const configured = buildOpenArgs(
-      "general",
-      {},
-      PLUGIN,
-      [],
-      undefined,
-      undefined,
-      { autocompact: { tokens: 200_000 } },
-    );
+    const configured = buildOpenArgs("general", { effort: "xhigh" }, PLUGIN,
+    [],
+    undefined,
+    undefined,
+    { autocompact: { tokens: 200_000 } },);
     const disabled = buildOpenArgs(
       "general",
-      { autocompact: false },
+      { autocompact: false, effort: "xhigh" },
       PLUGIN,
       [],
     );
@@ -167,12 +163,8 @@ describe("Claude autocompact argument builders", () => {
   });
 
   it("leaves a passthrough autocompact flag as the only occurrence", () => {
-    const args = buildOpenArgs(
-      "general",
-      {},
-      PLUGIN,
-      ["--autocompact", "auto"],
-    );
+    const args = buildOpenArgs("general", { effort: "xhigh" }, PLUGIN,
+    ["--autocompact", "auto"],);
 
     expect(args.filter((arg) => arg === "--autocompact")).toHaveLength(1);
     expect(args.slice(-2)).toEqual(["--autocompact", "auto"]);

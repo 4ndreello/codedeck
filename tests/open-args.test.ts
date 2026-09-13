@@ -28,6 +28,7 @@ import {
   resumeHint,
   resolveRole,
   resolvePluginDir,
+  resolveOpenEffort,
   sanitizeEnv,
   scanOptions,
   spinnerTips,
@@ -63,8 +64,8 @@ afterEach(() => {
 });
 
 describe("open command argument builder", () => {
-  it("uses the CodeDeck defaults and plugin contract", () => {
-    const args = buildOpenArgs("orchestrator", {}, PLUGIN, []);
+  it("uses the CodeDeck model default with an explicit effort", () => {
+    const args = buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN, []);
     const settingsIndex = args.indexOf("--settings");
 
     expect(args.filter((_, i) => i !== settingsIndex + 1)).toEqual([
@@ -86,16 +87,16 @@ describe("open command argument builder", () => {
     ]);
   });
 
+  it("fails loud without an explicit effort", () => {
+    expect(() => buildOpenArgs("orchestrator", {}, PLUGIN, [])).toThrow(/No effort configured.*setup/);
+  });
+
   it("keeps dispatcher arguments equal to the pre-change contract", () => {
-    const defaultArgs = buildOpenArgs("orchestrator", {}, PLUGIN, []);
-    const dispatcherArgs = buildOpenArgs(
-      "orchestrator",
-      {},
-      PLUGIN,
-      [],
-      undefined,
-      DISPATCHER_PRESET,
-    );
+    const defaultArgs = buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN, []);
+    const dispatcherArgs = buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN,
+    [],
+    undefined,
+    DISPATCHER_PRESET,);
 
     expect(dispatcherArgs).toEqual(defaultArgs);
     expect(dispatcherArgs).not.toContain("--append-system-prompt");
@@ -110,18 +111,14 @@ describe("open command argument builder", () => {
   it("fails loud when ultra.md is missing", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-no-ultra-"));
     try {
-      expect(() => buildOpenArgs("general", {}, dir, [])).toThrow(
+      expect(() => buildOpenArgs("general", { effort: "xhigh" }, dir, [])).toThrow(
         /ultra prompt not found.*plugin is incomplete/,
       );
       expect(() =>
-        buildOpenArgs(
-          "orchestrator",
-          {},
-          dir,
-          [],
-          undefined,
-          mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
-        ),
+        buildOpenArgs("orchestrator", { effort: "xhigh" }, dir,
+        [],
+        undefined,
+        mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),),
       ).toThrow(/ultra prompt not found.*plugin is incomplete/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -133,14 +130,10 @@ describe("open command argument builder", () => {
     ["read", "codedeck:orchestrator-read", mode({ tools: "read" })],
     ["edit", "codedeck:orchestrator-edit", mode({ tools: "edit" })],
   ] as const)("selects the Claude agent for the %s tools tier", (_tier, agent, orchestratorMode) => {
-    const args = buildOpenArgs(
-      "orchestrator",
-      {},
-      PLUGIN,
-      [],
-      undefined,
-      orchestratorMode,
-    );
+    const args = buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN,
+    [],
+    undefined,
+    orchestratorMode,);
 
     expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
       "--agent",
@@ -152,14 +145,10 @@ describe("open command argument builder", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-ultra-"));
     try {
       fs.writeFileSync(path.join(dir, "ultra.md"), "ULTRA BASE\n");
-      const args = buildOpenArgs(
-        "orchestrator",
-        {},
-        dir,
-        [],
-        undefined,
-        mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),
-      );
+      const args = buildOpenArgs("orchestrator", { effort: "xhigh" }, dir,
+      [],
+      undefined,
+      mode({ investigate: "read", selfWork: "trivial", tools: "edit", parallelism: 2 }),);
 
       // Claude Code refuses --append-system-prompt alongside its -file variant,
       // so a preset with prose gets ultra and the prose merged into the one flag.
@@ -175,14 +164,10 @@ describe("open command argument builder", () => {
   });
 
   it("leaves non-orchestrator roles unchanged when a richer mode is configured", () => {
-    const args = buildOpenArgs(
-      "reviewer",
-      {},
-      PLUGIN,
-      [],
-      undefined,
-      mode({ investigate: "free", selfWork: "small", tools: "edit", parallelism: 3 }),
-    );
+    const args = buildOpenArgs("reviewer", { effort: "xhigh" }, PLUGIN,
+    [],
+    undefined,
+    mode({ investigate: "free", selfWork: "small", tools: "edit", parallelism: 3 }),);
 
     expect(args).not.toContain("--append-system-prompt");
     expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
@@ -195,10 +180,10 @@ describe("open command argument builder", () => {
   // the project folder along with the role. Without a cwd it stays exactly as
   // it always was.
   it("names the session with the project so windows stay distinguishable", () => {
-    const args = buildOpenArgs("orchestrator", {}, PLUGIN, [], "/home/u/dev/codedeck");
+    const args = buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN, [], "/home/u/dev/codedeck");
 
     expect(args.slice(args.indexOf("-n"))).toEqual(["-n", "CodeDeck · codedeck · orchestrator"]);
-    expect(buildOpenArgs("orchestrator", {}, PLUGIN, []).slice(-1)).toEqual([
+    expect(buildOpenArgs("orchestrator", { effort: "xhigh" }, PLUGIN, []).slice(-1)).toEqual([
       "CodeDeck · orchestrator",
     ]);
   });
@@ -207,7 +192,7 @@ describe("open command argument builder", () => {
   // an agent file with no `tools:` key keeps the whole toolset, so general has
   // no reason to be the one role launched without its contract.
   it("hands general the same --agent as every other role", () => {
-    const args = buildOpenArgs("general", {}, PLUGIN, []);
+    const args = buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []);
 
     expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual([
       "--agent",
@@ -256,9 +241,9 @@ describe("open command argument builder", () => {
   });
 
   it("enables Remote Control by default and respects the config toggle", () => {
-    expect(buildOpenArgs("general", {}, PLUGIN, [])).toContain("--remote-control");
-    expect(buildOpenArgs("general", { remoteControl: true }, PLUGIN, [])).toContain("--remote-control");
-    expect(buildOpenArgs("general", { remoteControl: false }, PLUGIN, [])).not.toContain("--remote-control");
+    expect(buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, [])).toContain("--remote-control");
+    expect(buildOpenArgs("general", { remoteControl: true, effort: "xhigh" }, PLUGIN, [])).toContain("--remote-control");
+    expect(buildOpenArgs("general", { remoteControl: false, effort: "xhigh" }, PLUGIN, [])).not.toContain("--remote-control");
   });
 
   // ${CLAUDE_PLUGIN_ROOT} is expanded only for hooks declared in a plugin's
@@ -266,7 +251,7 @@ describe("open command argument builder", () => {
   // swallows it: no status line, no error, not even under --debug. The command
   // has to name a path that needs no expansion.
   it("resolves the statusline path instead of leaving a plugin-root placeholder", () => {
-    const settings = settingsOf(buildOpenArgs("general", {}, PLUGIN, []));
+    const settings = settingsOf(buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []));
 
     expect(settings.statusLine).toEqual({
       type: "command",
@@ -278,7 +263,7 @@ describe("open command argument builder", () => {
   });
 
   it("declares the whole CodeDeck look", () => {
-    const settings = settingsOf(buildOpenArgs("reviewer", {}, PLUGIN, []));
+    const settings = settingsOf(buildOpenArgs("reviewer", { effort: "xhigh" }, PLUGIN, []));
 
     expect(settings.theme).toBe("custom:codedeck:codedeck-ultra");
     expect(settings.tui).toBe("fullscreen");
@@ -291,7 +276,7 @@ describe("open command argument builder", () => {
   // "replace" drops Claude Code's own verbs, so an empty or one-entry list
   // would leave the spinner saying the same word for a whole session.
   it("carries enough spinner verbs to replace the built-in ones", () => {
-    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, PLUGIN, []));
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []));
 
     expect(new Set(spinnerVerbs.verbs).size).toBe(spinnerVerbs.verbs.length);
     for (const verb of spinnerVerbs.verbs) expect(verb.trim()).toBe(verb);
@@ -302,7 +287,7 @@ describe("open command argument builder", () => {
   // digits only: fullwidth kana is two columns wide, and a verb that measures
   // wider than it counts pushes the elapsed time and token count out of line.
   it("keeps every spinner verb at the fixed width", () => {
-    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", {}, PLUGIN, []));
+    const { spinnerVerbs } = settingsOf(buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []));
 
     for (const verb of spinnerVerbs.verbs) {
       expect(verb, verb).toMatch(/^[ｦ-ﾝ0-9]+$/);
@@ -318,7 +303,7 @@ describe("open command argument builder", () => {
       "models", "doctor",
     ]);
     const { spinnerTipsOverride } = settingsOf(
-      buildOpenArgs("general", {}, PLUGIN, []),
+      buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []),
     );
 
     for (const tip of spinnerTipsOverride.tips as string[]) {
@@ -335,13 +320,13 @@ describe("open command argument builder", () => {
   // Claude Code's own opening header already names the model, the effort and
   // the agent, and the footer already says whether permissions are bypassed.
   it("puts no text on the opening screen", () => {
-    const settings = settingsOf(buildOpenArgs("auditor", {}, PLUGIN, []));
+    const settings = settingsOf(buildOpenArgs("auditor", { effort: "xhigh" }, PLUGIN, []));
 
     expect(settings.companyAnnouncements).toBeUndefined();
   });
 
   it("keeps only the status line when the theme is off", () => {
-    const args = buildOpenArgs("general", { theme: false }, PLUGIN, []);
+    const args = buildOpenArgs("general", { theme: false, effort: "xhigh" }, PLUGIN, []);
 
     expect(settingsOf(args)).toEqual({
       statusLine: {
@@ -367,14 +352,25 @@ describe("open command argument builder", () => {
       path.join(fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-quote-")), leaf, "plugin"),
     );
     const expected = `bash '${pluginDir.replaceAll("'", `'\\''`)}/statusline.sh'`;
-    expect(settingsOf(buildOpenArgs("general", { theme: false }, pluginDir, [])).statusLine.command)
+    expect(settingsOf(buildOpenArgs("general", { theme: false, effort: "xhigh" }, pluginDir, [])).statusLine.command)
       .toBe(expected);
-    expect(settingsOf(buildOpenArgs("general", {}, pluginDir, [])).statusLine.command)
+    expect(settingsOf(buildOpenArgs("general", { effort: "xhigh" }, pluginDir, [])).statusLine.command)
       .toBe(expected);
   });
 });
 
 describe("open command pure helpers", () => {
+  it("resolves effort from the flag, the binding, or fails loud", () => {
+    expect(resolveOpenEffort("reviewer", "max", {})).toBe("max");
+    expect(
+      resolveOpenEffort("reviewer", undefined, {
+        agents: { reviewer: { harness: "codex", model: "gpt", effort: "high" } },
+      }),
+    ).toBe("high");
+    expect(() => resolveOpenEffort("reviewer", undefined, {})).toThrow(/No effort bound.*setup/);
+    expect(() => resolveOpenEffort("reviewer", "maximum", {})).toThrow(/Invalid effort/);
+  });
+
   it("defaults a non-interactive open to the orchestrator role", async () => {
     await expect(resolveRole(undefined, false)).resolves.toBe("orchestrator");
   });
@@ -917,7 +913,7 @@ describe("effective model", () => {
   // `open --resume --model` leaves a bare "--model" bound to resume, and the
   // token after it then reads as the model.
   it("does not read the launcher's own arguments", () => {
-    const flags = { model: "resolved", resume: "--model", worktree: true };
+    const flags = { model: "resolved", resume: "--model", worktree: true, effort: "high" };
     const args = buildOpenArgs("general", flags, PLUGIN, []);
 
     expect(args.slice(args.indexOf("--resume"))).toEqual(["--resume", "--model", "-w"]);
@@ -1017,7 +1013,7 @@ describe("option scanning", () => {
     expect(() => scan(["--no-bypass=false"])).toThrow("codedeck-dev open");
 
     const { spinnerTipsOverride } = settingsOf(
-      buildOpenArgs("general", {}, PLUGIN, []),
+      buildOpenArgs("general", { effort: "xhigh" }, PLUGIN, []),
     );
     expect(spinnerTipsOverride.tips[0]).toMatch(/^codedeck-dev run/);
   });

@@ -14,6 +14,7 @@ import {
   type RunAgentConfig,
 } from "../../config/config.js";
 import type { AgentId } from "../../core/session.js";
+import { parseEffort, REASONING_EFFORTS, type ReasoningEffort } from "../../core/driver.js";
 import { parseAutocompact } from "../../core/autocompact.js";
 import { harnessInjection } from "../../open/injection.js";
 import { getGitInfo } from "../../git/repository.js";
@@ -39,7 +40,6 @@ import {
   assertSupport,
   buildOpenArgs,
   CLAUDE_NOT_FOUND,
-  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   entitlementError,
   judgeModel,
@@ -264,6 +264,24 @@ export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenH
   const mismatch = harnessMismatch(role, binding);
   throw new Error(
     mismatch ?? `Agent "${role}" runs on ${harness}, which ${getCliName()} open does not launch.`,
+  );
+}
+/**
+ * Effort resolution for interactive open: an explicit --effort wins (validated
+ * at the CLI boundary so codex never gets a TOML injection), then the role's
+ * own binding. No global fallback and no code constant: without either the
+ * launch fails loud telling the user to run setup.
+ */
+export function resolveOpenEffort(
+  role: Role,
+  explicit: string | undefined,
+  config: RunAgentConfig = {},
+): ReasoningEffort {
+  if (explicit !== undefined) return parseEffort(explicit);
+  const binding = resolveRoleBinding(role, config);
+  if (binding?.harness !== "opencode" && binding?.effort !== undefined) return binding.effort;
+  throw new Error(
+    `No effort bound to role "${role}". Run ${getCliName()} setup to choose one or pass --effort (${REASONING_EFFORTS.join(" | ")}).`,
   );
 }
 
@@ -497,7 +515,7 @@ export function registerOpenCommand(program: Command): void {
     .command("open [role]")
     .description(`Open a configured agent session (roles: ${ROLES.join(" | ")}, default: ${DEFAULT_ROLE}, 3-letter prefixes accepted)`)
     .option("--model <model>", `model to use (default: ${DEFAULT_MODEL})`)
-    .option("--effort <level>", `reasoning effort (default: ${DEFAULT_EFFORT})`)
+    .option("--effort <level>", `reasoning effort (${REASONING_EFFORTS.join(" | ")}, required unless the role binds one; opencode ignores)`)
     .option("--autocompact [value]", "native auto-compact: Claude window size is auto or 100000-1000000 tokens; OpenCode toggles its native setting")
     .option("--no-autocompact", "disable native auto-compaction in Claude and OpenCode")
     .option("--resume <session>", "resume an interactive session")
@@ -557,9 +575,17 @@ export function registerOpenCommand(program: Command): void {
       }
 
       const initialModel = passthroughModel ?? boundModel ?? (launcher === "claude" ? DEFAULT_MODEL : undefined);
+      // Opencode has no effort channel: nothing is resolved or persisted, the
+      // branch below warns. Claude and codex always launch with an explicit
+      // level -- --effort wins, then the role binding, then the global setup
+      // default.
+      const openEffort = launcher === "opencode"
+        ? undefined
+        : resolveOpenEffort(role, opts.effort, config);
       const adoptRes = await client.request<SessionAdoptResult>("session.adopt", {
         agent: launcher,
         model: initialModel,
+        ...(openEffort !== undefined ? { effort: openEffort } : {}),
         cwd,
         name: role,
       });
@@ -572,14 +598,24 @@ export function registerOpenCommand(program: Command): void {
           const model = passthroughModel ?? boundModel!;
           await preflightOpencode(model, fromConfig);
           const opencodeBin = await resolveOpencodeBinary();
-          // No opencode effort reader (probe-effort-2026-09-07): an explicit
-          // flag warns instead of dying silently, and the banner keeps
-          // naming "default" (OP-16, OP-23).
+          // No opencode effort reader (probe-effort-2026-09-07): any effort
+          // value warns instead of dying silently, and the banner keeps
+          // naming "default" (OP-16, OP-23). Nothing is persisted: the
+          // session row stays without effort so the UI never claims a level
+          // that was never applied.
           const effort = "default";
           if (opts.effort !== undefined) {
+            parseEffort(opts.effort);
             console.error(
               'Warning: --effort has no effect on opencode (no mapped reader); continuing with "default".',
             );
+          } else {
+            const roleEffort = binding?.effort;
+            if (roleEffort !== undefined) {
+              console.error(
+                `Warning: role "${role}" effort "${roleEffort}" has no effect on opencode (no mapped reader); continuing with "default".`,
+              );
+            }
           }
 
           // --no-theme asks for no CodeDeck styling, and an animation is styling.
@@ -663,7 +699,9 @@ export function registerOpenCommand(program: Command): void {
           const model = passthroughModel ?? boundModel;
           if (model !== undefined) await preflightCodex(model, fromConfig);
           const codexBin = await resolveCodexBinary();
-          const effort = opts.effort ?? "default";
+          // Resolved before adopt: the banner, the -c override and the session
+          // row all carry the same explicit level.
+          const effort = openEffort ?? resolveOpenEffort(role, opts.effort, config);
           const modelLabel = model ?? "default";
 
           // Codex has no mapped autocompact channel; an explicit flag warns
@@ -719,10 +757,9 @@ export function registerOpenCommand(program: Command): void {
               });
             } catch {}
           };
-
           await spawnHarness(
             codexBin,
-            buildCodexOpenArgs(role, { ...opts, model }, pluginDir, invocation.passthrough, openCwd, orchestratorMode),
+            buildCodexOpenArgs(role, { ...opts, model, effort }, pluginDir, invocation.passthrough, openCwd, orchestratorMode),
             {
               cwd: openCwd,
               envExtra: { CODEDECK_RUN_ID: runId },
@@ -745,9 +782,11 @@ export function registerOpenCommand(program: Command): void {
         }
 
         const resolved = boundModel ?? DEFAULT_MODEL;
+        // Same level in the banner, the --effort flag and the session row.
+        const effort = openEffort ?? resolveOpenEffort(role, opts.effort, config);
         const args = buildOpenArgs(
           role,
-          { ...opts, model: resolved, remoteControl: config.remoteControl, autocompact },
+          { ...opts, model: resolved, effort, remoteControl: config.remoteControl, autocompact },
           pluginDir,
           invocation.passthrough,
           cwd,
@@ -759,8 +798,6 @@ export function registerOpenCommand(program: Command): void {
         await preflightModel(model, fromConfig);
         const claudeBin = await resolveBinary();
         await assertSupport(claudeBin, cwd);
-
-        const effort = opts.effort ?? DEFAULT_EFFORT;
 
         // --no-theme asks for no CodeDeck styling, and an animation is styling.
         if (opts.theme === false) {

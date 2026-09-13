@@ -22,7 +22,7 @@ export function registerRunCommand(program: Command): void {
     .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
     .option("--agent <agent>", "agent to use: claude | codex | opencode | omp | antigravity (ignored for a role with a binding; default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5; ignored for a role with a binding)")
-    .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")}`)
+    .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")} (required unless the role binds one; opencode ignores)`)
     .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
     .option("--fast", "use the priority service tier (1.5x speed) — codex and omp only")
     .option("--sandbox <mode>", `codex sandbox: ${CODEX_SANDBOXES.join(" | ")} (default: workspace-write)`)
@@ -93,6 +93,10 @@ Resume with: ${getCliName()} send <id> "continue"
 
       // Validate here so a typo fails before a session row is created; codex
       // would otherwise reject it at spawn time, leaving a dead session behind.
+      // --effort wins, then the role's own binding. No global fallback: a run
+      // without either fails loud. Opencode has no effort channel: any value
+      // warns and is dropped so the stored session never claims a level that
+      // was never applied.
       let effort;
       if (opts.effort) {
         try {
@@ -101,6 +105,16 @@ Resume with: ${getCliName()} send <id> "continue"
           console.error(e instanceof Error ? e.message : String(e));
           process.exit(3); // usage error — infra class
         }
+      } else {
+        effort = binding?.effort;
+      }
+      if (effort === undefined && agent !== "opencode") {
+        console.error(`No effort bound to this run. Run ${getCliName()} setup to bind one or pass --effort (${REASONING_EFFORTS.join(" | ")}).`);
+        process.exit(3); // usage error — infra class
+      }
+      if (agent === "opencode" && effort !== undefined) {
+        console.error(`Warning: effort "${effort}" has no effect on opencode (no mapped reader); continuing without it.`);
+        effort = undefined;
       }
 
       let sandbox;

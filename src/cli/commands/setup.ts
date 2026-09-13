@@ -4,6 +4,7 @@ import {
   AUTOCOMPACT_DEFAULT_PERCENT,
 } from "../../core/autocompact.js";
 import type { DriverRegistry } from "../../core/driver.js";
+import { parseEffort, REASONING_EFFORTS, type ReasoningEffort } from "../../core/driver.js";
 import {
   getBatchModels,
   getCachedOrDiscoverModels,
@@ -52,6 +53,8 @@ const AUTOCOMPACT_SCREEN_ROLE = "autocompact";
 const AUTOCOMPACT_PICKER_GROUP = "autocompact";
 const AUTOCOMPACT_OFF = "off" as const;
 const AUTOCOMPACT_ON = "on" as const;
+const EFFORT_PICKER_GROUP = "effort";
+const ROLE_EFFORT_PREFIX = "effort.";
 const AUTOCOMPACT_DESCRIPTION = `Native autocompact applies to Claude and OpenCode sessions. Claude's default window is min(${AUTOCOMPACT_DEFAULT_CAP / 1000}k tokens, ${AUTOCOMPACT_DEFAULT_PERCENT * 100}% of the context window); OpenCode uses its internal context trigger.`;
 
 const ORCHESTRATOR_PARALLELISM_NOTE_LINES = [
@@ -250,6 +253,47 @@ export function buildAutocompactScreen(
     pinned: true,
     known: new Set(items.map((item) => itemKey(item.harness, item.id))),
     harnesses: new Set([AUTOCOMPACT_PICKER_GROUP]),
+    next: () => [],
+  };
+}
+
+/**
+ * One follow-up screen per bound role, shown after the shared screens so the
+ * triple harness:model:effort is chosen in a single setup pass. Opencode has
+ * no effort channel and gets no screen: its bindings keep no effort.
+ */
+export function buildRoleEffortScreen(
+  role: Role,
+  binding: RoleBinding,
+  index = 0,
+  total = 1,
+): Screen {
+  let selected: ReasoningEffort | undefined;
+  try {
+    selected = typeof binding.effort === "string" ? parseEffort(binding.effort) : undefined;
+  } catch {
+    selected = undefined;
+  }
+  const values = selected === undefined
+    ? [...REASONING_EFFORTS]
+    : [selected, ...REASONING_EFFORTS.filter((level) => level !== selected)];
+  const items = values.map((value) => ({
+    id: value,
+    label: value,
+    group: EFFORT_PICKER_GROUP,
+    harness: EFFORT_PICKER_GROUP,
+    ...(value === selected ? { note: "atual" } : {}),
+  }));
+
+  return {
+    role: `${ROLE_EFFORT_PREFIX}${role}`,
+    title: `${role} effort`,
+    counter: `configuração ${index + 1} de ${total}`,
+    description: [`Effort para ${role} (${binding.harness} · ${binding.model}). --effort sobrescreve.`],
+    items,
+    pinned: true,
+    known: new Set(items.map((item) => itemKey(item.harness, item.id))),
+    harnesses: new Set([EFFORT_PICKER_GROUP]),
     next: () => [],
   };
 }
@@ -590,8 +634,33 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     console.error(`Warning: Could not discover models: ${error instanceof Error ? error.message : String(error)}`);
     harnesses = [];
   }
-
-  const roleScreens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude");
+  // Each role screen is immediately followed by its effort screen, so the
+  // triple harness:model:effort is chosen in one step instead of a second
+  // pass at the end. A second runScreens call is not an option: the picker
+  // owns raw mode for exactly one run per stream set.
+  const roleScreens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude").map(
+    (screen, roleIndex) => ({
+      ...screen,
+      next: (result: ScreenResult): Screen[] => {
+        if (result.kind !== "picked" || result.harness === "opencode") return [];
+        const role = screen.role as Role;
+        const prev = config.agents?.[role];
+        const sameTarget = prev?.harness === result.harness && prev?.model === result.id;
+        return [
+          buildRoleEffortScreen(
+            role,
+            {
+              harness: result.harness as AgentId,
+              model: result.id,
+              ...(sameTarget && prev?.effort !== undefined ? { effort: prev.effort } : {}),
+            },
+            roleIndex,
+            ROLES.length,
+          ),
+        ];
+      },
+    }),
+  );
 
   // Writing `agents` is what marks first-run setup as done. Doing that after
   // showing nothing would spend the single prompt the user ever gets.
@@ -677,6 +746,18 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
       updatedConfig.autocompact = { ...config.autocompact, enabled: false };
     }
   }
+
+  // Per-role effort answers arrive as followups of their role screen, in the
+  // same run. Skipping a role asks no effort; only a bound role can receive one.
+  for (const result of answeredResults) {
+    if (result.kind !== "picked" || !result.role.startsWith(ROLE_EFFORT_PREFIX)) continue;
+    const target = result.role.slice(ROLE_EFFORT_PREFIX.length) as Role;
+    if (agents[target] === undefined) continue;
+    if ((REASONING_EFFORTS as readonly string[]).includes(result.id)) {
+      agents[target] = { ...agents[target]!, effort: result.id as ReasoningEffort };
+    }
+  }
+  updatedConfig.agents = { ...agents };
   let saved = false;
   try {
     (options.save ?? saveConfig)(updatedConfig);
@@ -690,7 +771,10 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   const summary = roleScreens
     .map((screen) => {
       const binding = agents[screen.role as Role];
-      return `${screen.role} ${binding ? `${binding.harness}:${binding.model}` : "unset"}`;
+      const triple = binding
+        ? `${binding.harness}:${binding.model}${binding.effort ? `:${binding.effort}` : ""}`
+        : "unset";
+      return `${screen.role} ${triple}`;
     })
     .join(" · ");
   const modeSummary = orchestrator === undefined ? "" : ` · orchestrator ${orchestratorModeLabel(orchestrator)}`;
@@ -720,22 +804,39 @@ export class SetupUsageError extends Error {
 }
 
 function invalidBindMessage(value: string): string {
-  return `Invalid --bind "${value}": expected role=harness:model (role: general|orchestrator|reviewer|auditor; harness: claude|codex|opencode|omp; model: non-empty and without whitespace, control characters or '=')`;
+  return `Invalid --bind "${value}": expected role=harness:model[:effort] (role: general|orchestrator|reviewer|auditor; harness: claude|codex|opencode|omp; model: non-empty and without whitespace, control characters or '='; effort: ${REASONING_EFFORTS.join("|")})`;
 }
 
 export function parseBind(value: string): ParsedSetupBinding {
   const equals = value.indexOf("=");
   const roleValue = equals < 0 ? "" : value.slice(0, equals);
   const right = equals < 0 ? "" : value.slice(equals + 1);
-  const colon = right.indexOf(":");
-  const harnessValue = colon < 0 ? "" : right.slice(0, colon);
-  const model = colon < 0 ? "" : right.slice(colon + 1);
+  const firstColon = right.indexOf(":");
+  // An effort suffix is only read off a model that carries a colon of its
+  // own: the single-colon form always stays harness:model, so a model
+  // literally named "high" keeps binding. The price is that a model id
+  // ending in ":<level>" cannot be written with its suffix intact.
+  const lastColon = right.lastIndexOf(":");
+  const trailing = lastColon < 0 ? "" : right.slice(lastColon + 1);
+  const hasEffortSuffix =
+    lastColon > firstColon &&
+    firstColon >= 0 &&
+    (REASONING_EFFORTS as readonly string[]).includes(trailing);
+  const harnessValue = firstColon < 0 ? "" : right.slice(0, firstColon);
+  const model = firstColon < 0
+    ? ""
+    : hasEffortSuffix
+      ? right.slice(firstColon + 1, lastColon)
+      : right.slice(firstColon + 1);
   const role = (ROLES as readonly string[]).includes(roleValue) ? (roleValue as Role) : undefined;
   const harness = isAgentId(harnessValue) ? harnessValue : undefined;
   const modelPattern = /^[^\p{White_Space}\p{Cc}\p{Cf}=]+$/u;
 
   if (!role || !harness || !modelPattern.test(model)) throw new SetupUsageError(invalidBindMessage(value));
-  return { role, binding: { harness, model } };
+  return {
+    role,
+    binding: { harness, model, ...(hasEffortSuffix ? { effort: trailing as ReasoningEffort } : {}) },
+  };
 }
 
 export const parseSetupBind = parseBind;
@@ -779,7 +880,7 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
     if (arg === "--bind") {
       const value = args[index + 1];
       if (value === undefined || isSetupFlag(value)) {
-        return parseError('Option "--bind" expects role=harness:model.', json);
+        return parseError('Option "--bind" expects role=harness:model[:effort].', json);
       }
       index += 1;
       try {

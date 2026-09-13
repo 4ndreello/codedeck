@@ -147,22 +147,40 @@ describe("setup batch parser", () => {
     });
   });
 
+  it("reads a trailing level as the binding effort", () => {
+    expect(parseBind("reviewer=codex:gpt-5:high")).toEqual({
+      role: "reviewer",
+      binding: { harness: "codex", model: "gpt-5", effort: "high" },
+    });
+  });
+
+  it("keeps a single-colon level-named model whole", () => {
+    expect(parseBind("reviewer=codex:high")).toEqual({
+      role: "reviewer",
+      binding: { harness: "codex", model: "high" },
+    });
+    expect(parseBind("reviewer=codex:gpt:maximum")).toEqual({
+      role: "reviewer",
+      binding: { harness: "codex", model: "gpt:maximum" },
+    });
+  });
+
   it("rejects invalid bind values with the fixed diagnostic", () => {
     const value = "reviewer=codex:model name";
     expect(() => parseBind(value)).toThrow(
-      `Invalid --bind "${value}": expected role=harness:model`,
+      `Invalid --bind "${value}": expected role=harness:model[:effort]`,
     );
     expect(parseSetupArgs(["--bind=-bad"])).toMatchObject({ ok: false, json: false });
     expect(parseSetupArgs(["--bind", "--unknown"])).toEqual({
       ok: false,
       json: false,
-      message: 'Option "--bind" expects role=harness:model.',
+      message: 'Option "--bind" expects role=harness:model[:effort].',
     });
     expect(parseSetupArgs(["--bind", value])).toMatchObject({ ok: false, json: false });
     expect(parseSetupArgs(["--json", "--bind"])).toEqual({
       ok: false,
       json: true,
-      message: 'Option "--bind" expects role=harness:model.',
+      message: 'Option "--bind" expects role=harness:model[:effort].',
     });
   });
 
@@ -315,6 +333,21 @@ describe("setup batch execution", () => {
         general: { harness: "codex", model: "general" },
         reviewer: { harness: "codex", model: "new" },
       },
+    });
+  });
+
+  it("saves a trailing level as the binding effort", async () => {
+    const store = configStore();
+    const result = await runSetupBatch(
+      options(["--non-interactive", "--bind", "reviewer=codex:gpt-5:high"]),
+      dependencies(store, async () => [catalog("codex", [{ id: "gpt-5" }])]),
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.envelope.proposta.agents.reviewer).toEqual({
+      harness: "codex",
+      model: "gpt-5",
+      effort: "high",
     });
   });
 
