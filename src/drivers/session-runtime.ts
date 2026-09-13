@@ -141,6 +141,9 @@ export class SessionRuntime {
       env: { CODEDECK_SESSION_ID: opts.sessionId, ...opts.env },
       stdoutPath: paths.stdoutPath,
       stderrPath: paths.stderrPath,
+      // Names the sibling scope in systemd-cgls/oomd logs; caps come from
+      // CODEDECK_WORKER_MEMORY_MAX/_SWAP_MAX (defaults 4G/0).
+      scope: { description: `codedeck worker ${opts.sessionId}` },
     });
     rt.proc = proc;
     rt.pid = proc.pid!;
