@@ -47,4 +47,20 @@ describe("Codex parser", () => {
     const evs = parseCodexLine(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 100, output_tokens: 10 } }), "s1");
     expect(evs.some(e => e.type === "usage.updated")).toBe(true);
   });
+
+  it("parses item.completed file_change into one event per path", () => {
+    const line = JSON.stringify({ type: "item.completed", item: { id: "i1", type: "file_change", status: "completed", changes: [{ path: "/repo/src/a.ts", kind: "update" }, { path: "/repo/src/b.ts", kind: "add" }] } });
+    const evs = parseCodexLine(line, "s1");
+    const changed = evs.filter((e) => e.type === "file.changed");
+    expect(changed.map((e) => e.type === "file.changed" ? e.path : "")).toEqual(["/repo/src/a.ts", "/repo/src/b.ts"]);
+    expect(changed.map((e) => e.type === "file.changed" ? e.change : "")).toEqual(["modified", "created"]);
+    expect(changed.some((e) => e.type === "file.changed" && e.path === "unknown")).toBe(false);
+  });
+
+  it("emits nothing for file_change without paths", () => {
+    const started = parseCodexLine(JSON.stringify({ type: "item.started", item: { id: "i2", type: "file_change" } }), "s1");
+    expect(started.some(e => e.type === "file.changed")).toBe(false);
+    const empty = parseCodexLine(JSON.stringify({ type: "item.completed", item: { id: "i3", type: "file_change", changes: [] } }), "s1");
+    expect(empty.some(e => e.type === "file.changed")).toBe(false);
+  });
 });

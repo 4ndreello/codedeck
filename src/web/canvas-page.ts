@@ -625,7 +625,7 @@ function onEvent(n, ev) {
   } else if (ev.type === "turn.completed") {
     // turn completion is recorded on node activity
   } else if (ev.type === "file.changed") {
-    feed(agentName(n.agent), "salvou " + shortPath(ev.path || "arquivo"));
+    feed(agentName(n.agent), "salvou " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "arquivo"));
   } else if (ev.type === "permission.requested") {
     n.status = "needs_input";
     touch(n, "quer sua aprovação para continuar");
@@ -1023,7 +1023,7 @@ function selectSession(id) {
       } else if (ev.type === "permission.requested") {
         chat.appendChild(chatEvt("precisa de aprovação: " + (ev.tool || "uma ação")));
       } else if (ev.type === "file.changed") {
-        chat.appendChild(chatEvt("salvou " + shortPath(ev.path || "arquivo")));
+        chat.appendChild(chatEvt("salvou " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "arquivo")));
       }
     }
     if (!chat.children.length) {

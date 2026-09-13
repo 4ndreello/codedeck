@@ -42,15 +42,6 @@ export function parseCodexLine(line: string, sessionId: string): AgentEvent[] {
         tool: { name: "bash", id: item.id, input: { command: item.command } },
         raw,
       } as AgentEvent);
-    } else if (item.type === "file_change") {
-      events.push({
-        type: "file.changed",
-        sessionId,
-        timestamp: ts,
-        path: item.path || item.file || "unknown",
-        change: "modified",
-        raw,
-      } as AgentEvent);
     } else if (item.type === "mcp_tool_call") {
       events.push({
         type: "tool.started",
@@ -96,6 +87,18 @@ export function parseCodexLine(line: string, sessionId: string): AgentEvent[] {
         durationMs: undefined,
         raw,
       } as AgentEvent);
+    } else if (item.type === "file_change" && Array.isArray(item.changes)) {
+      for (const change of item.changes) {
+        if (!change || typeof change.path !== "string" || change.path === "" || change.path === "unknown") continue;
+        events.push({
+          type: "file.changed",
+          sessionId,
+          timestamp: ts,
+          path: change.path,
+          change: change.kind === "add" ? "created" : change.kind === "delete" ? "deleted" : "modified",
+          raw,
+        } as AgentEvent);
+      }
     } else if (item.type === "reasoning") {
       events.push({
         type: "message",
