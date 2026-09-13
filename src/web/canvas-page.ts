@@ -102,14 +102,15 @@ export const CANVAS_PAGE: string = `<!doctype html>
   .node:active { cursor: grabbing; }
   .node { transform-origin: 0 0; }
   .node.orch { width: 228px; border-color: rgba(255,255,255,.18); }
-  .node .row { display: flex; align-items: center; gap: 8px; }
+  .node .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .node .row .dot { flex-shrink: 0; }
   .node .logo { width: 22px; height: 22px; display: inline-flex; flex-shrink: 0; }
   .node .logo svg { width: 22px; height: 22px; fill: #f5f5f7; }
   .node.orch .logo { width: 26px; height: 26px; }
   .node.orch .logo svg { width: 26px; height: 26px; }
-  .node .name { font-size: 13.5px; font-weight: 650; }
-  .node .sub { font-size: 12px; color: #98989f; margin-top: 3px; }
-  .node .act { font-size: 12px; color: #98989f; margin-top: 5px; min-height: 15px; }
+  .node .name { font-size: 13.5px; font-weight: 650; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node .sub { font-size: 12px; color: #98989f; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node .act { font-size: 12px; color: #98989f; margin-top: 5px; min-height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .node .act b { color: #f5f5f7; }
   .node.alert { border-color: rgba(255,159,10,.65); animation: alertPulse 1.6s ease-in-out infinite; }
   @keyframes alertPulse { 0%,100% { border-color: rgba(255,159,10,.65); } 50% { border-color: rgba(255,159,10,1); } }
@@ -335,6 +336,7 @@ function paintNode(n) {
   b.textContent = STATUS_HUMAN[n.status] || "Encerrada";
   n.actEl.appendChild(b);
   n.actEl.appendChild(document.createTextNode(" · " + n.activity));
+  n.actEl.title = (STATUS_HUMAN[n.status] || "") + (n.activity ? " · " + n.activity : "");
   n.el.classList.toggle("orch", !!n.isOrch);
   n.el.classList.toggle("alert", n.status === "needs_input");
   n.el.title = "sessão " + n.id + (n.label ? " · " + n.label : "");
@@ -714,6 +716,7 @@ function frame() {
       if (nodes[i].runId === n.runId && nodes[i].isOrch) { o = nodes[i]; break; }
     }
     if (!o) return;
+    if (hideDone && isDone(o.status)) return;
     var e = edgeCurve(n, o);
     var pa = w2s(e.ax, e.ay), pb = w2s(e.bx, e.by), pc = w2s(e.cx, e.cy);
     ctx.beginPath();
@@ -983,8 +986,8 @@ function selectSession(id) {
     var repo = s.repository ? String(s.repository).split("/").pop() : "";
     var items = [
       ["Modelo", s.model || "—"],
-      // effort so existe quando a sessao nasceu com --effort; ausente = padrao.
-      ["Esforço", s.effort || "padrão"],
+      // effort chega sempre para claude/codex/omp/antigravity; ausente = opencode (ignora) ou sessão legada.
+      ["Esforço", s.effort || "n/a"],
       ["Repo", repo || "—"],
       ["Atividade", s.lastEvent ? (lastEventHuman(s.lastEvent) || s.lastEvent) : "—"],
     ];
