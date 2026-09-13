@@ -4,8 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildScopedSpawn } from "../utils/process.js";
 
 const execFileAsync = promisify(execFile);
+
+// Scope override for a detached worker. Absent = isolate when a systemd
+// user manager is available (the default). false = plain spawn, for flows
+// that must stay in this scope or assert exact argv.
+export interface DetachedScope {
+  memoryMax?: string;
+  swapMax?: string;
+  description?: string;
+}
 
 export interface DetachedSpawn {
   proc: ChildProcess;
@@ -23,6 +33,12 @@ export interface DetachedSpawn {
 //   child, and cannot apply pipe backpressure that freezes it;
 // - the output stays on disk, so the next daemon reattaches by tailing the
 //   same files from a persisted offset.
+// - the worker is moved to a SIBLING systemd scope (MemoryMax/MemorySwapMax
+//   caps) when a user manager is available: `detached` alone does NOT leave
+//   the cgroup, so without this a runaway worker's oomd kill takes the whole
+//   terminal scope — daemon, CLI and orchestrator with it. pid/pgid/exit/signal
+//   behave as a direct spawn; a null return from buildScopedSpawn falls back
+//   to the plain spawn (containers, macOS, CODEDECK_NO_SCOPE=1).
 export function spawnDetached(opts: {
   cmd: string;
   args: string[];
@@ -30,6 +46,7 @@ export function spawnDetached(opts: {
   env?: NodeJS.ProcessEnv;
   stdoutPath: string;
   stderrPath: string;
+  scope?: false | DetachedScope;
 }): DetachedSpawn {
   fs.mkdirSync(path.dirname(opts.stdoutPath), { recursive: true });
   fs.mkdirSync(path.dirname(opts.stderrPath), { recursive: true });
@@ -45,8 +62,18 @@ export function spawnDetached(opts: {
 
   const out = fs.openSync(opts.stdoutPath, "a");
   const err = fs.openSync(opts.stderrPath, "a");
+  const scoped =
+    opts.scope === false
+      ? null
+      : buildScopedSpawn({
+          cmd: opts.cmd,
+          args: opts.args,
+          description: opts.scope?.description,
+          memoryMax: opts.scope?.memoryMax,
+          swapMax: opts.scope?.swapMax,
+        });
   try {
-    const proc = spawn(opts.cmd, opts.args, {
+    const proc = spawn(scoped?.cmd ?? opts.cmd, scoped?.args ?? opts.args, {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       detached: true,
