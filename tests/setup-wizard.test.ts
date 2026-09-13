@@ -18,6 +18,7 @@ import { itemKey } from "../src/cli/picker-state.js";
 import {
   ORCHESTRATOR_PARALLELISM_NOTE,
   buildAutocompactScreen,
+  buildRoleEffortScreen,
   buildOrchestratorScreen,
   buildSandboxScreen,
   collectOrchestratorSelection,
@@ -120,10 +121,17 @@ describe("runModelSetupWizard", () => {
    * Sends the next key only once a frame has been painted. A key written before
    * the picker attaches its listener would be dropped by the resumed stream.
    */
-  function drive(input: PassThrough, output: PassThrough, keys: string[]): void {
-    // The wizard now ends with autocompact. Existing cases leave that screen
-    // at its default OFF choice unless they provide an answer of their own.
-    const pending = [...keys, "\x07"];
+  function drive(
+    input: PassThrough,
+    output: PassThrough,
+    keys: string[],
+    tail: string[] = ["\x07", "\x07", "\x07", "\x07", "\x07"],
+  ): void {
+    // Each picked role is immediately followed by its effort screen; the tail
+    // covers autocompact plus those followups. Existing cases leave them at
+    // their defaults unless they provide answers of their own; unconsumed
+    // keys never send.
+    const pending = [...keys, ...tail];
     let next = 0;
     output.on("data", (chunk) => {
       if (!String(chunk).includes("filtrar")) return;
@@ -437,7 +445,102 @@ describe("runModelSetupWizard", () => {
 
     const result = await runModelSetupWizard({ ...base(), config, input, output, save });
 
-    expect(result).toEqual({ ...config, defaultSandbox: "danger-full-access" });
+    expect(result).toMatchObject({ ...config, defaultSandbox: "danger-full-access" });
+    expect(result).not.toHaveProperty("defaultEffort");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("renders a per-role effort screen from its binding", () => {
+    const screen = buildRoleEffortScreen(
+      "reviewer",
+      { harness: "codex", model: "gpt-5.6-luna" },
+    );
+
+    expect(screen.role).toBe("effort.reviewer");
+    expect(screen.title).toBe("reviewer effort");
+    expect(screen.items.map((item) => item.id)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(screen.items.some((item) => item.note === "atual")).toBe(false);
+    expect(screen.description?.join(" ")).toContain("codex");
+    expect(screen.next?.({ kind: "skipped", role: screen.role })).toEqual([]);
+  });
+
+  it("lists a bound effort first and marks it atual", () => {
+    const screen = buildRoleEffortScreen(
+      "reviewer",
+      { harness: "codex", model: "gpt-5.6-luna", effort: "high" },
+    );
+
+    expect(screen.items[0]).toMatchObject({ id: "high", note: "atual" });
+    expect(screen.items.map((item) => item.id)).toEqual(["high", "low", "medium", "xhigh", "max"]);
+  });
+
+  it("ignores a hand-edited invalid binding effort", () => {
+    const screen = buildRoleEffortScreen(
+      "reviewer",
+      { harness: "codex", model: "gpt-5.6-luna", effort: "maximum" as never },
+    );
+
+    expect(screen.items.map((item) => item.id)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(screen.items.some((item) => item.note === "atual")).toBe(false);
+  });
+
+  it("saves a picked effort on its role and reports the triple", async () => {
+    const { input, output, seen } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      agents: { reviewer: { harness: "claude" as const, model: "claude-opus" } },
+    };
+    drive(input, output, [
+      "\x07", "\x07", "\r", "\x1b[B", "\x1b[B", "\r", "\x07", "\x07", "\r",
+    ]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.agents?.reviewer).toEqual({ harness: "claude", model: "claude-opus", effort: "high" });
+    expect(seen.join("")).toContain("reviewer claude:claude-opus:high");
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("keeps a bound effort when its screen is skipped", async () => {
+    const { input, output } = io();
+    const save = vi.fn();
+    const config = {
+      ...base().config,
+      agents: { reviewer: { harness: "codex" as const, model: "gpt-5.6-luna", effort: "max" as const } },
+    };
+    drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\r"]);
+
+    const result = await runModelSetupWizard({ ...base(), config, input, output, save });
+
+    expect(result.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5.6-luna", effort: "max" });
+    expect(save).toHaveBeenCalledWith(result);
+  });
+
+  it("asks no effort for an opencode-bound role", async () => {
+    const { input, output, seen } = io();
+    const save = vi.fn();
+    drive(input, output, ["\r", "\x07", "\x07", "\x07", "\r", "\x07", "\x07", "\r"]);
+
+    const result = await runModelSetupWizard({
+      ...base(),
+      config: {
+        ...base().config,
+        agents: {
+          general: { harness: "claude" as const, model: "claude-opus" },
+          reviewer: { harness: "opencode" as const, model: "prov/m" },
+          auditor: { harness: "claude" as const, model: "claude-opus" },
+        },
+      },
+      input,
+      output,
+      save,
+    });
+
+    expect(result.agents?.reviewer).toEqual({ harness: "opencode", model: "prov/m" });
+    expect(seen.join("")).toContain("general effort");
+    expect(seen.join("")).toContain("auditor effort");
+    expect(seen.join("")).not.toContain("reviewer effort");
     expect(save).toHaveBeenCalledWith(result);
   });
 
@@ -445,7 +548,7 @@ describe("runModelSetupWizard", () => {
   // typed by hand and needs a second Enter because no catalog vouches for it.
   it("persists one harness and model per agent, and writes the config", async () => {
     const { input, output } = io();
-    drive(input, output, ["\r", ...[..."omp:custom"], "\r", "\r", "\r", "\r", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", ...[..."omp:custom"], "\r", "\r", "\x07", "\r", "\x07", "\r", "\x07", "\r", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -555,7 +658,7 @@ describe("runModelSetupWizard", () => {
   // either. Picking the pin every time would prove nothing about the second.
   it("binds an agent to a harness other than the default one", async () => {
     const { input, output } = io();
-    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\r", "\r", "\r", "\x07", "\x07"]);
+    drive(input, output, ["\x1b[B", "\x1b[B", "\r", "\x07", "\r", "\x07", "\r", "\x07", "\r", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), input, output });
 
@@ -567,7 +670,7 @@ describe("runModelSetupWizard", () => {
   // group header, not as a prefix free text could name.
   it("offers only the installed harnesses", async () => {
     const { input, output, seen } = io();
-    drive(input, output, ["\r", "\r", "\r", "\r", "\x07", "\x07"]);
+    drive(input, output, ["\r", "\x07", "\r", "\x07", "\r", "\x07", "\r", "\x07", "\x07", "\x07"]);
 
     await runModelSetupWizard({ ...base(), input, output });
     const painted = seen.join("");

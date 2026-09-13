@@ -462,6 +462,7 @@ class Daemon {
           name: p.name,
           agent,
           model: p.model,
+          effort: p.effort,
           status: "working",
           repository,
           cwd,

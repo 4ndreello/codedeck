@@ -59,7 +59,7 @@ function writeConfig(config: unknown): void {
 }
 
 async function created(argv: string[]): Promise<Record<string, unknown>> {
-  await expect(runProgram([...argv, "--bg"])).rejects.toThrow(Exited);
+  await expect(runProgram([...argv, "--effort", "high", "--bg"])).rejects.toThrow(Exited);
   const [, params] = request.mock.calls[0] as [string, Record<string, unknown>];
   return params;
 }
@@ -101,6 +101,7 @@ describe("codedeck run sandbox resolution", () => {
   });
 
   it("preserves the bypass conflict behavior for an explicit sandbox", async () => {
+    writeConfig({ defaultAgent: "codex" });
     const params = await created([
       "do the thing",
       "--agent",

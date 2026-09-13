@@ -372,13 +372,26 @@ describe("opencode effort", () => {
 
     expect(err).not.toHaveBeenCalled();
   });
+
+  it("warns on a role-bound effort and persists none", async () => {
+    writeConfig({ agents: { reviewer: { harness: "opencode", model: "prov/m", effort: "high" } } });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runOpen(["reviewer", "--no-theme"]);
+
+    expect(err).toHaveBeenCalledWith(
+      'Warning: role "reviewer" effort "high" has no effect on opencode (no mapped reader); continuing with "default".',
+    );
+    const adopt = vi.mocked(IpcClient.prototype.request).mock.calls.find(([method]) => method === "session.adopt");
+    expect(adopt?.[1]).not.toHaveProperty("effort");
+  });
 });
 
 describe("claude dispatch", () => {
   it("omits --remote-control when config disables it", async () => {
     const configDir = process.env.RUN_AGENT_CONFIG_DIR;
     if (!configDir) throw new Error("test config directory is missing");
-    fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remoteControl: false }));
+    fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remoteControl: false, agents: { general: { harness: "claude", model: "m", effort: "high" } } }));
     vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
     vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
     vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
@@ -391,6 +404,7 @@ describe("claude dispatch", () => {
 
   it("passes the resolved orchestrator mode through to Claude", async () => {
     writeConfig({
+      agents: { orchestrator: { harness: "claude", model: "m", effort: "high" } },
       orchestrator: {
         investigate: "read",
         selfWork: "trivial",
@@ -413,6 +427,26 @@ describe("claude dispatch", () => {
     expect(args[args.indexOf("--append-system-prompt") + 1]).toContain(
       "Run at most 2 workers concurrently.",
     );
+  });
+
+  it("launches a bound role with its own effort and persists it on adopt", async () => {
+    writeConfig({
+      agents: { general: { harness: "claude", model: "m", effort: "max" } },
+    });
+    vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
+    vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
+    vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+
+    await runOpen(["general", "--no-theme"]);
+
+    const [, args] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2)).toEqual([
+      "--effort",
+      "max",
+    ]);
+    expect(vi.mocked(runtime.renderBanner)).toHaveBeenCalledWith("general", "m", "max");
+    const adopt = vi.mocked(IpcClient.prototype.request).mock.calls.find(([method]) => method === "session.adopt");
+    expect(adopt?.[1]).toMatchObject({ agent: "claude", model: "m", effort: "max" });
   });
 
   it("passes the resolved orchestrator mode through to OpenCode", async () => {

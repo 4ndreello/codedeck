@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { getLegacyConfigFile, getPaths, hasConfigOverride } from "./paths.js";
 import { isAgentId, type AgentId } from "../core/session.js";
-import { parseSandbox } from "../core/driver.js";
-import type { CodexSandbox } from "../core/driver.js";
+import { parseEffort, parseSandbox } from "../core/driver.js";
+import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { Role } from "../core/roles.js";
 import type { OrchestratorMode } from "./orchestrator-mode.js";
 import type { AutocompactConfig } from "../core/autocompact.js";
@@ -35,6 +35,7 @@ export type {
 export interface RoleBinding {
   harness: AgentId;
   model: string;
+  effort?: ReasoningEffort;
 }
 
 export interface RunAgentConfig {
@@ -78,7 +79,16 @@ export function resolveRoleBinding(
   const binding = config.agents?.[role];
   if (!binding || !isAgentId(binding.harness)) return undefined;
   if (typeof binding.model !== "string" || binding.model.trim() === "") return undefined;
-  return { harness: binding.harness, model: binding.model };
+  // A hand-edited effort outside the known levels is dropped rather than
+  // killing a good harness:model pairing; callers fall back to the global
+  // default exactly as if the role had no effort of its own.
+  let effort: ReasoningEffort | undefined;
+  try {
+    effort = typeof binding.effort === "string" ? parseEffort(binding.effort) : undefined;
+  } catch {
+    effort = undefined;
+  }
+  return { harness: binding.harness, model: binding.model, ...(effort !== undefined ? { effort } : {}) };
 }
 
 /**

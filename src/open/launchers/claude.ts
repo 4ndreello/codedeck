@@ -8,6 +8,7 @@ import { getRegistry } from "../../drivers/registry.js";
 import { autocompactArgs } from "../../core/autocompact.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
 import type { RunAgentConfig } from "../../config/config.js";
+import { parseEffort } from "../../core/driver.js";
 import type { Role } from "../../core/roles.js";
 import { catalogWarning, judgeModelIn, readUltra, type ModelVerdict, type OpenFlags } from "../contract.js";
 import { composeOrchestratorProse } from "../orchestrator-prose.js";
@@ -20,7 +21,6 @@ import {
 } from "../runtime.js";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
-export const DEFAULT_EFFORT = "xhigh";
 const PLUGIN_NAME = "codedeck";
 const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
 
@@ -108,12 +108,17 @@ export function buildOpenArgs(
     ? `${PLUGIN_NAME}:${role}`
     : `${PLUGIN_NAME}:orchestrator${mode.tools === "dispatch" ? "" : `-${mode.tools}`}`;
   const autocompact = flags.autocompact ?? (config.autocompact === undefined ? false : undefined);
-
+  // No fallback here: the caller always resolves --effort, the role binding
+  // or fails loud before reaching the launcher.
+  if (flags.effort === undefined) {
+    throw new Error(`No effort configured for role "${role}". Run setup to choose one or pass --effort.`);
+  }
+  const effort = parseEffort(flags.effort);
   const args = [
     "--model",
     flags.model ?? DEFAULT_MODEL,
     "--effort",
-    flags.effort ?? DEFAULT_EFFORT,
+    effort,
     // Remote Control is interactive-only. It requires a subscribed Claude
     // account and a prior workspace-trust dialog.
     ...(flags.remoteControl !== false ? ["--remote-control"] : []),
