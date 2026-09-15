@@ -1,11 +1,56 @@
 import type { AgentEvent } from "../../core/events.js";
 import { classifyFailure } from "../../core/errors.js";
 
+// Keep fallback reconstruction bounded while retaining ordinary long answers.
+const MAX_ACCUMULATED_RESPONSE_CHARS = 8 * 1024 * 1024;
+
+interface ResponseAccumulator {
+  chunks: string[];
+  firstChunk: number;
+  length: number;
+  truncatedChars: number;
+  nextCompactionAt: number;
+}
+
+export type AntigravityParser = ((line: string, sessionId: string) => AgentEvent[]) & {
+  reset: (sessionId: string) => void;
+};
+
 export function parseAntigravityLine(line: string, sessionId: string): AgentEvent[] {
+  return parseAntigravityLineWithState(line, sessionId);
+}
+
+// A result line can omit response text after streaming it through step_update
+// lines. Keep this state per parser instance so separate runtimes cannot mix
+// their transcripts while the stateless export remains useful in tests.
+export function createAntigravityParser(): AntigravityParser {
+  const responseBySession = new Map<string, ResponseAccumulator>();
+  const parse: AntigravityParser = (line, sessionId) =>
+    parseAntigravityLineWithState(line, sessionId, responseBySession);
+  parse.reset = (sessionId) => responseBySession.delete(sessionId);
+  return parse;
+}
+
+function parseAntigravityLineWithState(
+  line: string,
+  sessionId: string,
+  responseBySession?: Map<string, ResponseAccumulator>,
+): AgentEvent[] {
   let obj: any;
   try {
     obj = JSON.parse(line);
   } catch {
+    if (responseBySession && line.trim()) {
+      const delta = `${line}\n`;
+      appendResponseText(responseBySession, sessionId, delta);
+      return [{
+        type: "text.delta",
+        sessionId,
+        timestamp: new Date().toISOString(),
+        delta,
+        raw: line,
+      } as AgentEvent];
+    }
     return [];
   }
 
@@ -17,6 +62,7 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
 
   // Handle generic error object
   if (obj.error && !obj.event) {
+    responseBySession?.delete(sessionId);
     const errText = typeof obj.error === "string" ? obj.error : obj.error.message || JSON.stringify(obj.error);
     events.push({
       type: "session.failed",
@@ -31,6 +77,7 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
 
   // 1. "init" event -> session.started
   if (obj.event === "init") {
+    responseBySession?.delete(sessionId);
     const nativeSessionId = obj.conversation_id || obj.init?.conversation_id;
     events.push({
       type: "session.started",
@@ -49,6 +96,9 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
 
     // Streamed assistant text delta
     if (update.step_type === "agent_response" && typeof update.text_delta === "string" && update.text_delta) {
+      if (responseBySession) {
+        appendResponseText(responseBySession, sessionId, update.text_delta);
+      }
       events.push({
         type: "text.delta",
         sessionId,
@@ -128,6 +178,7 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
     const isError = result.status === "ERROR" || Boolean(result.error);
 
     if (isError) {
+      responseBySession?.delete(sessionId);
       const errText = result.error || result.response || "Antigravity execution failed";
       events.push({
         type: "session.failed",
@@ -156,18 +207,43 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
       } as AgentEvent);
     }
 
-    if (result.response && typeof result.response === "string" && result.response.trim()) {
+    const response = typeof result.response === "string" ? result.response : "";
+    const accumulator = responseBySession?.get(sessionId);
+    const accumulatedContent = !response.trim() && accumulator ? accumulatedResponseContent(accumulator) : "";
+    const content = response.trim()
+      ? response
+      : accumulatedContent.trim() && accumulator
+        ? accumulatedResponseText(accumulator, accumulatedContent)
+        : "";
+
+    if (content.trim()) {
       events.push({
         type: "message",
         sessionId,
         timestamp: ts,
         role: "assistant",
-        content: result.response,
+        content,
         nativeSessionId,
         raw,
       } as AgentEvent);
+    } else {
+      const error = accumulator
+        ? "Antigravity returned an empty or whitespace-only response with no usable text deltas"
+        : "Antigravity returned an empty or whitespace-only response with no text deltas";
+      responseBySession?.delete(sessionId);
+      events.push({
+        type: "session.failed",
+        sessionId,
+        timestamp: ts,
+        error,
+        failure: classifyFailure(error),
+        nativeSessionId,
+        raw,
+      } as AgentEvent);
+      return events;
     }
 
+    responseBySession?.delete(sessionId);
     events.push({
       type: "session.completed",
       sessionId,
@@ -182,4 +258,63 @@ export function parseAntigravityLine(line: string, sessionId: string): AgentEven
   }
 
   return [];
+}
+
+function appendResponseText(
+  responseBySession: Map<string, ResponseAccumulator>,
+  sessionId: string,
+  delta: string,
+): void {
+  const accumulator = responseBySession.get(sessionId) ?? {
+    chunks: [],
+    firstChunk: 0,
+    length: 0,
+    truncatedChars: 0,
+    nextCompactionAt: 1024,
+  };
+  accumulator.chunks.push(delta);
+  accumulator.length += delta.length;
+
+  while (accumulator.length > MAX_ACCUMULATED_RESPONSE_CHARS) {
+    const first = accumulator.chunks[accumulator.firstChunk]!;
+    let remove = Math.min(first.length, accumulator.length - MAX_ACCUMULATED_RESPONSE_CHARS);
+    if (remove === first.length) {
+      accumulator.firstChunk += 1;
+    } else {
+      accumulator.chunks[accumulator.firstChunk] = first.slice(remove);
+    }
+    accumulator.length -= remove;
+    accumulator.truncatedChars += remove;
+  }
+
+  const first = accumulator.chunks[accumulator.firstChunk];
+  if (first && first.charCodeAt(0) >= 0xdc00 && first.charCodeAt(0) <= 0xdfff) {
+    accumulator.chunks[accumulator.firstChunk] = first.slice(1);
+    accumulator.length -= 1;
+    accumulator.truncatedChars += 1;
+  }
+
+  // Avoid retaining references to every discarded delta. Compaction is
+  // amortized so append remains linear even after the cap is reached.
+  if (accumulator.firstChunk > 1024 && accumulator.firstChunk * 2 >= accumulator.chunks.length) {
+    accumulator.chunks = accumulator.chunks.slice(accumulator.firstChunk);
+    accumulator.firstChunk = 0;
+  }
+  const liveChunks = accumulator.chunks.length - accumulator.firstChunk;
+  if (liveChunks >= accumulator.nextCompactionAt) {
+    accumulator.chunks = [accumulator.chunks.slice(accumulator.firstChunk).join("")];
+    accumulator.firstChunk = 0;
+    accumulator.nextCompactionAt = Math.max(accumulator.nextCompactionAt * 2, liveChunks * 2);
+  }
+  responseBySession.set(sessionId, accumulator);
+}
+
+function accumulatedResponseText(accumulator: ResponseAccumulator, text: string): string {
+  return accumulator.truncatedChars > 0
+    ? `[truncated ${accumulator.truncatedChars} characters]\n${text}`
+    : text;
+}
+
+function accumulatedResponseContent(accumulator: ResponseAccumulator): string {
+  return accumulator.chunks.slice(accumulator.firstChunk).join("");
 }
