@@ -69,6 +69,9 @@ jobs:
         # Pinned on purpose: this is the version every spelling in the plugin
         # contract was probed against, so the job checks the plugin under the
         # CLI the contract describes rather than whatever shipped today.
+        # Bumped to 2.1.270 for the arcade mod: function hooks (and their
+        # events) only exist from 2.1.269 on, so the old pin rejects the
+        # modules declaration outright.
         #
         # The install runs no lifecycle scripts, then invokes the one script
         # this package actually needs, by name. claude ships its real binary
@@ -77,7 +80,7 @@ jobs:
         # keeps that working while nothing else in the tree gets to run code
         # during install.
         run: |
-          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.258
+          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.270
           node "$(npm root -g)/@anthropic-ai/claude-code/install.cjs"
           claude --version
 
