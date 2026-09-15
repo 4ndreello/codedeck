@@ -1,4 +1,6 @@
 {
+  "description": "Codedeck arcade mod: registers function hooks (requires Claude Code with function hooks enabled).",
+  "modules": ["./register.tsx"],
   "hooks": {
     "SessionStart": [
       {
