@@ -21,6 +21,10 @@ const deltaLine = (textDelta: string): string =>
     event: "step_update",
     step_update: { step_type: "agent_response", text_delta: textDelta },
   });
+const contentAfterEmptyResult = (feed: (line: string) => AgentEvent[]): unknown => {
+  const message = feed(resultLine()).find((event) => event.type === "message") as any;
+  return message?.content;
+};
 const base = { sessionId: S, prompt: "do something", cwd: "/workspace" };
 
 describe("buildAntigravityArgs", () => {
@@ -198,20 +202,8 @@ describe("parseAntigravityLine", () => {
     expect(usageEv.usage.cachedTokens).toBe(800);
   });
 
-  it("fails a successful result with an empty response when no deltas were seen", () => {
-    const events = parse(
-      resultLine("", { conversation_id: "conv-uuid-1" }),
-    );
-
-    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
-    expect((events[0] as any).error).toMatch(/empty|whitespace/i);
-    expect((events[0] as any).error).toMatch(/text deltas/i);
-  });
-
-  it("fails a successful result with a whitespace-only response when no deltas were seen", () => {
-    const events = parse(
-      resultLine(" \n\t", { conversation_id: "conv-uuid-1" }),
-    );
+  it.each(["", " \n\t"])("fails a successful result with an empty response (%p)", (response) => {
+    const events = parse(resultLine(response, { conversation_id: "conv-uuid-1" }));
 
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
     expect((events[0] as any).error).toMatch(/empty|whitespace/i);
@@ -221,11 +213,11 @@ describe("parseAntigravityLine", () => {
   it("uses accumulated text.delta chunks when the successful result response is empty", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      deltaLine("Hello, ",),
+      deltaLine("Hello, "),
       S,
     );
     streamParser(
-      deltaLine("World!",),
+      deltaLine("World!"),
       S,
     );
 
@@ -570,12 +562,8 @@ describe("AntigravityDriver", () => {
         streamParser,
         S,
       );
-      const events = streamParser(
-        resultLine(),
-        S,
-      );
-
-      expect((events.find((event) => event.type === "message") as any).content).toBe("Hello, World! Again!");
+      const feed = (line: string) => streamParser(line, S);
+      expect(contentAfterEmptyResult(feed)).toBe("Hello, World! Again!");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -595,12 +583,8 @@ describe("AntigravityDriver", () => {
       const streamParser = createAntigravityParser();
       const firstLineEnd = Buffer.byteLength(`${firstLine}\n`);
       replayAntigravityOutput(stdoutPath, firstLineEnd + 5, streamParser, S);
-      const events = streamParser(
-        resultLine(),
-        S,
-      );
-
-      expect((events.find((event) => event.type === "message") as any).content).toBe("Hello, ");
+      const feed = (line: string) => streamParser(line, S);
+      expect(contentAfterEmptyResult(feed)).toBe("Hello, ");
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
