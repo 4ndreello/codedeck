@@ -17,8 +17,10 @@ What this means in practice
 ---------------------------
 
 The plugin/skills/tlc-spec-driven/ tree bundles the original skill and
-its supporting references and scripts from version 3.3.0. That tree is
-distributed under the original CC-BY-4.0 license.
+its supporting references and scripts from version 3.3.0, with small
+CodeDeck adaptations for safe artifact paths and static-analysis
+compatibility. That tree is distributed under the original CC-BY-4.0
+license.
 
 The prompt prose outside that tree is an original, lean fallback written
 in CodeDeck's own words. It keeps the same workflow available to

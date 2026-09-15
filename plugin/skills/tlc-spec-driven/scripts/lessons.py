@@ -341,12 +341,12 @@ def cmd_list(root, args):
         if scope and scope not in (l.get("scope", "").lower()):
             continue
         rows.append(l)
-    if not rows:
+    if rows:
+        for l in sorted(rows, key=lambda x: x["id"]):
+            sc = f" [scope:{l['scope']}]" if l.get("scope") else ""
+            print(f"{l['id']} ({l['status']}, x{l['recurrence']}){sc}: {l['text']}")
+    else:
         print(f"(no {want} lessons" + (f" matching '{q or scope}'" if (q or scope) else "") + ")")
-        return 0
-    for l in sorted(rows, key=lambda x: x["id"]):
-        sc = f" [scope:{l['scope']}]" if l.get("scope") else ""
-        print(f"{l['id']} ({l['status']}, x{l['recurrence']}){sc}: {l['text']}")
     return 0
 
 

@@ -26,6 +26,8 @@ Plan and implement features with precision. Granular tasks. Clear dependencies. 
 
 **Running this skill's scripts.** Every `scripts/*.py` shipped with this skill lives under that same skill directory. Resolve the skill directory first, then invoke `python3 <skill-dir>/scripts/<name>.py ...`. Never run `python3 scripts/...` from the consuming project root - that looks for a project-local `scripts/` tree that is not this skill. Project data under `.specs/` is still read/written relative to the project root (pass `--root` when the cwd is elsewhere). Below, `<skill-dir>` means the directory that contains this `SKILL.md`.
 
+Artifact paths passed to the validators must stay inside the project root. The commit-message file form of check_commit.py must stay inside the current repository root.
+
 **Execution contract - every task, non-negotiable (holds even if you do not open the reference files):**
 
 1. Tests derive from the spec's acceptance criteria and assert spec-defined outcomes - they never mirror the implementation.

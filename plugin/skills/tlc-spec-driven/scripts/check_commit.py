@@ -29,6 +29,7 @@ Exit codes: 0 pass, 1 violation, 2 usage error.
 """
 
 import argparse
+import os
 import re
 import sys
 
@@ -36,11 +37,23 @@ TYPES = ["feat", "fix", "refactor", "docs", "test", "style", "perf", "build", "c
 HEADER_RE = re.compile(r"^(?P<type>\w+)(?:\((?P<scope>[^)]+)\))?(?P<bang>!)?: (?P<desc>.+)$")
 
 
+def _safe_message_path(path):
+    root = os.path.realpath(os.getcwd())
+    candidate = os.path.realpath(os.path.abspath(path))
+    try:
+        inside = os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"message file is outside repository root: {candidate}")
+    return candidate
+
+
 def read_message(args):
     if args.message is not None:
         return args.message
     if args.msgfile:
-        with open(args.msgfile, "r", encoding="utf-8") as f:
+        with open(_safe_message_path(args.msgfile), "r", encoding="utf-8") as f:
             return f.read()
     if not sys.stdin.isatty():
         return sys.stdin.read()
@@ -94,7 +107,11 @@ def main(argv=None):
     p.add_argument("--message", default=None, help="the commit message as a string")
     args = p.parse_args(argv)
 
-    message = read_message(args)
+    try:
+        message = read_message(args)
+    except ValueError as exc:
+        print(f"check_commit: {exc}", file=sys.stderr)
+        return 2
     if not message.strip():
         print("check_commit: no message provided (pass a file, --message, or pipe via stdin).", file=sys.stderr)
         return 2

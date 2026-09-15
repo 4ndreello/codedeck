@@ -38,22 +38,38 @@ import sys
 REQUIRED_SECTIONS = ["Test Coverage Matrix", "Gate Check Commands", "Execution Plan", "Task Breakdown"]
 TASK_RE = re.compile(r"^#{2,4}\s+(T\d+)\s*:", re.IGNORECASE)
 EDGE_RE = re.compile(r"\bT\d+\b")
-FILE_HINT_RE = re.compile(r"[\w./-]+\.\w{1,6}\b")
+
+
+def _safe_path(candidate, root):
+    root = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.abspath(candidate))
+    try:
+        inside = os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"target is outside project root: {candidate}")
+    return candidate
 
 
 def resolve_tasks(target, root):
+    root = os.path.realpath(root)
     if target:
-        if os.path.isfile(target):
-            return target
-        if os.path.isdir(target):
-            cand = os.path.join(target, "tasks.md")
+        target_path = os.path.realpath(os.path.abspath(target))
+        if os.path.isfile(target_path):
+            return _safe_path(target_path, root)
+        if os.path.isdir(target_path):
+            target_path = _safe_path(target_path, root)
+            cand = os.path.join(target_path, "tasks.md")
             if os.path.isfile(cand):
                 return cand
-            return _autodetect(target)
+            return _autodetect(target_path)
+        if os.path.isabs(target) or os.path.basename(target) != target:
+            raise ValueError("target is outside project root or does not name a feature")
         # Not a path: treat as a feature name under <root>/.specs/features/<name>/
         cand = os.path.join(root, ".specs", "features", target, "tasks.md")
         if os.path.isfile(cand):
-            return cand
+            return _safe_path(cand, root)
         return None
     return _autodetect(root)
 
@@ -77,6 +93,22 @@ def section_present(lines, name):
     return any(re.match(r"^#{1,4}\s+" + re.escape(name) + r"\b", ln.strip()) for ln in lines)
 
 
+def field_value(line, name):
+    match = re.match(r"^\*{0,2}" + re.escape(name) + r"\*{0,2}\s*:", line, re.IGNORECASE)
+    return line[match.end():].strip() if match else None
+
+
+def file_hints(text):
+    hints = []
+    for raw in text.split():
+        token = raw.strip(chr(96) + ".,;:()[]{}")
+        token = token.split(":", 1)[0]
+        stem, separator, extension = token.rpartition(".")
+        if separator and stem and 1 <= len(extension) <= 6 and extension.isalnum():
+            hints.append(token)
+    return hints
+
+
 def parse_tasks(lines):
     """Return a dict: task_id -> {'deps': set, 'tests': str|None, 'gate': str|None, 'where': str}."""
     tasks = {}
@@ -90,21 +122,20 @@ def parse_tasks(lines):
         if current is None:
             continue
         stripped = ln.strip()
-        dm = re.match(r"^\*{0,2}Depends on\*{0,2}\s*:\s*(.*)$", stripped, re.IGNORECASE)
-        if dm:
-            body = dm.group(1)
+        body = field_value(stripped, "Depends on")
+        if body is not None:
             if "none" not in body.lower():
                 for e in EDGE_RE.findall(body.upper()):
                     tasks[current]["deps"].add(e)
-        wm = re.match(r"^\*{0,2}Where\*{0,2}\s*:\s*(.*)$", stripped, re.IGNORECASE)
-        if wm:
-            tasks[current]["where"] = wm.group(1)
-        tm = re.match(r"^\*{0,2}Tests\*{0,2}\s*:\s*(.*)$", stripped, re.IGNORECASE)
-        if tm:
-            tasks[current]["tests"] = tm.group(1).strip()
-        gm = re.match(r"^\*{0,2}Gate\*{0,2}\s*:\s*(.*)$", stripped, re.IGNORECASE)
-        if gm:
-            tasks[current]["gate"] = gm.group(1).strip()
+        value = field_value(stripped, "Where")
+        if value is not None:
+            tasks[current]["where"] = value
+        value = field_value(stripped, "Tests")
+        if value is not None:
+            tasks[current]["tests"] = value
+        value = field_value(stripped, "Gate")
+        if value is not None:
+            tasks[current]["gate"] = value
     return tasks
 
 
@@ -181,7 +212,7 @@ def check(tasks_path):
             warnings.append(f"{tid}: Tests: none - confirm the Test Coverage Matrix says 'none' for this layer")
         if t["gate"] is None:
             errors.append(f"{tid}: missing `Gate` field")
-        files = FILE_HINT_RE.findall(t["where"])
+        files = file_hints(t["where"])
         if len(set(files)) > 1:
             warnings.append(f"{tid}: `Where` names multiple files {sorted(set(files))} - granularity smell, consider splitting")
 
@@ -232,7 +263,11 @@ def main(argv=None):
     p.add_argument("--strict", action="store_true")
     args = p.parse_args(argv)
 
-    tasks_path = resolve_tasks(args.target, args.root)
+    try:
+        tasks_path = resolve_tasks(args.target, args.root)
+    except ValueError as exc:
+        print(f"validate_tasks: {exc}", file=sys.stderr)
+        return 2
     if not tasks_path:
         print("validate_tasks: could not locate a tasks.md. Pass a path or run from the project root.", file=sys.stderr)
         return 2

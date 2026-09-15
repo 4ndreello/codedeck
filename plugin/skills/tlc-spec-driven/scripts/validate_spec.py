@@ -47,21 +47,37 @@ PLACEHOLDER_RE = re.compile(r"^\s*\[.+\]\s*$")
 STATUS_VALUES = {"pending", "in design", "in tasks", "implementing", "verified"}
 
 
+def _safe_path(candidate, root):
+    root = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.abspath(candidate))
+    try:
+        inside = os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"target is outside project root: {candidate}")
+    return candidate
+
+
 def resolve_spec(target, root):
     """Return the path to a spec.md from a file, dir, or auto-detect."""
+    root = os.path.realpath(root)
     if target:
-        if os.path.isfile(target):
-            return target
-        if os.path.isdir(target):
-            cand = os.path.join(target, "spec.md")
+        target_path = os.path.realpath(os.path.abspath(target))
+        if os.path.isfile(target_path):
+            return _safe_path(target_path, root)
+        if os.path.isdir(target_path):
+            target_path = _safe_path(target_path, root)
+            cand = os.path.join(target_path, "spec.md")
             if os.path.isfile(cand):
                 return cand
-            # maybe it's a project root
-            return _autodetect(target)
+            return _autodetect(target_path)
+        if os.path.isabs(target) or os.path.basename(target) != target:
+            raise ValueError("target is outside project root or does not name a feature")
         # Not a path: treat as a feature name under <root>/.specs/features/<name>/
         cand = os.path.join(root, ".specs", "features", target, "spec.md")
         if os.path.isfile(cand):
-            return cand
+            return _safe_path(cand, root)
         return None
     return _autodetect(root)
 
@@ -91,7 +107,8 @@ def split_row(line):
 
 
 def is_separator(line):
-    return bool(re.match(r"^\s*\|?[\s:|-]+\|?\s*$", line)) and "-" in line
+    candidate = line.strip().strip("|").strip()
+    return bool(candidate) and "-" in candidate and all(char in " :-|" for char in candidate)
 
 
 def section_bounds(lines, name):
@@ -123,7 +140,9 @@ def classify_ears(text):
         kws.append("WHILE")
     if re.search(r"\bwhen\b", low):
         kws.append("WHEN")
-    if re.match(r"^\s*if\b", low) or re.search(r"\bif\b.*\bthen\b", low):
+    if_match = re.search(r"\bif\b", low)
+    then_match = re.search(r"\bthen\b", low)
+    if re.match(r"^\s*if\b", low) or (if_match and then_match and if_match.start() < then_match.start()):
         kws.append("IF/THEN")
     if re.search(r"\bwhere\b", low):
         kws.append("WHERE")
@@ -157,13 +176,13 @@ def check(spec_path):
     in_ac = False
     for i, ln in enumerate(lines, start=1):
         stripped = ln.strip()
-        if re.match(r"^\*{0,2}Acceptance Criteria\*{0,2}\s*:?\s*$", stripped):
+        if stripped.strip("*: ").lower() == "acceptance criteria":
             in_ac = True
             continue
         if in_ac:
-            m = re.match(r"^\s*\d+\.\s+(.*)$", ln)
+            m = re.match(r"^\s*\d+\.\s+", ln)
             if m:
-                item = m.group(1).strip()
+                item = ln[m.end():].strip()
                 if PLACEHOLDER_RE.match(item):
                     continue  # untouched template row
                 ok, note = classify_ears(item)
@@ -241,7 +260,11 @@ def main(argv=None):
     p.add_argument("--strict", action="store_true")
     args = p.parse_args(argv)
 
-    spec = resolve_spec(args.target, args.root)
+    try:
+        spec = resolve_spec(args.target, args.root)
+    except ValueError as exc:
+        print(f"validate_spec: {exc}", file=sys.stderr)
+        return 2
     if not spec:
         print("validate_spec: could not locate a spec.md. Pass a path or run from the project root.", file=sys.stderr)
         return 2

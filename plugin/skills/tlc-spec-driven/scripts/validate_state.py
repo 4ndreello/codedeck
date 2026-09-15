@@ -34,10 +34,6 @@ import os
 import re
 import sys
 
-# A file:line citation: a path with an extension, then :<line>. e.g. src/a.ts:42
-EVIDENCE_RE = re.compile(r"[\w./-]+\.[A-Za-z0-9]+:\d+")
-
-
 def _feature_dirs(root):
     base = os.path.join(root, ".specs", "features")
     if not os.path.isdir(base):
@@ -84,7 +80,8 @@ def _appears_complete(fdir):
     tasks = os.path.join(fdir, "tasks.md")
     if not os.path.exists(tasks):
         return False
-    body = open(tasks, encoding="utf-8", errors="replace").read()
+    with open(tasks, encoding="utf-8", errors="replace") as f:
+        body = f.read()
     if not re.search(r"^#{2,4}\s+T\d+\s*:", body, re.MULTILINE):
         return False
     if re.search(r"^\s*-\s*\[\s\]", body, re.MULTILINE):
@@ -102,7 +99,8 @@ def _check_feature(fdir, name):
             f"writes it (author != verifier). Dispatch validation before marking done."
         )
         return errors
-    text = open(vpath, encoding="utf-8", errors="replace").read()
+    with open(vpath, encoding="utf-8", errors="replace") as f:
+        text = f.read()
     verdict = _verdict(text)
     if verdict is None:
         errors.append(f"{name}: validation.md has no PASS/FAIL verdict (a prose-only report does not count)")
@@ -110,9 +108,33 @@ def _check_feature(fdir, name):
         errors.append(f"{name}: validation.md verdict is still the template placeholder '[PASS | FAIL]' - not filled")
     elif verdict == "fail":
         errors.append(f"{name}: validation.md verdict is FAIL - route the ranked gaps to fix tasks, then re-verify (feature is not done)")
-    if verdict == "pass" and not EVIDENCE_RE.search(text):
+    if verdict == "pass" and not has_evidence(text):
         errors.append(f"{name}: validation.md is PASS but cites no file:line evidence - evidence-or-zero not satisfied")
     return errors
+
+
+def has_evidence(text):
+    for raw in text.split():
+        token = raw.strip(chr(96) + "|()[]{}<>,.;")
+        path_part, separator, line = token.rpartition(":")
+        if not separator or not line.isdigit():
+            continue
+        _, extension_separator, extension = path_part.rpartition(".")
+        if extension_separator and extension.isalnum():
+            return True
+    return False
+
+
+def _safe_path(candidate, root):
+    root = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.abspath(candidate))
+    try:
+        inside = os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"feature is outside project root: {candidate}")
+    return candidate
 
 
 def _resolve(root, feature):
@@ -121,7 +143,13 @@ def _resolve(root, feature):
         print(f"validate_state: no {base} directory - nothing to check.")
         return []
     if feature:
-        fdir = feature if os.path.isdir(feature) else os.path.join(base, feature)
+        feature_path = os.path.realpath(os.path.abspath(feature))
+        if os.path.isdir(feature_path):
+            fdir = _safe_path(feature_path, root)
+        else:
+            if os.path.isabs(feature) or os.path.basename(feature) != feature:
+                raise ValueError("feature is outside project root or does not name a feature")
+            fdir = _safe_path(os.path.join(base, feature), root)
         if not os.path.isdir(fdir):
             print(f"validate_state: feature not found: {feature}", file=sys.stderr)
             raise SystemExit(2)
@@ -145,7 +173,11 @@ def main(argv=None):
     args = p.parse_args(argv)
     root = os.path.abspath(args.root)
 
-    targets = _resolve(root, args.feature)
+    try:
+        targets = _resolve(root, args.feature)
+    except ValueError as exc:
+        print(f"validate_state: {exc}", file=sys.stderr)
+        return 2
     all_errors = []
     for fdir, name in targets:
         all_errors += _check_feature(fdir, name)
