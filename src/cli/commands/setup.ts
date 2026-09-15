@@ -624,20 +624,7 @@ function watchResize(listener: () => void): () => void {
 
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
   const loaded = options.config ?? loadConfig();
-  const profile = options.profile !== undefined ? parseProfileName(options.profile) : undefined;
-  // --profile edits one saved setup, shown exactly as saved. A name nobody
-  // saved yet starts from the base setup with an empty agent map: role
-  // screens show no inherited "atual", while sandbox/autocompact/orchestrator
-  // keep mirroring what the profile would inherit at launch (blanking them
-  // would silently downgrade the base values on confirm). Without --profile
-  // the base config is edited and the active snapshot is left untouched
-  // (see runSetupBatch below).
-  const snapshot = profile === undefined ? undefined : getProfileSnapshot(loaded, profile);
-  const config = profile === undefined
-    ? loaded
-    : snapshot === undefined
-      ? { ...baseConfig(loaded), agents: {} }
-      : { ...baseConfig(loaded), ...snapshot };
+  const { profile, config } = resolveSetupTarget(loaded, options.profile);
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
   const output = options.output ?? process.stdout;
@@ -834,6 +821,36 @@ export class SetupUsageError extends Error {
     super(message);
     this.name = "SetupUsageError";
   }
+}
+
+interface SetupTarget {
+  profile?: string;
+  config: RunAgentConfig;
+}
+
+function resolveSetupTarget(loaded: RunAgentConfig, explicitProfile?: string): SetupTarget {
+  const isExplicit = explicitProfile !== undefined;
+  const profile = isExplicit
+    ? parseProfileName(explicitProfile)
+    : loaded.activeProfile === undefined || loaded.activeProfile.trim() === ""
+      ? undefined
+      : parseProfileName(loaded.activeProfile);
+  const snapshot = profile === undefined ? undefined : getProfileSnapshot(loaded, profile);
+
+  if (!isExplicit && profile !== undefined && snapshot === undefined) {
+    throw new SetupUsageError(
+      `Active profile "${profile}" does not exist. Choose an existing profile with "codedeck profile use <name>" or pass --profile <name>.`,
+    );
+  }
+
+  return {
+    ...(profile === undefined ? {} : { profile }),
+    config: profile === undefined
+      ? loaded
+      : snapshot === undefined
+        ? { ...baseConfig(loaded), agents: {} }
+        : { ...baseConfig(loaded), ...snapshot },
+  };
 }
 
 function invalidBindMessage(value: string): string {
@@ -1371,20 +1388,17 @@ export async function runSetupBatch(
   }
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
-  // --profile edits one saved setup instead of the active one. An existing
-  // name loads base plus its snapshot; a name nobody saved yet starts from
-  // the base setup with an empty agent map, so root agents never leak into
-  // the new profile as inherited "atual" while sandbox/autocompact/
-  // orchestrator keep their inherited values. Without --profile the base
-  // config is edited and saved profiles (including the active one) are left
-  // untouched.
-  const profile = options.profile;
-  const snapshot = profile === undefined ? undefined : getProfileSnapshot(current, profile);
-  const target: RunAgentConfig = profile === undefined
-    ? current
-    : snapshot === undefined
-      ? { ...baseConfig(current), agents: {} }
-      : { ...baseConfig(current), ...snapshot };
+  let profile: string | undefined;
+  let target: RunAgentConfig;
+  try {
+    const resolved = resolveSetupTarget(current, options.profile);
+    profile = resolved.profile;
+    target = resolved.config;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeLine(stderr, message);
+    return errorResult(read, null, notNeededCatalog(), [], [], 14, message);
+  }
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
@@ -1565,16 +1579,21 @@ export async function executeSetupAction(
       writeError(message);
       return { code: 1 };
     }
-    await runModelSetupWizard({
-      registry: dependencies.registry,
-      input: dependencies.input,
-      output: dependencies.stdout,
-      refresh: parsed.options.refresh,
-      discoverModels: dependencies.wizardDiscoverModels,
-      save: dependencies.saveConfig,
-      isTTY: tty,
-      ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
-    });
+    try {
+      await runModelSetupWizard({
+        registry: dependencies.registry,
+        input: dependencies.input,
+        output: dependencies.stdout,
+        refresh: parsed.options.refresh,
+        discoverModels: dependencies.wizardDiscoverModels,
+        save: dependencies.saveConfig,
+        isTTY: tty,
+        ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
+      });
+    } catch (error) {
+      writeError(error instanceof Error ? error.message : String(error));
+      return { code: 1 };
+    }
     return { code: 0 };
   }
 

@@ -299,7 +299,7 @@ describe("setup --profile batch", () => {
     expect(written.agents?.general).toEqual({ harness: "claude", model: "base" });
   });
 
-  it("setup without --profile edits the base and does not clobber the active snapshot", async () => {
+  it("setup without --profile edits the active profile and leaves the base alone", async () => {
     const file = getPaths().configFile;
     const activeSnapshot = { agents: { general: { harness: "codex", model: "from-a" } } } as const;
     const effective = {
@@ -330,9 +330,36 @@ describe("setup --profile batch", () => {
     expect(result.code).toBe(0);
     const written = save.mock.calls[0][0] as RunAgentConfig;
     expect(written.activeProfile).toBe("a");
-    expect(written.profiles?.a).toEqual(activeSnapshot);
-    expect(written.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
+    expect(written.profiles?.a?.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
+    expect(written.profiles?.a?.agents?.general).toEqual(activeSnapshot.agents.general);
+    expect(written.agents?.reviewer).toBeUndefined();
     expect(written.agents?.general).toEqual({ harness: "claude", model: "base" });
+  });
+
+  it("refuses setup when the active profile is missing", async () => {
+    const { store, deps } = batchWorld();
+    const read = store.read as ReturnType<typeof vi.fn>;
+    const file = getPaths().configFile;
+    const config = {
+      ...DEFAULT_CONFIG,
+      activeProfile: "missing",
+      agents: { general: { harness: "claude", model: "base" } },
+      profiles: {},
+    } satisfies RunAgentConfig;
+    read.mockReturnValueOnce({
+      status: "ok",
+      source: "canonical",
+      path: file,
+      config,
+      raw: serializeConfig(config),
+      message: null,
+    });
+
+    const result = await runSetupBatch(setupOptions(["--bind", "reviewer=codex:gpt-5"]), deps);
+
+    expect(result.code).toBe(14);
+    expect(result.envelope.resultado.message).toContain('Active profile "missing" does not exist');
+    expect(store.save).not.toHaveBeenCalled();
   });
 
   it("rejects a bad profile name at parse time", () => {

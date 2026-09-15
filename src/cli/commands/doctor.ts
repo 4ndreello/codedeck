@@ -73,9 +73,9 @@ export function resolveRoleReadiness(config: RunAgentConfig): RoleReadiness[] {
  * and nobody could see why: the bindings lived in a JSON file no command
  * printed. Reading them costs nothing, so `doctor` reads them.
  */
-export function renderRolesSection(rows: RoleReadiness[]): string {
+export function renderRolesSection(rows: RoleReadiness[], activeProfile?: string): string {
   return [
-    "Roles",
+    activeProfile === undefined ? "Roles" : `Roles (active profile: ${activeProfile})`,
     ...rows.map(({ role, harness, model, fallback }) =>
       `  ${check(role, harness !== undefined, harness ? `${harness} / ${model}` : `unbound, runs on ${fallback}`)}`,
     ),
@@ -109,16 +109,29 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       const loaded = loadConfig();
+      const activeProfile = typeof loaded.activeProfile === "string" && loaded.activeProfile.trim() !== ""
+        ? loaded.activeProfile.trim()
+        : undefined;
       // Readiness follows the active profile. A dangling pointer still gets
-      // a report: fall back to the base config instead of failing the check.
+      // a report, but the error is shown instead of hiding it behind the base
+      // bindings.
       let effective = loaded;
+      let activeProfileError: string | null = null;
       try {
         effective = resolveEffectiveConfig(loaded);
-      } catch {}
+      } catch (error) {
+        activeProfileError = error instanceof Error ? error.message : String(error);
+      }
       const roles = resolveRoleReadiness(effective);
 
       if (opts.json) {
-        console.log(JSON.stringify({ ...result, power: resolvePowerInfo(result), roles }, null, 2));
+        console.log(JSON.stringify({
+          ...result,
+          power: resolvePowerInfo(result),
+          activeProfile: activeProfile ?? null,
+          activeProfileError,
+          roles,
+        }, null, 2));
         return;
       }
 
@@ -172,7 +185,12 @@ export function registerDoctorCommand(program: Command): void {
       console.log(renderPowerSection(resolvePowerInfo(result)));
       console.log("");
 
-      console.log(renderRolesSection(roles));
+      console.log("Profile");
+      console.log(`  active             ${activeProfile ?? "base config"}`);
+      if (activeProfileError !== null) console.log(`  error              ${activeProfileError}`);
+      console.log("");
+
+      console.log(renderRolesSection(roles, activeProfile));
       console.log("");
 
       const paths = getPaths();

@@ -202,6 +202,19 @@ describe("runModelSetupWizard", () => {
     expect(existing.agents?.general).toEqual({ harness: "codex", model: "from-a" });
   });
 
+  it("uses the active profile when no --profile is given", async () => {
+    const config: RunAgentConfig = {
+      ...base().config,
+      agents: { general: { harness: "claude", model: "base-model" } },
+      activeProfile: "a",
+      profiles: { a: { agents: { general: { harness: "omp", model: "from-a" } } } },
+    };
+
+    const result = await runModelSetupWizard({ config, isTTY: false });
+
+    expect(result.agents?.general).toEqual({ harness: "omp", model: "from-a" });
+  });
+
   it("keeps the inherited sandbox and autocompact values when creating a profile", async () => {
     const { input, output } = io();
     const save = vi.fn();
