@@ -11,6 +11,7 @@ import {
   type SeenDone,
   type Twenty48State,
 } from "../../mods/arcade/games/twenty48.js";
+import { randomInt } from "../../mods/arcade/games/random.js";
 
 export interface Twenty48Props {
   done: number;
@@ -52,7 +53,7 @@ export default function Twenty48Board(props: Twenty48Props, surface: ClientSurfa
     if (direction === null) return;
     const stepped = moveGrid(state.grid, direction);
     if (!stepped.moved) return;
-    const grid = spawnTile(stepped.grid, () => Math.floor(Math.random() * 16));
+    const grid = spawnTile(stepped.grid, () => randomInt(16));
     const score = state.score + stepped.gained;
     const won = state.won || grid.some((cell) => cell >= 2048);
     const over = isFinished(grid);

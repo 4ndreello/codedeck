@@ -2,6 +2,8 @@
 // vitest runs it. The board components under plugin/hooks/boards/ own the
 // surface wiring (state, keys, pointer, score posts) and import from here.
 
+import { randomInt } from "./random.js";
+
 export interface SeenDone {
   current: number;
 }
@@ -122,7 +124,7 @@ export function isFinished(grid: number[]): boolean {
   return true;
 }
 
-export function initialTwenty48State(pick: () => number = () => Math.floor(Math.random() * 16)): Twenty48State {
+export function initialTwenty48State(pick: () => number = () => randomInt(16)): Twenty48State {
   const seeded = spawnTile(spawnTile(emptyGrid(), pick), pick);
   return { grid: seeded, score: 0, over: false, won: false, posted: false, paused: false, seenDone: 0 };
 }

@@ -1,3 +1,5 @@
+import { randomInt } from "./random.js";
+
 export interface AutoInput {
   lastTurnMs?: number;
   idle?: boolean;
@@ -32,6 +34,6 @@ export function pickAuto(input: AutoInput = {}): string {
 
 export function pickRandom(games: string[] = DROPIN_GAMES): string {
   if (games.length === 0) return DROPIN_GAMES[0];
-  const index = Math.floor(Math.random() * games.length);
+  const index = randomInt(games.length);
   return games[index];
 }
