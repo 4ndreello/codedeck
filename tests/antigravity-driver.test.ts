@@ -14,6 +14,13 @@ import type { StartOptions } from "../src/core/driver.js";
 import type { AgentEvent } from "../src/core/events.js";
 
 const S = "test-session";
+const resultLine = (response = "", extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({ event: "result", result: { status: "SUCCESS", response, ...extra } });
+const deltaLine = (textDelta: string): string =>
+  JSON.stringify({
+    event: "step_update",
+    step_update: { step_type: "agent_response", text_delta: textDelta },
+  });
 const base = { sessionId: S, prompt: "do something", cwd: "/workspace" };
 
 describe("buildAntigravityArgs", () => {
@@ -193,10 +200,7 @@ describe("parseAntigravityLine", () => {
 
   it("fails a successful result with an empty response when no deltas were seen", () => {
     const events = parse(
-      JSON.stringify({
-        event: "result",
-        result: { conversation_id: "conv-uuid-1", status: "SUCCESS", response: "" },
-      }),
+      resultLine("", { conversation_id: "conv-uuid-1" }),
     );
 
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -206,10 +210,7 @@ describe("parseAntigravityLine", () => {
 
   it("fails a successful result with a whitespace-only response when no deltas were seen", () => {
     const events = parse(
-      JSON.stringify({
-        event: "result",
-        result: { conversation_id: "conv-uuid-1", status: "SUCCESS", response: " \n\t" },
-      }),
+      resultLine(" \n\t", { conversation_id: "conv-uuid-1" }),
     );
 
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -220,33 +221,16 @@ describe("parseAntigravityLine", () => {
   it("uses accumulated text.delta chunks when the successful result response is empty", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: {
-          conversation_id: "conv-uuid-1",
-          step_type: "agent_response",
-          text_delta: "Hello, ",
-        },
-      }),
+      deltaLine("Hello, ",),
       S,
     );
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: {
-          conversation_id: "conv-uuid-1",
-          step_type: "agent_response",
-          text_delta: "World!",
-        },
-      }),
+      deltaLine("World!",),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({
-        event: "result",
-        result: { conversation_id: "conv-uuid-1", status: "SUCCESS", response: "" },
-      }),
+      resultLine("", { conversation_id: "conv-uuid-1" }),
       S,
     );
 
@@ -257,15 +241,12 @@ describe("parseAntigravityLine", () => {
   it("uses accumulated text.delta chunks when the result response is whitespace", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "Hello, World!" },
-      }),
+      deltaLine("Hello, World!"),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: " \n\t" } }),
+      resultLine(" \n\t"),
       S,
     );
 
@@ -276,22 +257,19 @@ describe("parseAntigravityLine", () => {
   it("prefers a non-empty result response over accumulated deltas", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "final" } }),
+      resultLine("final"),
       S,
     );
 
     expect((events.find((event) => event.type === "message") as any).content).toBe("final");
 
     const afterResult = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(afterResult.map((event) => event.type)).toEqual(["session.failed"]);
@@ -300,18 +278,12 @@ describe("parseAntigravityLine", () => {
   it("fails when only whitespace text deltas were seen", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: " \n\t" },
-      }),
+      deltaLine(" \n\t"),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({
-        event: "result",
-        result: { status: "SUCCESS", response: "" },
-      }),
+      resultLine(""),
       S,
     );
 
@@ -322,18 +294,15 @@ describe("parseAntigravityLine", () => {
   it("clears accumulated text after an empty-result failure", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: " \n" },
-      }),
+      deltaLine(" \n"),
       S,
     );
     const firstResult = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     const secondResult = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
 
@@ -345,16 +314,13 @@ describe("parseAntigravityLine", () => {
   it("clears accumulated text when a new init event starts", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     streamParser(JSON.stringify({ event: "init", conversation_id: "new-conversation" }), S);
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -363,10 +329,7 @@ describe("parseAntigravityLine", () => {
   it("clears accumulated text after an error result", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     streamParser(
@@ -375,7 +338,7 @@ describe("parseAntigravityLine", () => {
     );
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -384,16 +347,13 @@ describe("parseAntigravityLine", () => {
   it("clears accumulated text after a generic error line", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     streamParser(JSON.stringify({ error: "failed" }), S);
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -403,15 +363,12 @@ describe("parseAntigravityLine", () => {
     const streamParser = createAntigravityParser();
     const oversized = "x".repeat(8 * 1024 * 1024 + 10);
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: oversized },
-      }),
+      deltaLine(oversized),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     const content = (events.find((event) => event.type === "message") as any).content as string;
@@ -424,22 +381,16 @@ describe("parseAntigravityLine", () => {
     const streamParser = createAntigravityParser();
     const cap = 8 * 1024 * 1024;
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "x".repeat(9) + "\ud83d" },
-      }),
+      deltaLine("x".repeat(9) + "\ud83d"),
       S,
     );
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "\ude00" + "y".repeat(cap - 1) },
-      }),
+      deltaLine("\ude00" + "y".repeat(cap - 1)),
       S,
     );
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     const content = (events.find((event) => event.type === "message") as any).content as string;
@@ -450,19 +401,8 @@ describe("parseAntigravityLine", () => {
 
   it("keeps accumulated responses isolated by session", () => {
     const streamParser = createAntigravityParser();
-    const delta = (sessionId: string, text: string) =>
-      streamParser(
-        JSON.stringify({
-          event: "step_update",
-          step_update: { step_type: "agent_response", text_delta: text },
-        }),
-        sessionId,
-      );
-    const result = (sessionId: string) =>
-      streamParser(
-        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
-        sessionId,
-      );
+    const delta = (sessionId: string, text: string) => streamParser(deltaLine(text), sessionId);
+    const result = (sessionId: string) => streamParser(resultLine(), sessionId);
 
     delta("session-a", "AAA");
     delta("session-b", "BBB");
@@ -474,16 +414,13 @@ describe("parseAntigravityLine", () => {
   it("resets accumulated text for a new turn", () => {
     const streamParser = createAntigravityParser();
     streamParser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     streamParser.reset(S);
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
 
@@ -495,7 +432,7 @@ describe("parseAntigravityLine", () => {
     expect(streamParser("Here is the plain-text answer.", S)[0]?.type).toBe("text.delta");
 
     const events = streamParser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
 
@@ -634,7 +571,7 @@ describe("AntigravityDriver", () => {
         S,
       );
       const events = streamParser(
-        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+        resultLine(),
         S,
       );
 
@@ -659,7 +596,7 @@ describe("AntigravityDriver", () => {
       const firstLineEnd = Buffer.byteLength(`${firstLine}\n`);
       replayAntigravityOutput(stdoutPath, firstLineEnd + 5, streamParser, S);
       const events = streamParser(
-        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+        resultLine(),
         S,
       );
 
@@ -690,17 +627,14 @@ describe("AntigravityDriver", () => {
     const driver = new AntigravityDriver();
     const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
     parser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
 
     await driver.attach({ sessionId: S });
 
     const events = parser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -710,10 +644,7 @@ describe("AntigravityDriver", () => {
     const driver = new AntigravityDriver();
     const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
     parser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     (driver as any).handles.set(S, { stop: async () => {} });
@@ -721,7 +652,7 @@ describe("AntigravityDriver", () => {
     await driver.stop({ id: S } as any);
 
     const events = parser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(events.map((event) => event.type)).toEqual(["session.failed"]);
@@ -731,10 +662,7 @@ describe("AntigravityDriver", () => {
     const driver = new AntigravityDriver();
     const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
     parser(
-      JSON.stringify({
-        event: "step_update",
-        step_update: { step_type: "agent_response", text_delta: "stale" },
-      }),
+      deltaLine("stale"),
       S,
     );
     (driver as any).handles.set(S, {
@@ -748,7 +676,7 @@ describe("AntigravityDriver", () => {
     expect(events).toHaveLength(1);
 
     const afterTerminal = parser(
-      JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+      resultLine(),
       S,
     );
     expect(afterTerminal.map((event) => event.type)).toEqual(["session.failed"]);
@@ -776,16 +704,13 @@ describe("AntigravityDriver", () => {
       const driver = new NoopAntigravityDriver();
       const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
       parser(
-        JSON.stringify({
-          event: "step_update",
-          step_update: { step_type: "agent_response", text_delta: "stale" },
-        }),
+        deltaLine("stale"),
         S,
       );
 
       session = await driver.start({ ...base, cwd: tempDir });
       const afterStart = parser(
-        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+        resultLine(),
         S,
       );
       expect(afterStart.map((event) => event.type)).toEqual(["session.failed"]);
@@ -820,7 +745,7 @@ describe("AntigravityDriver", () => {
       await driver.attach({ sessionId: S, logOffset: Buffer.byteLength(`${firstLine}\n`) });
       const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
       const events = parser(
-        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "" } }),
+        resultLine(),
         S,
       );
 
