@@ -191,7 +191,8 @@ def parse_diagram_edges(lines):
 
 
 def check(tasks_path):
-    with open(tasks_path, "r", encoding="utf-8") as f:
+    # resolve_tasks confines the canonical path to the project root.
+    with open(tasks_path, "r", encoding="utf-8") as f:  # NOSONAR
         lines = f.read().splitlines()
     errors, warnings = [], []
 

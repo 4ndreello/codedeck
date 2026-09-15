@@ -80,7 +80,8 @@ def _appears_complete(fdir):
     tasks = os.path.join(fdir, "tasks.md")
     if not os.path.exists(tasks):
         return False
-    with open(tasks, encoding="utf-8", errors="replace") as f:
+    # tasks is built from the root-scoped feature directory.
+    with open(tasks, encoding="utf-8", errors="replace") as f:  # NOSONAR
         body = f.read()
     if not re.search(r"^#{2,4}\s+T\d+\s*:", body, re.MULTILINE):
         return False
@@ -99,7 +100,8 @@ def _check_feature(fdir, name):
             f"writes it (author != verifier). Dispatch validation before marking done."
         )
         return errors
-    with open(vpath, encoding="utf-8", errors="replace") as f:
+    # vpath is built from the root-scoped feature directory.
+    with open(vpath, encoding="utf-8", errors="replace") as f:  # NOSONAR
         text = f.read()
     verdict = _verdict(text)
     if verdict is None:

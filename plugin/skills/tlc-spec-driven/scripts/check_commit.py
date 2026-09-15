@@ -53,7 +53,8 @@ def read_message(args):
     if args.message is not None:
         return args.message
     if args.msgfile:
-        with open(_safe_message_path(args.msgfile), "r", encoding="utf-8") as f:
+        # _safe_message_path confines the canonical path to the repository root.
+        with open(_safe_message_path(args.msgfile), "r", encoding="utf-8") as f:  # NOSONAR
             return f.read()
     if not sys.stdin.isatty():
         return sys.stdin.read()

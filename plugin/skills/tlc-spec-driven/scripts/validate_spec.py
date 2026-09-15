@@ -162,7 +162,8 @@ def classify_ears(text):
 
 
 def check(spec_path):
-    with open(spec_path, "r", encoding="utf-8") as f:
+    # resolve_spec confines the canonical path to the project root.
+    with open(spec_path, "r", encoding="utf-8") as f:  # NOSONAR
         text = f.read()
     lines = text.splitlines()
     errors, warnings = [], []
