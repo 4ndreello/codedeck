@@ -238,6 +238,37 @@ describe("setup batch execution", () => {
     expect(store.save).toHaveBeenCalledOnce();
   });
 
+  it("writes a new profile with only the bind and leaves the file without root leakage", async () => {
+    const now = Date.now();
+    const file = getPaths().configFile;
+    const before: RunAgentConfig = {
+      defaultAgent: "claude",
+      agents: { general: { harness: "claude", model: "base-model" } },
+      defaultSandbox: "danger-full-access",
+    };
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, serializeConfig({ ...DEFAULT_CONFIG, ...before }), "utf8");
+
+    const result = await executeSetupAction(
+      ["--non-interactive", "--bind", "reviewer=codex:gpt-5", "--profile=newp"],
+      {
+        isTTY: false,
+        registry: fakeRegistry("codex"),
+        discoverModels: async () => [catalog("codex", [{ id: "gpt-5" }], new Date(now).toISOString())],
+        saveCache: () => true,
+        now: () => now,
+        timeoutMs: 20,
+      },
+    );
+
+    expect(result.code).toBe(0);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as RunAgentConfig;
+    expect(saved.profiles?.newp?.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
+    expect(saved.profiles?.newp?.agents?.general).toBeUndefined();
+    expect(saved.profiles?.newp?.defaultSandbox).toBe("danger-full-access");
+    expect(saved.agents?.general).toEqual({ harness: "claude", model: "base-model" });
+  });
+
   it("serializes parser failures with the not-run catalog state", async () => {
     const stdout = Object.assign(new MemoryWritable(), { isTTY: false });
     const stderr = new MemoryWritable();
