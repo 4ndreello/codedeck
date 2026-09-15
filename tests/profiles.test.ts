@@ -140,6 +140,30 @@ describe("profile actions", () => {
     expect(result.config).not.toHaveProperty("activeProfile");
   });
 
+  it("saves a new profile from the base without active-profile contamination", () => {
+    const config: RunAgentConfig = {
+      defaultAgent: "claude",
+      agents: { general: { harness: "claude", model: "base-model" } },
+      activeProfile: "a",
+      profiles: { a: { agents: { general: { harness: "codex", model: "from-a" } } } },
+    };
+    const result = applyProfileAction(config, "save", "b");
+    expect(result.save).toBe(true);
+    expect(result.config.profiles?.b?.agents?.general?.model).toBe("base-model");
+    expect(result.config.profiles?.a?.agents?.general?.model).toBe("from-a");
+  });
+
+  it("saving the active profile snapshots its own effective setup", () => {
+    const config: RunAgentConfig = {
+      defaultAgent: "claude",
+      agents: { general: { harness: "claude", model: "base-model" } },
+      activeProfile: "a",
+      profiles: { a: { agents: { general: { harness: "codex", model: "from-a" } } } },
+    };
+    const result = applyProfileAction(config, "save", "a");
+    expect(result.config.profiles?.a?.agents?.general?.model).toBe("from-a");
+  });
+
   it("uses, lists and shows profiles", () => {
     const withProfile = applyProfileAction(saved, "save", "max").config;
     const used = applyProfileAction(withProfile, "use", "max");
@@ -261,7 +285,7 @@ describe("setup --profile batch", () => {
     });
   });
 
-  it("creates a missing profile from the base setup", async () => {
+  it("creates a missing profile empty apart from the bind, without root leakage", async () => {
     const { store, deps } = batchWorld();
     const result = await runSetupBatch(
       setupOptions(["--non-interactive", "--bind", "reviewer=codex:gpt-5", "--profile=max"]),
@@ -270,7 +294,45 @@ describe("setup --profile batch", () => {
 
     expect(result.code).toBe(0);
     const written = store.save.mock.calls[0][0] as RunAgentConfig;
-    expect(written.profiles?.max?.agents?.general).toEqual({ harness: "claude", model: "base" });
+    expect(written.profiles?.max?.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
+    expect(written.profiles?.max?.agents?.general).toBeUndefined();
+    expect(written.agents?.general).toEqual({ harness: "claude", model: "base" });
+  });
+
+  it("setup without --profile edits the base and does not clobber the active snapshot", async () => {
+    const file = getPaths().configFile;
+    const activeSnapshot = { agents: { general: { harness: "codex", model: "from-a" } } } as const;
+    const effective = {
+      ...DEFAULT_CONFIG,
+      agents: { general: { harness: "claude", model: "base" } },
+      activeProfile: "a",
+      profiles: { a: activeSnapshot },
+    };
+    const read = vi.fn(
+      (): SetupConfigRead => ({
+        status: "ok",
+        source: "canonical",
+        path: file,
+        config: effective as RunAgentConfig,
+        raw: serializeConfig(effective as RunAgentConfig),
+        message: null,
+      }),
+    );
+    const save = vi.fn();
+    const deps: SetupBatchDependencies = {
+      configStore: { read, save },
+      registry: fakeRegistry("codex"),
+      discoverModels: async () => [catalog("codex", ["gpt-5"])],
+      saveCache: () => true,
+    };
+    const result = await runSetupBatch(setupOptions(["--bind", "reviewer=codex:gpt-5"]), deps);
+
+    expect(result.code).toBe(0);
+    const written = save.mock.calls[0][0] as RunAgentConfig;
+    expect(written.activeProfile).toBe("a");
+    expect(written.profiles?.a).toEqual(activeSnapshot);
+    expect(written.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
+    expect(written.agents?.general).toEqual({ harness: "claude", model: "base" });
   });
 
   it("rejects a bad profile name at parse time", () => {

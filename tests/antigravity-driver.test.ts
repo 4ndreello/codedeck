@@ -1,13 +1,30 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   buildAntigravityArgs,
   parseAntigravityModelsList,
   AntigravityDriver,
+  alignAntigravityLogOffset,
+  replayAntigravityOutput,
 } from "../src/drivers/antigravity/driver.js";
-import { parseAntigravityLine } from "../src/drivers/antigravity/parser.js";
+import { createAntigravityParser, parseAntigravityLine } from "../src/drivers/antigravity/parser.js";
+import type { StartOptions } from "../src/core/driver.js";
 import type { AgentEvent } from "../src/core/events.js";
 
 const S = "test-session";
+const resultLine = (response = "", extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({ event: "result", result: { status: "SUCCESS", response, ...extra } });
+const deltaLine = (textDelta: string): string =>
+  JSON.stringify({
+    event: "step_update",
+    step_update: { step_type: "agent_response", text_delta: textDelta },
+  });
+const contentAfterEmptyResult = (feed: (line: string) => AgentEvent[]): unknown => {
+  const message = feed(resultLine()).find((event) => event.type === "message") as any;
+  return message?.content;
+};
 const base = { sessionId: S, prompt: "do something", cwd: "/workspace" };
 
 describe("buildAntigravityArgs", () => {
@@ -185,6 +202,237 @@ describe("parseAntigravityLine", () => {
     expect(usageEv.usage.cachedTokens).toBe(800);
   });
 
+  it.each(["", " \n\t"])("fails a successful result with an empty response (%p)", (response) => {
+    const events = parse(resultLine(response, { conversation_id: "conv-uuid-1" }));
+
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+    expect((events[0] as any).error).toMatch(/empty|whitespace/i);
+    expect((events[0] as any).error).toMatch(/text deltas/i);
+  });
+
+  it("uses accumulated text.delta chunks when the successful result response is empty", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("Hello, "),
+      S,
+    );
+    streamParser(
+      deltaLine("World!"),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine("", { conversation_id: "conv-uuid-1" }),
+      S,
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["message", "session.completed"]);
+    expect((events[0] as any).content).toBe("Hello, World!");
+  });
+
+  it("uses accumulated text.delta chunks when the result response is whitespace", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("Hello, World!"),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine(" \n\t"),
+      S,
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["message", "session.completed"]);
+    expect((events[0] as any).content).toBe("Hello, World!");
+  });
+
+  it("prefers a non-empty result response over accumulated deltas", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("stale"),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine("final"),
+      S,
+    );
+
+    expect((events.find((event) => event.type === "message") as any).content).toBe("final");
+
+    const afterResult = streamParser(
+      resultLine(),
+      S,
+    );
+    expect(afterResult.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("fails when only whitespace text deltas were seen", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine(" \n\t"),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine(""),
+      S,
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+    expect((events[0] as any).error).toContain("no usable text deltas");
+  });
+
+  it("clears accumulated text after an empty-result failure", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine(" \n"),
+      S,
+    );
+    const firstResult = streamParser(
+      resultLine(),
+      S,
+    );
+    const secondResult = streamParser(
+      resultLine(),
+      S,
+    );
+
+    expect(firstResult.map((event) => event.type)).toEqual(["session.failed"]);
+    expect(secondResult.map((event) => event.type)).toEqual(["session.failed"]);
+    expect((secondResult[0] as any).error).toContain("no text deltas");
+  });
+
+  it("clears accumulated text when a new init event starts", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("stale"),
+      S,
+    );
+    streamParser(JSON.stringify({ event: "init", conversation_id: "new-conversation" }), S);
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("clears accumulated text after an error result", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("stale"),
+      S,
+    );
+    streamParser(
+      JSON.stringify({ event: "result", result: { status: "ERROR", error: "failed" } }),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("clears accumulated text after a generic error line", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("stale"),
+      S,
+    );
+    streamParser(JSON.stringify({ error: "failed" }), S);
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("marks text truncated when accumulated output exceeds the safety limit", () => {
+    const streamParser = createAntigravityParser();
+    const oversized = "x".repeat(8 * 1024 * 1024 + 10);
+    streamParser(
+      deltaLine(oversized),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+    const content = (events.find((event) => event.type === "message") as any).content as string;
+
+    expect(content).toMatch(/^\[truncated 10 characters\]\n/);
+    expect(content.endsWith("x".repeat(8 * 1024 * 1024))).toBe(true);
+  });
+
+  it("does not retain a lone surrogate at the accumulated output boundary", () => {
+    const streamParser = createAntigravityParser();
+    const cap = 8 * 1024 * 1024;
+    streamParser(
+      deltaLine("x".repeat(9) + "\ud83d"),
+      S,
+    );
+    streamParser(
+      deltaLine("\ude00" + "y".repeat(cap - 1)),
+      S,
+    );
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+    const content = (events.find((event) => event.type === "message") as any).content as string;
+
+    expect(content).toBe(`[truncated 11 characters]\n${"y".repeat(cap - 1)}`);
+    expect(content.charCodeAt("[truncated 11 characters]\n".length)).not.toBe(0xde00);
+  });
+
+  it("keeps accumulated responses isolated by session", () => {
+    const streamParser = createAntigravityParser();
+    const delta = (sessionId: string, text: string) => streamParser(deltaLine(text), sessionId);
+    const result = (sessionId: string) => streamParser(resultLine(), sessionId);
+
+    delta("session-a", "AAA");
+    delta("session-b", "BBB");
+
+    expect((result("session-a").find((event) => event.type === "message") as any).content).toBe("AAA");
+    expect((result("session-b").find((event) => event.type === "message") as any).content).toBe("BBB");
+  });
+
+  it("resets accumulated text for a new turn", () => {
+    const streamParser = createAntigravityParser();
+    streamParser(
+      deltaLine("stale"),
+      S,
+    );
+    streamParser.reset(S);
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("accumulates plain-text output for an empty result response", () => {
+    const streamParser = createAntigravityParser();
+    expect(streamParser("Here is the plain-text answer.", S)[0]?.type).toBe("text.delta");
+
+    const events = streamParser(
+      resultLine(),
+      S,
+    );
+
+    expect((events.find((event) => event.type === "message") as any).content).toBe(
+      "Here is the plain-text answer.\n",
+    );
+  });
+
   it("maps SUCCESS result event to message, usage, and session.completed", () => {
     const line = JSON.stringify({
       event: "result",
@@ -282,5 +530,214 @@ describe("AntigravityDriver", () => {
     expect(caps.cost).toBe(false);
     expect(caps.modelSelection).toBe(true);
     expect(caps.interrupt).toBe(true);
+  });
+
+  it("replays only the consumed complete output before reattach", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-replay-"));
+    const stdoutPath = path.join(tempDir, "session.ndjson");
+    const firstLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: "Hello, " },
+    });
+    const secondLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: "World!" },
+    });
+    const thirdLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: " Again!" },
+    });
+    const tailLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: " Do not replay." },
+    });
+    const output = `${firstLine}\n${secondLine}\n${thirdLine}\n${tailLine}\n`;
+    fs.writeFileSync(stdoutPath, output);
+
+    try {
+      const streamParser = createAntigravityParser();
+      replayAntigravityOutput(
+        stdoutPath,
+        Buffer.byteLength(`${firstLine}\n${secondLine}\n${thirdLine}\n`),
+        streamParser,
+        S,
+      );
+      const feed = (line: string) => streamParser(line, S);
+      expect(contentAfterEmptyResult(feed)).toBe("Hello, World! Again!");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("discards an unterminated replay fragment at a mid-line offset", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-replay-fragment-"));
+    const stdoutPath = path.join(tempDir, "session.ndjson");
+    const firstLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: "Hello, " },
+    });
+    const partialPlainText = "do not replay this partial line";
+    fs.writeFileSync(stdoutPath, `${firstLine}\n${partialPlainText}\n`);
+
+    try {
+      const streamParser = createAntigravityParser();
+      const firstLineEnd = Buffer.byteLength(`${firstLine}\n`);
+      replayAntigravityOutput(stdoutPath, firstLineEnd + 5, streamParser, S);
+      const feed = (line: string) => streamParser(line, S);
+      expect(contentAfterEmptyResult(feed)).toBe("Hello, ");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aligns reattach offsets to the start of a complete line", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-offset-"));
+    const stdoutPath = path.join(tempDir, "session.ndjson");
+    const firstLine = JSON.stringify({ event: "step_update", step_update: { text_delta: "first" } });
+    const secondLine = JSON.stringify({ event: "step_update", step_update: { text_delta: "second" } });
+    fs.writeFileSync(stdoutPath, `${firstLine}\n${secondLine}\n`);
+
+    try {
+      const lineStart = Buffer.byteLength(`${firstLine}\n`);
+      expect(alignAntigravityLogOffset(stdoutPath, lineStart + 5)).toBe(lineStart);
+      expect(alignAntigravityLogOffset(stdoutPath, lineStart)).toBe(lineStart);
+      expect(alignAntigravityLogOffset(stdoutPath, fs.statSync(stdoutPath).size + 1)).toBe(0);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resets parser state before attaching a session", async () => {
+    const driver = new AntigravityDriver();
+    const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
+    parser(
+      deltaLine("stale"),
+      S,
+    );
+
+    await driver.attach({ sessionId: S });
+
+    const events = parser(
+      resultLine(),
+      S,
+    );
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("resets parser state when stopping a session", async () => {
+    const driver = new AntigravityDriver();
+    const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
+    parser(
+      deltaLine("stale"),
+      S,
+    );
+    (driver as any).handles.set(S, { stop: async () => {} });
+
+    await driver.stop({ id: S } as any);
+
+    const events = parser(
+      resultLine(),
+      S,
+    );
+    expect(events.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("resets parser state when an event stream reaches a terminal event", async () => {
+    const driver = new AntigravityDriver();
+    const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
+    parser(
+      deltaLine("stale"),
+      S,
+    );
+    (driver as any).handles.set(S, {
+      events: async function* () {
+        yield { type: "session.failed", sessionId: S, timestamp: new Date().toISOString(), error: "done" };
+      },
+    });
+
+    const events: AgentEvent[] = [];
+    for await (const event of driver.events({ id: S } as any)) events.push(event);
+    expect(events).toHaveLength(1);
+
+    const afterTerminal = parser(
+      resultLine(),
+      S,
+    );
+    expect(afterTerminal.map((event) => event.type)).toEqual(["session.failed"]);
+  });
+
+  it("resets parser state before starting a new turn", async () => {
+    class NoopAntigravityDriver extends AntigravityDriver {
+      protected override getCommand(): string {
+        return process.execPath;
+      }
+
+      protected override buildArgs(_options: StartOptions): string[] {
+        return ["-e", ""];
+      }
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-start-"));
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const previousNoScope = process.env.CODEDECK_NO_SCOPE;
+    process.env.RUN_AGENT_DIR = tempDir;
+    process.env.CODEDECK_NO_SCOPE = "1";
+    let session: Awaited<ReturnType<AntigravityDriver["start"]>> | undefined;
+
+    try {
+      const driver = new NoopAntigravityDriver();
+      const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
+      parser(
+        deltaLine("stale"),
+        S,
+      );
+
+      session = await driver.start({ ...base, cwd: tempDir });
+      const afterStart = parser(
+        resultLine(),
+        S,
+      );
+      expect(afterStart.map((event) => event.type)).toEqual(["session.failed"]);
+
+      const emitted: AgentEvent[] = [];
+      for await (const event of driver.events(session)) emitted.push(event);
+      expect(emitted.at(-1)?.type).toBe("session.completed");
+      await driver.stop(session);
+    } finally {
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      if (previousNoScope === undefined) delete process.env.CODEDECK_NO_SCOPE;
+      else process.env.CODEDECK_NO_SCOPE = previousNoScope;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the session stdout path when attaching", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-attach-"));
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    process.env.RUN_AGENT_DIR = tempDir;
+    const stdoutPath = path.join(tempDir, "logs", `${S}.ndjson`);
+    const firstLine = JSON.stringify({
+      event: "step_update",
+      step_update: { step_type: "agent_response", text_delta: "from stdout" },
+    });
+    fs.mkdirSync(path.dirname(stdoutPath), { recursive: true });
+    fs.writeFileSync(stdoutPath, `${firstLine}\n`);
+
+    try {
+      const driver = new AntigravityDriver();
+      await driver.attach({ sessionId: S, logOffset: Buffer.byteLength(`${firstLine}\n`) });
+      const parser = (driver as any).parser as ReturnType<typeof createAntigravityParser>;
+      const events = parser(
+        resultLine(),
+        S,
+      );
+
+      expect((events.find((event) => event.type === "message") as any).content).toBe("from stdout");
+    } finally {
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

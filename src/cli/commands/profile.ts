@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import {
+  baseConfig,
   extractProfileSnapshot,
   getProfileSnapshot,
   listProfiles,
@@ -119,7 +120,12 @@ export function applyProfileAction(
   }
 
   if (action === "save") {
-    const snapshot = extractProfileSnapshot(resolveEffectiveConfig(config));
+    // Snapshot the explicit target, never the active profile. Resolving
+    // without a name would fall back to activeProfile and stamp the other
+    // profile's agents into this one. A new name starts from the base setup.
+    const existing = getProfileSnapshot(config, name);
+    const source = existing === undefined ? baseConfig(config) : resolveEffectiveConfig(config, name);
+    const snapshot = extractProfileSnapshot(source);
     const profiles = { ...(config.profiles ?? {}), [name]: snapshot };
     const next: RunAgentConfig = { ...config, profiles };
     return {
@@ -237,7 +243,7 @@ export function registerProfileCommand(program: Command): void {
 
   const named: ReadonlyArray<{ action: Exclude<ProfileAction, "list">; description: string }> = [
     { action: "show", description: "print a saved profile" },
-    { action: "save", description: "snapshot the current setup as a profile" },
+    { action: "save", description: "snapshot the base setup as a profile (the active profile itself re-saves its own setup)" },
     { action: "use", description: "make a profile the active setup" },
     { action: "delete", description: "delete a saved profile" },
   ];

@@ -625,9 +625,19 @@ function watchResize(listener: () => void): () => void {
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
   const loaded = options.config ?? loadConfig();
   const profile = options.profile !== undefined ? parseProfileName(options.profile) : undefined;
+  // --profile edits one saved setup, shown exactly as saved. A name nobody
+  // saved yet starts from the base setup with an empty agent map: role
+  // screens show no inherited "atual", while sandbox/autocompact/orchestrator
+  // keep mirroring what the profile would inherit at launch (blanking them
+  // would silently downgrade the base values on confirm). Without --profile
+  // the base config is edited and the active snapshot is left untouched
+  // (see runSetupBatch below).
+  const snapshot = profile === undefined ? undefined : getProfileSnapshot(loaded, profile);
   const config = profile === undefined
     ? loaded
-    : { ...baseConfig(loaded), ...getProfileSnapshot(loaded, profile) };
+    : snapshot === undefined
+      ? { ...baseConfig(loaded), agents: {} }
+      : { ...baseConfig(loaded), ...snapshot };
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
   const output = options.output ?? process.stdout;
@@ -654,7 +664,7 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   // triple harness:model:effort is chosen in one step instead of a second
   // pass at the end. A second runScreens call is not an option: the picker
   // owns raw mode for exactly one run per stream set.
-  const roleScreens = buildScreens(ROLES, harnesses, config.agents ?? {}, config.defaultAgent ?? "claude").map(
+  const roleScreens = buildScreens(ROLES, harnesses, config.agents ?? {}, loaded.defaultAgent ?? "claude").map(
     (screen, roleIndex) => ({
       ...screen,
       next: (result: ScreenResult): Screen[] => {
@@ -1361,13 +1371,20 @@ export async function runSetupBatch(
   }
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
-  // --profile edits one saved setup instead of the active one. A name nobody
-  // saved yet starts from the base config, so creating a profile needs no
-  // separate gesture.
+  // --profile edits one saved setup instead of the active one. An existing
+  // name loads base plus its snapshot; a name nobody saved yet starts from
+  // the base setup with an empty agent map, so root agents never leak into
+  // the new profile as inherited "atual" while sandbox/autocompact/
+  // orchestrator keep their inherited values. Without --profile the base
+  // config is edited and saved profiles (including the active one) are left
+  // untouched.
   const profile = options.profile;
+  const snapshot = profile === undefined ? undefined : getProfileSnapshot(current, profile);
   const target: RunAgentConfig = profile === undefined
     ? current
-    : { ...baseConfig(current), ...getProfileSnapshot(current, profile) };
+    : snapshot === undefined
+      ? { ...baseConfig(current), agents: {} }
+      : { ...baseConfig(current), ...snapshot };
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);

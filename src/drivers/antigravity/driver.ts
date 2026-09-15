@@ -1,12 +1,92 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { detectBinary, runCommandWithTimeout } from "../helpers.js";
-import type { AgentInstallation, StartOptions } from "../../core/driver.js";
+import type { AgentInstallation, DriverSession, ReattachRequest, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
+import type { AgentEvent } from "../../core/events.js";
 import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
-import { parseAntigravityLine } from "./parser.js";
+import { sessionLogPaths } from "../session-runtime.js";
+import { createAntigravityParser, type AntigravityParser } from "./parser.js";
+
+const MAX_REPLAY_READ_BYTES = 64 * 1024;
+
+export function alignAntigravityLogOffset(stdoutPath: string, logOffset: number): number {
+  if (!Number.isSafeInteger(logOffset) || logOffset <= 0) return 0;
+
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(stdoutPath, "r");
+    const size = fs.fstatSync(fd).size;
+    if (logOffset > size) return 0;
+    let position = logOffset;
+    const buffer = Buffer.allocUnsafe(MAX_REPLAY_READ_BYTES);
+    while (position > 0) {
+      const start = Math.max(0, position - MAX_REPLAY_READ_BYTES);
+      const bytesRead = fs.readSync(fd, buffer, 0, position - start, start);
+      if (bytesRead === 0) return 0;
+      const newline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+      if (newline >= 0) return start + newline + 1;
+      position = start;
+    }
+    return 0;
+  } catch {
+    return 0;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+export function replayAntigravityOutput(
+  stdoutPath: string,
+  logOffset: number,
+  parser: AntigravityParser,
+  sessionId: string,
+): void {
+  if (!Number.isSafeInteger(logOffset) || logOffset <= 0) return;
+
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(stdoutPath, "r");
+    const buffer = Buffer.allocUnsafe(Math.min(MAX_REPLAY_READ_BYTES, logOffset));
+    const decoder = new StringDecoder("utf8");
+    let position = 0;
+    let line = "";
+
+    while (position < logOffset) {
+      const bytesRead = fs.readSync(
+        fd,
+        buffer,
+        0,
+        Math.min(buffer.length, logOffset - position),
+        position,
+      );
+      if (bytesRead === 0) break;
+      position += bytesRead;
+
+      const chunk = decoder.write(buffer.subarray(0, bytesRead));
+      let start = 0;
+      for (let newline = chunk.indexOf("\n"); newline >= 0; newline = chunk.indexOf("\n", start)) {
+        line += chunk.slice(start, newline);
+        if (line) parser(line, sessionId);
+        line = "";
+        start = newline + 1;
+      }
+      line += chunk.slice(start);
+    }
+
+    // The persisted offset is the end of a complete line. Discard any
+    // unterminated fragment so an invalid offset cannot turn log bytes into
+    // assistant text or cause the live tailer to replay part of a line.
+    decoder.end();
+  } catch {
+    // A missing or unreadable old log does not prevent the runtime from attaching.
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
 
 // Pure so the flag spellings and effort clamping are testable without spawning agy.
 export function buildAntigravityArgs(options: StartOptions): string[] {
@@ -86,8 +166,10 @@ export function parseAntigravityModelsList(stdout: string): ProviderModels[] {
 export class AntigravityDriver extends SessionDriver {
   readonly id = "antigravity" as const;
 
+  private readonly parser = createAntigravityParser();
+
   protected readonly hooks = createRuntimeHooks({
-    parse: parseAntigravityLine,
+    parse: this.parser,
     nativeKeys: ["conversation_id"],
     harness: "Antigravity",
     plainTextFallback: true,
@@ -96,6 +178,42 @@ export class AntigravityDriver extends SessionDriver {
   protected readonly resumeError = "No native conversation id available for Antigravity resume";
 
   private detectedPath?: string;
+
+  override async start(options: StartOptions): Promise<DriverSession> {
+    this.parser.reset(options.sessionId);
+    return super.start(options);
+  }
+
+  override async attach(request: ReattachRequest): Promise<void> {
+    this.parser.reset(request.sessionId);
+    const logOffset = alignAntigravityLogOffset(
+      sessionLogPaths(request.sessionId).stdoutPath,
+      request.logOffset ?? 0,
+    );
+    this.replayConsumedOutput(request.sessionId, logOffset);
+    await super.attach({ ...request, logOffset });
+  }
+
+  override async stop(session: DriverSession): Promise<void> {
+    try {
+      await super.stop(session);
+    } finally {
+      this.parser.reset(session.id);
+    }
+  }
+
+  override async *events(session: DriverSession): AsyncIterable<AgentEvent> {
+    for await (const event of super.events(session)) {
+      if (event.type === "session.completed" || event.type === "session.failed") {
+        this.parser.reset(session.id);
+      }
+      yield event;
+    }
+  }
+
+  private replayConsumedOutput(sessionId: string, logOffset?: number): void {
+    replayAntigravityOutput(sessionLogPaths(sessionId).stdoutPath, logOffset ?? 0, this.parser, sessionId);
+  }
 
   protected override getCommand(): string {
     if (this.detectedPath) return this.detectedPath;
