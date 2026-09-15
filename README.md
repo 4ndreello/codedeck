@@ -200,7 +200,7 @@ npx codedeck run "task" --profile max --bg
 npx codedeck open reviewer --profile max
 ```
 
-`use` sets the default. `--profile` overrides it for one launch, so two profiles run side by side with no switching. An unknown name fails loud instead of launching on the wrong setup.
+`use` sets the default. `setup` edits that active profile when one is selected, while `setup --profile max` edits an explicit profile. With no active profile, `setup` edits the base config. `--profile` overrides the active profile for one launch, so two profiles run side by side with no switching. An unknown name fails loud instead of launching on the wrong setup.
 
 ## Session
 

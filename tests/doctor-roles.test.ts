@@ -65,4 +65,18 @@ describe("doctor roles section", () => {
     );
     expect(lines.find((line) => line.includes("auditor"))).toContain("✗ unbound, runs on claude");
   });
+
+  it("labels the active profile when showing effective roles", () => {
+    const lines = strip(
+      renderRolesSection(
+        resolveRoleReadiness({
+          defaultAgent: "claude",
+          agents: { reviewer: { harness: "codex", model: "gpt-5" } },
+        }),
+        "default",
+      ),
+    ).split("\n");
+
+    expect(lines[0]).toBe("Roles (active profile: default)");
+  });
 });
