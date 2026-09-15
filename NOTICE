@@ -16,11 +16,13 @@ license text for CC-BY-4.0 is available at:
 What this means in practice
 ---------------------------
 
-Our spec-driven workflow files in this repository are an original,
-lean reimplementation written in our own words. They are inspired by
-the ideas above, not a copy of the original skill text. No content
-was pasted from the original SKILL.md or its reference files.
+The plugin/skills/tlc-spec-driven/ tree bundles the original skill and
+its supporting references and scripts from version 3.3.0, with small
+CodeDeck adaptations for safe artifact paths and static-analysis
+compatibility. That tree is distributed under the original CC-BY-4.0
+license.
 
-Where the CC-BY-4.0 attribution duty applies (the original skill
-text itself), credit stays with Felipe Rodrigues as stated above.
-Where our own files apply, the MIT License in LICENSE governs.
+The prompt prose outside that tree is an original, lean fallback written
+in CodeDeck's own words. It keeps the same workflow available to
+harnesses that cannot load plugin skills, and the MIT License in LICENSE
+governs that CodeDeck prose.

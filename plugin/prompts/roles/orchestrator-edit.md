@@ -6,6 +6,7 @@ includes:
   - worktree
   - dispatch
   - proof
+  - spec-gates
   - reports-dispatch
 ---
 
