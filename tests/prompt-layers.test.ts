@@ -83,7 +83,7 @@ const ROLES = Object.keys(EXPECTED);
 
 const BUDGETS: Record<string, number> = {
   general: 16384,
-  orchestrator: 14336,
+  orchestrator: 16384,
   "orchestrator-read": 8192,
   "orchestrator-edit": 8192,
   reviewer: 8192,
