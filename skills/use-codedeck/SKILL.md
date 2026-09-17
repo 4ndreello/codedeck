@@ -23,7 +23,7 @@ Examples here use `codedeck`. If the checkout runs under another name (for examp
 | `reviewer` | no | no | one review pass, no fan-out |
 
 Three-letter prefixes work (`--role gen`). The role owns the harness and the model: `--agent` and `--model` are ignored for a role that carries a binding (run warns and keeps the binding), so a worker cannot move itself onto another harness. Change the pairing in `codedeck setup`, not on the dispatch line.
-An unbound role warns and falls back to the default harness — same as no `--role`. `codedeck doctor` shows every binding under Roles; that is the only binding check. Never probe `dist/`, `~/.config`, `daemon.sock`, or `setup --help` to discover it.
+An unbound role warns and falls back to the default harness, same as no `--role`. `codedeck doctor` shows every binding under Roles; that is the only binding check. Never probe `dist/`, `~/.config`, `daemon.sock`, or `setup --help` to discover it.
 Workers always go through `run --role ... --bg --json`. `open <role>` is an interactive human TUI, never a dispatch path.
 
 ## Worktree is a choice, not a default
@@ -40,7 +40,7 @@ json="$(codedeck run --role general --worktree "<briefing>" --bg --json)"
 id="$(jq -er '.id' <<<"$json")"
 ```
 
-`--bg --json` prints the session object and exits, so capture `.id` at once. Always dispatch workers in the background with `--bg --json` so your turn stays free. Launch independent workers in one message so they actually run in parallel. Then wait on each worker with `codedeck wait <id> --json` (or inspect them with `codedeck ps`). Never background `wait` with `&` expecting to be reinvoked; shell background jobs do not notify the chat session.
+`--bg --json` prints the session object and exits, so capture `.id` at once. Always dispatch workers in the background with `--bg --json` so your turn stays free. Launch independent workers in one message so they actually run in parallel. If other workers or orchestration work can make progress, run `codedeck wait <id> --json &` in the background and keep the turn moving. A background shell job does not wake the chat when it finishes, so use `codedeck ps` or `codedeck show <id>` to check progress, then run a foreground wait when you are ready to reconcile that worker.
 
 `wait` loops until a terminal state, so it blocks straight through `needs_input`, which is not terminal. A worker parked on input hangs the waiter indefinitely. When a wait returns, take one `codedeck ps` snapshot (or `codedeck show <id>`) to catch any other worker stuck on input, answer it with `codedeck send <id> "<reply>"`, then wait again. That snapshot is discovery, not a polling loop.
 
@@ -96,7 +96,7 @@ A success message is a claim, the diff is the fact. `codedeck diff <id> --stat` 
 
 - Dispatching a worker with no `--role`, paying more for less direction.
 - `--worktree` on a task that needs uncommitted edits or a different repo.
-- Waiting in the foreground, or polling `ps` or `show` in a `while` loop.
+- Waiting in the foreground when other workers or orchestration work can make progress, or polling `ps` or `show` in a `while` loop.
 - Treating `run --bg` returning, or exit code 0, as task success.
 - Reading terminal state from the exit code instead of `.status`.
 - Forgetting `interrupted`, or letting a worker parked on `needs_input` hang the waiter.
