@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main, master]
 
 # Every job here only reads the checkout, and none of them posts back.
 permissions:
