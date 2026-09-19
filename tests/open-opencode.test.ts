@@ -264,6 +264,20 @@ describe("buildArgs", () => {
       expect(() => buildArgs("general", { model: bad }, [])).toThrow(/must be provider\/model/);
     }
   });
+
+  it.each([
+    ["an empty middle segment", "a//b"],
+    ["a trailing slash after nesting", "a/b/"],
+    ["whitespace after nesting", "a/b c/d"],
+  ] as const)("rejects a model with %s before spawn", (_name, model) => {
+    expect(() => buildArgs("general", { model }, [])).toThrow(/must be provider\/model/);
+  });
+
+  it("accepts provider models with nested model paths", () => {
+    for (const model of ["openrouter/meta/muse-spark-1.3-contributor", "a/b/c/d"]) {
+      expect(() => buildArgs("general", { model }, [])).not.toThrow();
+    }
+  });
 });
 
 describe("opencode theme", () => {
