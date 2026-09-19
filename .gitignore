@@ -8,3 +8,5 @@ dist
 .DS_Store
 .env
 coverage
+# plugin-types generates .claude/ slash types here
+.claude/
