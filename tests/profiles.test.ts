@@ -140,7 +140,7 @@ describe("profile actions", () => {
     expect(result.config).not.toHaveProperty("activeProfile");
   });
 
-  it("saves a new profile from the base without active-profile contamination", () => {
+  it("saves a new profile from the active effective setup", () => {
     const config: RunAgentConfig = {
       defaultAgent: "claude",
       agents: { general: { harness: "claude", model: "base-model" } },
@@ -149,7 +149,7 @@ describe("profile actions", () => {
     };
     const result = applyProfileAction(config, "save", "b");
     expect(result.save).toBe(true);
-    expect(result.config.profiles?.b?.agents?.general?.model).toBe("base-model");
+    expect(result.config.profiles?.b?.agents?.general?.model).toBe("from-a");
     expect(result.config.profiles?.a?.agents?.general?.model).toBe("from-a");
   });
 
@@ -162,6 +162,36 @@ describe("profile actions", () => {
     };
     const result = applyProfileAction(config, "save", "a");
     expect(result.config.profiles?.a?.agents?.general?.model).toBe("from-a");
+  });
+
+  it("re-saving an existing profile snapshots the target, not the active one", () => {
+    const config: RunAgentConfig = {
+      defaultAgent: "claude",
+      agents: { general: { harness: "claude", model: "base-model" } },
+      activeProfile: "a",
+      profiles: {
+        a: { agents: { general: { harness: "codex", model: "from-a" } } },
+        b: { agents: { general: { harness: "codex", model: "from-b" } } },
+      },
+    };
+    const result = applyProfileAction(config, "save", "b");
+    expect(result.save).toBe(true);
+    // The named target owns the snapshot: b must keep b's setup even while
+    // a is active, otherwise "profile save b" silently copies a into b.
+    expect(result.config.profiles?.b?.agents?.general?.model).toBe("from-b");
+    expect(result.config.profiles?.a?.agents?.general?.model).toBe("from-a");
+    expect(result.config.activeProfile).toBe("a");
+  });
+
+  it("saving a new profile with no active profile falls back to the base", () => {
+    const config: RunAgentConfig = {
+      defaultAgent: "claude",
+      agents: { general: { harness: "claude", model: "base-model" } },
+      profiles: { a: { agents: { general: { harness: "codex", model: "from-a" } } } },
+    };
+    const result = applyProfileAction(config, "save", "b");
+    expect(result.config.profiles?.b?.agents?.general?.model).toBe("base-model");
+    expect(result.config.profiles?.b?.agents?.general?.harness).toBe("claude");
   });
 
   it("uses, lists and shows profiles", () => {
