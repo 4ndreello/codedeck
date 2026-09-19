@@ -118,7 +118,7 @@ export function buildInlineConfig(
   });
 }
 
-const MODEL_SHAPE = /^[^/\s]+\/[^/\s]+$/;
+const MODEL_SHAPE = /^[^/\s]+\/[^/\s]+(?:\/[^/\s]+)*$/;
 
 export function buildArgs(
   role: Role,
