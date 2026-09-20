@@ -1,5 +1,5 @@
 {
-  "description": "Codedeck arcade mod: registers function hooks (requires Claude Code with function hooks enabled).",
+  "description": "Codedeck agents pane: draws this session's dispatched workers as ASCII in a pane docked on the right (requires Claude Code with function hooks enabled).",
   "modules": ["./register.tsx"],
   "hooks": {
     "SessionStart": [

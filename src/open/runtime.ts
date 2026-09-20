@@ -180,7 +180,7 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // alone, since silencing mise everywhere is not this command's call.
   sanitized.MISE_QUIET ??= "1";
 
-  // Function hooks back the codedeck arcade mod, and Claude Code only loads
+  // Function hooks back the codedeck agents pane, and Claude Code only loads
   // hook modules when the spawning environment enables them. The variable is
   // namespaced to Claude Code, so the opencode and codex spawns that share
   // this helper carry it inertly and behave exactly as before. A value of the

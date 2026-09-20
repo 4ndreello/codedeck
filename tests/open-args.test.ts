@@ -836,7 +836,7 @@ describe("open command pure helpers", () => {
     expect(sanitizeEnv({ MISE_QUIET: "0" }).MISE_QUIET).toBe("0");
   });
 
-  // Function hooks back the codedeck arcade mod, and Claude Code only loads
+  // Function hooks back the codedeck agents pane, and Claude Code only loads
   // hook modules when the spawning environment enables them. A value of the
   // user's own wins, which keeps an explicit opt-out working.
   it("enables function hooks without overriding a setting of the user's own", () => {
