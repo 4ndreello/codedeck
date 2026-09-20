@@ -84,11 +84,99 @@ describe("Opencode parser (real --format json schema)", () => {
     expect(message?.content).toBe("thinking about it");
   });
 
-  it("ignores step_start and step_finish (no events)", () => {
+  it("ignores step_start and empty step_finish (no events)", () => {
     const start = parseOpencodeLine(JSON.stringify({ type: "step_start", sessionID: "s", part: { type: "step-start" } }), "s1");
-    const finish = parseOpencodeLine(JSON.stringify({ type: "step_finish", sessionID: "s", part: { type: "step-finish" } }), "s1");
+    const emptyFinish = parseOpencodeLine(JSON.stringify({ type: "step_finish", sessionID: "s", part: { type: "step-finish" } }), "s1");
     expect(start).toEqual([]);
-    expect(finish).toEqual([]);
+    expect(emptyFinish).toEqual([]);
+  });
+
+  it("parses step_finish into incremental usage.updated with reasoning folded into output", () => {
+    const line = JSON.stringify({
+      type: "step_finish",
+      timestamp: 1789852051989,
+      sessionID: "ses_abc",
+      part: {
+        id: "prt_123",
+        reason: "tool-calls",
+        type: "step-finish",
+        tokens: {
+          total: 15584,
+          input: 1107,
+          output: 76,
+          reasoning: 65,
+          cache: { write: 0, read: 14336 },
+        },
+        cost: 0,
+      },
+    });
+    const evs = parseOpencodeLine(line, "s1");
+    expect(evs).toHaveLength(1);
+    const usageEv = evs[0] as any;
+    expect(usageEv.type).toBe("usage.updated");
+    expect(usageEv.sessionId).toBe("s1");
+    expect(usageEv.incremental).toBe(true);
+    expect(usageEv.usage).toEqual({
+      inputTokens: 1107,
+      outputTokens: 141, // 76 + 65 (reasoning tokens billed as output)
+      cachedTokens: 14336,
+      cost: undefined, // cost: 0 is ignored so table fallback can price it
+    });
+  });
+
+  it("preserves positive reported cost from step_finish", () => {
+    const line = JSON.stringify({
+      type: "step_finish",
+      timestamp: 1789852051989,
+      sessionID: "ses_abc",
+      part: {
+        tokens: { input: 100, output: 50 },
+        cost: 0.0042,
+      },
+    });
+    const evs = parseOpencodeLine(line, "s1");
+    expect(evs).toHaveLength(1);
+    const usageEv = evs[0] as any;
+    expect(usageEv.usage.cost).toBe(0.0042);
+    expect(usageEv.usage.inputTokens).toBe(100);
+    expect(usageEv.usage.outputTokens).toBe(50);
+  });
+
+  it("extracts tokens and cost from root object when part lacks them", () => {
+    const line = JSON.stringify({
+      type: "step_finish",
+      timestamp: 1789852051989,
+      sessionID: "ses_abc",
+      part: { type: "step-finish" },
+      tokens: { input: 200, output: 40 },
+      cost: 0.0015,
+    });
+    const evs = parseOpencodeLine(line, "s1");
+    expect(evs).toHaveLength(1);
+    const usageEv = evs[0] as any;
+    expect(usageEv.type).toBe("usage.updated");
+    expect(usageEv.incremental).toBe(true);
+    expect(usageEv.usage.inputTokens).toBe(200);
+    expect(usageEv.usage.outputTokens).toBe(40);
+    expect(usageEv.usage.cost).toBe(0.0015);
+  });
+
+  it("ignores negative reported cost and defaults missing token fields to 0", () => {
+    const line = JSON.stringify({
+      type: "step_finish",
+      sessionID: "ses_abc",
+      part: {
+        tokens: { input: 100 },
+        cost: -0.05,
+      },
+    });
+    const evs = parseOpencodeLine(line, "s1");
+    expect(evs).toHaveLength(1);
+    const usageEv = evs[0] as any;
+    expect(usageEv.usage.cost).toBeUndefined();
+    expect(usageEv.usage.inputTokens).toBe(100);
+    expect(usageEv.usage.outputTokens).toBe(0);
+    expect(usageEv.usage.cachedTokens).toBe(0);
   });
 
   it("maps an error event to session.failed with the API message", () => {

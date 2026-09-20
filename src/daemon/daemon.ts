@@ -1316,7 +1316,36 @@ class Daemon {
       } else if (ev.type === "usage.updated") {
         const sess = this.sessions.get(sessionId);
         if (sess) {
-          this.sessions.update(sessionId, { usage: { ...(sess.usage || {}), ...ev.usage } });
+          const next = ev.usage || {};
+          if (ev.incremental) {
+            const cur = sess.usage || {};
+            const inputTokens = (cur.inputTokens ?? 0) + (next.inputTokens ?? 0);
+            const outputTokens = (cur.outputTokens ?? 0) + (next.outputTokens ?? 0);
+            const cachedTokens = (cur.cachedTokens ?? 0) + (next.cachedTokens ?? 0);
+            const cost =
+              cur.cost !== undefined || next.cost !== undefined
+                ? (cur.cost ?? 0) + (next.cost ?? 0)
+                : undefined;
+            this.sessions.update(sessionId, {
+              usage: {
+                inputTokens,
+                outputTokens,
+                cachedTokens,
+                cost,
+              },
+              ...(next.model ? { model: next.model } : {}),
+            });
+          } else {
+            this.sessions.update(sessionId, {
+              usage: {
+                inputTokens: next.inputTokens ?? sess.usage?.inputTokens,
+                outputTokens: next.outputTokens ?? sess.usage?.outputTokens,
+                cachedTokens: next.cachedTokens ?? sess.usage?.cachedTokens,
+                cost: next.cost ?? sess.usage?.cost,
+              },
+              ...(next.model ? { model: next.model } : {}),
+            });
+          }
         }
       }
       this.sessions.update(sessionId, { updatedAt: new Date() });

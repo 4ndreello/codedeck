@@ -114,7 +114,10 @@ export function parseClaudeLine(line: string, sessionId: string): AgentEvent[] {
           usage: {
             inputTokens: obj.usage.input_tokens,
             outputTokens: obj.usage.output_tokens,
-            cachedTokens: obj.usage.cache_read_input_tokens ?? obj.usage.cache_creation_input_tokens,
+            cachedTokens:
+              obj.usage.cache_read_input_tokens != null || obj.usage.cache_creation_input_tokens != null
+                ? (obj.usage.cache_read_input_tokens ?? 0) + (obj.usage.cache_creation_input_tokens ?? 0)
+                : undefined,
             cost: obj.total_cost_usd,
             model: obj.modelUsage ? Object.keys(obj.modelUsage)[0] : undefined,
           },

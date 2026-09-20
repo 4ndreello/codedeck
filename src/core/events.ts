@@ -103,6 +103,12 @@ export interface PermissionResolvedEvent extends BaseAgentEvent {
 
 export interface UsageUpdatedEvent extends BaseAgentEvent {
   type: "usage.updated";
+  /**
+   * When true, the usage payload represents an incremental delta for a step/turn,
+   * not the session cumulative total. The daemon will add these tokens and costs
+   * to existing totals rather than replacing them.
+   */
+  incremental?: boolean;
   usage: {
     inputTokens?: number;
     outputTokens?: number;

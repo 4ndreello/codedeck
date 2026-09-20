@@ -24,6 +24,24 @@ describe("Claude parser", () => {
     expect(evs.some(e => e.type === "session.completed")).toBe(true);
   });
 
+  it("sums cache_read_input_tokens and cache_creation_input_tokens into cachedTokens", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "done",
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 300,
+        cache_creation_input_tokens: 200,
+      },
+      total_cost_usd: 0.05,
+    });
+    const evs = parseClaudeLine(line, "s1");
+    const usageEv = evs.find((e) => e.type === "usage.updated") as any;
+    expect(usageEv.usage.cachedTokens).toBe(500);
+  });
+
   it("preserves raw", () => {
     const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } });
     const evs = parseClaudeLine(line, "s1");
