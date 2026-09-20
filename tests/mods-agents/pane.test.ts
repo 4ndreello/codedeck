@@ -172,21 +172,26 @@ describe("formatPane", () => {
     }
   });
 
-  it("cuts nothing and keeps every row when rows is not a usable number (rule 2)", () => {
+  it("keeps a compact history preview when rows is not a usable number (rule 2)", () => {
     const snap = workerFixture();
     const wide = formatPane(snap, 89);
-    // 10 frame + the card at 5, the 18 collapsed lines at 1 each, and the
-    // single stem opening their run: 24 body lines once stems stop padding
-    // every one liner.
-    expect(wide).toHaveLength(34);
-    expect(wide.some((l) => l.includes("agentes ocultos"))).toBe(false);
-    expect(wide.join("\n")).toContain("a18");
+    // 10 frame + the live card + its stem + the five-line history section
+    // and its stem. The 18 finished workers no longer get one line each.
+    expect(wide).toHaveLength(21);
+    expect(wide.some((l) => l.includes("hidden agents"))).toBe(false);
+    expect(wide.join("\n")).toContain("HISTORY · 18 finished");
+    expect(wide.join("\n")).toContain("a01");
+    expect(wide.join("\n")).toContain("+15 earlier");
+    expect(wide.join("\n")).not.toContain("a18");
     expect(formatPane(snap, 89, undefined)).toEqual(wide);
     expect(formatPane(snap, 89, Number.NaN)).toEqual(wide);
     expect(formatPane(snap, 89, Number.POSITIVE_INFINITY)).toEqual(wide);
     expect(formatPane(snap, 89, "44" as unknown as number)).toEqual(wide);
-    // The same snapshot under a height that cannot hold it does cut.
-    expect(formatPane(snap, 89, 30)).toHaveLength(30);
+    // A shorter pane keeps the live card and drops the history first.
+    const short = formatPane(snap, 89, 20);
+    expect(short.length).toBeLessThanOrEqual(20);
+    expect(short.join("\n")).toContain("w1");
+    expect(short.join("\n")).not.toContain("a01");
   });
 
   it("survives as a frame at every height that draws anything (rule 3)", () => {
@@ -194,18 +199,18 @@ describe("formatPane", () => {
     for (const rows of [10, 11, 12, 15, 20, 30, 44, 50, 400]) {
       const lines = formatPane(snap, 89, rows);
       expect(lines.length).toBeGreaterThan(0);
-      expect(lines[0]).toMatch(/^┌─ Canvas do run/);
-      expect(lines[1]).toContain("sessoes");
-      expect(lines[2]).toContain("prontas");
+      expect(lines[0]).toMatch(/^┌─ Run canvas/);
+      expect(lines[1]).toContain("sessions");
+      expect(lines[2]).toContain("finished");
       expect(lines[3]).toMatch(/^├─/);
       expect(lines[lines.length - 1]).toMatch(/^└─/);
-      expect(lines[lines.length - 3]).toContain("● trabalha");
+      expect(lines[lines.length - 3]).toContain("● working");
       expect(lines[lines.length - 2]).toContain("▲ Claude");
       expect(lines[lines.length - 4]).toMatch(/^├─/);
     }
   });
 
-  it("draws live rows as cards and everything else as one collapsed line (rule 4)", () => {
+  it("draws live rows as cards and groups finished rows in history (rule 4)", () => {
     const rows: PaneRow[] = [
       { id: "k1", status: "working", agent: "opencode", name: "k-live" },
       { id: "k2", status: "needs_input", agent: "claude", name: "k-wait" },
@@ -215,17 +220,18 @@ describe("formatPane", () => {
       { id: "k6", status: "weird", agent: "opencode", name: "k-odd" },
     ];
     const joined = formatPane(snapshot({ rows, hidden: 0, total: 7 }), 89).join("\n");
-    expect(joined).toContain("Trabalhando agora");
-    expect(joined).toContain("Esperando voce");
-    expect(joined).toContain("Subindo");
-    expect(joined).not.toContain("Concluida");
-    expect(joined).not.toContain("Em pausa");
-    expect(joined).toContain("▲ ○ k4  k-done");
-    expect(joined).toContain("⬟ ○ k5  k-stop");
-    expect(joined).toContain("■ ○ k6  k-odd");
+    expect(joined).toContain("Working now");
+    expect(joined).toContain("Waiting for you");
+    expect(joined).toContain("Starting");
+    expect(joined).not.toContain("Completed");
+    expect(joined).not.toContain("Paused");
+    expect(joined).toContain("HISTORY · 3 finished");
+    expect(joined).toContain("▲ k4  k-done");
+    expect(joined).toContain("⬟ k5  k-stop");
+    expect(joined).toContain("■ k6  k-odd");
   });
 
-  it("drops collapsed lines oldest first before any full card (rule 5)", () => {
+  it("drops history before live cards when the pane is short (rule 5)", () => {
     const rows: PaneRow[] = [
       { id: "wNew", status: "working", agent: "claude", name: "wn", updatedAt: "2026-09-19T12:00:00.000Z" },
       { id: "cNew", status: "completed", agent: "claude", name: "cn", updatedAt: "2026-09-19T11:00:00.000Z" },
@@ -233,39 +239,43 @@ describe("formatPane", () => {
       { id: "cOld", status: "completed", agent: "claude", name: "co", updatedAt: "2026-09-19T08:00:00.000Z" },
     ];
     const snap = snapshot({ rows, orchestrator: undefined, hidden: 0, total: 4 });
-    // Full drawing is 10 + 5 + 2 + 6 + 2 = 25: the first card costs no stem,
-    // the line after the other card costs one. At 24 exactly the two collapsed
-    // lines leave; the older card stays though the collapsed rows are newer.
+    // The history section leaves as a unit, so both live cards remain visible.
     const at24 = formatPane(snap, 40, 24);
     expect(at24).toHaveLength(23);
+    expect(at24.join("\n")).toContain("wNew");
     expect(at24.join("\n")).toContain("wOld");
     expect(at24.join("\n")).not.toContain("cOld");
     expect(at24.join("\n")).not.toContain("cNew");
-    expect(at24.join("\n")).toContain("+2 agentes ocultos");
-    // At 21 the next victim is the older card, not the newer one.
+    expect(at24.join("\n")).toContain("+2 hidden agents");
+
+    // At 21 the live cards still win, and the hidden line gives way if needed.
     const at21 = formatPane(snap, 40, 21);
-    expect(at21).toHaveLength(17);
+    expect(at21).toHaveLength(21);
     expect(at21.join("\n")).toContain("wNew");
-    expect(at21.join("\n")).not.toContain("wOld");
-    expect(at21.join("\n")).toContain("+3 agentes ocultos");
+    expect(at21.join("\n")).toContain("wOld");
+    expect(at21.join("\n")).not.toContain("hidden agents");
   });
 
-  it("counts everything it dropped into the hidden line, and the line outranks one agent (rule 6)", () => {
+  it("keeps history counts in the summary and reports dropped blocks when useful (rule 6)", () => {
     const snap = snapshot({ hidden: 2, total: 6 });
     const unbounded = formatPane(snap, 40);
-    const hiddenLine = unbounded.filter((l) => l.includes("agentes ocultos"));
-    expect(hiddenLine).toHaveLength(1);
-    expect(hiddenLine[0]).toContain("+2 agentes ocultos");
+    const hiddenLine = unbounded.filter((l) => l.includes("hidden agents"));
+    expect(hiddenLine).toHaveLength(0);
+    expect(unbounded.join("\n")).toContain("HISTORY · 3 finished");
+    expect(unbounded.join("\n")).toContain("+2 earlier");
 
-    // Force fifteen row drops on top of the snapshot's own hidden zero.
+    // The history block represents all 18 finished workers, while the live
+    // card stays visible in a 20-row pane.
     const fitted = formatPane(workerFixture(), 89, 20);
-    expect(fitted.filter((l) => l.includes("agentes ocultos"))).toHaveLength(1);
-    expect(fitted.join("\n")).toContain("+15 agentes ocultos");
+    expect(fitted.filter((l) => l.includes("hidden agents"))).toHaveLength(1);
+    expect(fitted.join("\n")).toContain("+18 hidden agents");
+    expect(fitted.join("\n")).toContain("w1");
+    expect(fitted.join("\n")).not.toContain("a01");
 
-    // At 12 rows drawing any agent would crowd out the hidden line; the
-    // hidden line wins and no agent is drawn.
+    // At 12 rows even the live card must leave, so the frame and hidden count
+    // survive without overflowing the pane.
     const tight = formatPane(workerFixture(), 89, 12);
-    expect(tight.join("\n")).toContain("+19 agentes ocultos");
+    expect(tight.join("\n")).toContain("+19 hidden agents");
     expect(tight.join("\n")).not.toContain("w1");
   });
 
@@ -289,7 +299,7 @@ describe("formatPane", () => {
       expect(close - open - 1).toBeLessThanOrEqual(MAX_CARD_COLUMNS - 2);
       expect(close - open - 1).toBe(54);
     }
-    expect(lines[0]).toMatch(/^┌─ Canvas do run .*─┐$/);
+    expect(lines[0]).toMatch(/^┌─ Run canvas .*─┐$/);
     expect(lines[0]).toHaveLength(100);
   });
 
@@ -317,11 +327,12 @@ describe("formatPane", () => {
       hidden: 12,
       total: 14,
     }), 40);
-    expect(lines[0]).toBe("┌─ Canvas do run f5fd ─────────────────┐");
+    expect(lines[0]).toBe("┌─ Run canvas f5fd ────────────────────┐");
     expect(lines[0]).toHaveLength(40);
-    expect(lines.some((l) => l.includes("Orquestrador"))).toBe(true);
+    expect(lines.some((l) => l.includes("Orchestrator"))).toBe(true);
     expect(lines.some((l) => l.includes("12a4"))).toBe(true);
-    expect(lines.some((l) => l.includes("+12 agentes ocultos"))).toBe(true);
+    expect(lines.some((l) => l.includes("13 finished"))).toBe(true);
+    expect(lines.some((l) => l.includes("+12 earlier"))).toBe(true);
   });
 
   it("returns no line carrying a newline, carriage return or tab (rule 9)", () => {
@@ -388,18 +399,19 @@ describe("formatPane", () => {
   it("draws an orchestrator-only run as a single node (rule 10)", () => {
     const lines = formatPane(snapshot({ rows: [], hidden: 0, total: 1 }), 40);
     expectCleanWidth(lines, 40);
-    expect(lines.some((l) => l.includes("Orquestrador"))).toBe(true);
-    expect(lines.some((l) => l.includes("ocultos"))).toBe(false);
+    expect(lines.some((l) => l.includes("Orchestrator"))).toBe(true);
+    expect(lines.some((l) => l.includes("hidden"))).toBe(false);
   });
 
-  it("adds exactly one hidden line naming the count, and none when hidden is 0 (rule 6)", () => {
+  it("summarizes source-hidden rows in history, and adds no duplicate hidden line (rule 6)", () => {
     const withHidden = formatPane(snapshot({ hidden: 3, total: 6 }), 40);
-    const hiddenLines = withHidden.filter((l) => l.includes("agentes ocultos"));
-    expect(hiddenLines).toHaveLength(1);
-    expect(hiddenLines[0]).toContain("+3 agentes ocultos");
+    const hiddenLines = withHidden.filter((l) => l.includes("hidden agents"));
+    expect(hiddenLines).toHaveLength(0);
+    expect(withHidden.some((l) => l.includes("4 finished"))).toBe(true);
+    expect(withHidden.some((l) => l.includes("+3 earlier"))).toBe(true);
 
     const withoutHidden = formatPane(snapshot({ hidden: 0 }), 40);
-    expect(withoutHidden.some((l) => l.includes("agentes ocultos"))).toBe(false);
+    expect(withoutHidden.some((l) => l.includes("hidden agents"))).toBe(false);
   });
 
   it("counts working, waiting and finished separately in the header (rule 3)", () => {
@@ -411,17 +423,17 @@ describe("formatPane", () => {
       { id: "f", status: "failed", agent: "claude", name: "f" },
     ];
     const header = formatPane(snapshot({ rows, orchestrator: { agent: "claude" }, hidden: 0, total: 6 }), 40);
-    expect(header.some((l) => l.includes("2 trabalhando"))).toBe(true);
-    expect(header.some((l) => l.includes("1 esperando voce"))).toBe(true);
-    expect(header.some((l) => l.includes("2 prontas"))).toBe(true);
+    expect(header.some((l) => l.includes("2 working"))).toBe(true);
+    expect(header.some((l) => l.includes("1 waiting for you"))).toBe(true);
+    expect(header.some((l) => l.includes("2 finished"))).toBe(true);
   });
 
   it("folds the hidden overflow into the finished count (rule 6)", () => {
     const rows: PaneRow[] = [{ id: "w", status: "working", agent: "claude", name: "w" }];
     const lines = formatPane(snapshot({ rows, hidden: 3, total: 5 }), 40);
-    expect(lines.some((l) => l.includes("1 trabalhando"))).toBe(true);
-    expect(lines.some((l) => l.includes("3 prontas"))).toBe(true);
-    expect(lines.some((l) => l.includes("5 sessoes"))).toBe(true);
+    expect(lines.some((l) => l.includes("1 working"))).toBe(true);
+    expect(lines.some((l) => l.includes("3 finished"))).toBe(true);
+    expect(lines.some((l) => l.includes("5 sessions"))).toBe(true);
   });
 
   it("renders missing fields as a placeholder, never undefined (rule 10)", () => {
@@ -482,42 +494,43 @@ describe("formatPane", () => {
     }
   });
 
-  it("renders 19 workers at 89x44 as 34 stemless-run lines (mandatory)", () => {
+  it("renders 19 workers at 89x44 with a compact history section (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 44);
-    expect(lines).toHaveLength(34);
-    expect(lines[33]).toBe("└" + "─".repeat(87) + "┘");
-    expect(lines[31]).toContain("● trabalha");
-    expect(lines[32]).toContain("▲ Claude");
-    expect(lines.some((l) => l.includes("19 sessoes"))).toBe(true);
-    expect(lines.some((l) => l.includes("1 trabalhando"))).toBe(true);
-    expect(lines.some((l) => l.includes("0 esperando voce"))).toBe(true);
-    expect(lines.some((l) => l.includes("18 prontas"))).toBe(true);
-    // Everything fits at 44 rows now: 10 frame + a 5-line card with no stem
-    // above it + one stem opening the collapsed run + 18 one-liners.
-    expect(lines.filter((l) => l.includes("agentes ocultos"))).toHaveLength(0);
+    expect(lines).toHaveLength(21);
+    expect(lines[20]).toBe("└" + "─".repeat(87) + "┘");
+    expect(lines[18]).toContain("● working");
+    expect(lines[19]).toContain("▲ Claude");
+    expect(lines.some((l) => l.includes("19 sessions"))).toBe(true);
+    expect(lines.some((l) => l.includes("1 working"))).toBe(true);
+    expect(lines.some((l) => l.includes("0 waiting for you"))).toBe(true);
+    expect(lines.some((l) => l.includes("18 finished"))).toBe(true);
+    expect(lines.some((l) => l.includes("HISTORY · 18 finished"))).toBe(true);
+    // The live worker and three recent finished workers are visible. The rest
+    // is represented by the history summary.
+    expect(lines.filter((l) => l.includes("hidden agents"))).toHaveLength(0);
     const joined = lines.join("\n");
-    for (const worker of ["w1", "a01", "a18"]) expect(joined).toContain(worker);
+    for (const worker of ["w1", "a01", "a03"]) expect(joined).toContain(worker);
+    expect(joined).toContain("+15 earlier");
+    expect(joined).not.toContain("a18");
   });
 
-  it("draws strictly more of the 19 workers at 89x44 than the stemmed layout did (mandatory)", () => {
+  it("keeps every live worker and only three finished workers at 89x44 (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 44);
     const joined = lines.join("\n");
     const workerIds = ["w1", ...Array.from({ length: 18 }, (_, i) => `a${String(i + 1).padStart(2, "0")}`)];
     const drawn = workerIds.filter((id) => joined.includes(id)).length;
-    // The old drawing fitted 14 of these 19 entries into the same 44 rows and
-    // reported the other 5 as ocultos; the stemless run fits every one.
-    expect(drawn).toBe(19);
+    expect(drawn).toBe(4);
   });
 
-  it("renders 19 workers at 89x20 cutting to exactly 20 lines (mandatory)", () => {
+  it("keeps the live worker when the 89x20 pane drops history (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 20);
-    expect(lines).toHaveLength(20);
-    expect(lines[19]).toBe("└" + "─".repeat(87) + "┘");
+    expect(lines).toHaveLength(17);
+    expect(lines[16]).toBe("└" + "─".repeat(87) + "┘");
     const joined = lines.join("\n");
     expect(joined).toContain("w1");
-    expect(joined).toContain("a03");
-    expect(joined).toContain("+15 agentes ocultos");
-    for (const gone of ["a04", "a05", "a14", "a18"]) expect(joined).not.toContain(gone);
+    expect(joined).toContain("+18 hidden agents");
+    expect(joined).not.toContain("a01");
+    expect(joined).not.toContain("a18");
   });
 
   it("draws the first line after the header separator and its blank as a card top (mandatory)", () => {
@@ -527,7 +540,7 @@ describe("formatPane", () => {
     }
   });
 
-  it("holds no two stem lines in a row when every entry is collapsed (mandatory)", () => {
+  it("keeps history to one connected section when every entry is finished (mandatory)", () => {
     const rows: PaneRow[] = [
       { id: "c1", status: "completed", agent: "claude", name: "one" },
       { id: "c2", status: "completed", agent: "opencode", name: "two" },
@@ -536,61 +549,71 @@ describe("formatPane", () => {
     const lines = formatPane(snapshot({ rows, hidden: 0, total: 4 }), 89);
     expect(lines.filter((l) => l === STEM89)).toHaveLength(1);
     expect(lines.join("\n")).not.toContain(STEM89 + "\n" + STEM89);
+    expect(lines.join("\n")).toContain("HISTORY · 3 finished");
   });
 
-  it("draws a collapsed run that is the first block with no stem at all (mandatory)", () => {
+  it("draws history as the root block with no stem at all (mandatory)", () => {
     const rows: PaneRow[] = [
       { id: "c1", status: "completed", agent: "claude", name: "one" },
       { id: "c2", status: "completed", agent: "opencode", name: "two" },
       { id: "c3", status: "stopped", agent: "codex", name: "three" },
     ];
     const lines = formatPane(snapshot({ orchestrator: undefined, rows, hidden: 0, total: 3 }), 89);
-    // 10 frame + three one-liners, not even the run opener: the first block
-    // is the root, so there is nothing above it to hang a stem from.
-    expect(lines).toHaveLength(13);
+    // The history block is the root, so there is nothing above it to hang a
+    // stem from.
+    expect(lines).toHaveLength(14);
     expect(lines.filter((l) => l === STEM89)).toHaveLength(0);
-    expect(lines[5].startsWith("│ ▲ ○ c1")).toBe(true);
+    expect(lines[5]).toContain("HISTORY · 3 finished");
   });
 
-  it("evicts the orchestrator only after every worker card and line is gone (mandatory)", () => {
-    // snapshot(): orchestrator + working a1 + finished b2; full drawing 22.
+  it("keeps the orchestrator as the root when workers do not fit (mandatory)", () => {
+    // snapshot(): orchestrator + working a1 + finished b2.
     const at16 = formatPane(snapshot(), 40, 16);
     expect(at16).toHaveLength(16);
     const joined16 = at16.join("\n");
-    expect(joined16).toContain("Orquestrador");
-    expect(joined16).toContain("+2 agentes ocultos");
+    expect(joined16).toContain("Orchestrator");
+    expect(joined16).toContain("+2 hidden agents");
     expect(joined16).not.toContain("a1");
     expect(joined16).not.toContain("b2");
-    // One row tighter and the root itself leaves, counted into the hidden.
+    // One row tighter still keeps the root, but the hidden line gives way.
     const at15 = formatPane(snapshot(), 40, 15);
-    expect(at15).toHaveLength(11);
+    expect(at15).toHaveLength(14);
     const joined15 = at15.join("\n");
-    expect(joined15).not.toContain("Orquestrador");
-    expect(joined15).toContain("+3 agentes ocultos");
+    expect(joined15).toContain("Orchestrator");
+    expect(joined15).not.toContain("hidden agents");
   });
 
   it("renders the same 19 workers at 12 rows as header, footer and hidden line (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 12);
     expect(lines).toHaveLength(11);
     expect(lines[10]).toBe("└" + "─".repeat(87) + "┘");
-    expect(lines.some((l) => l.includes("19 sessoes"))).toBe(true);
-    expect(lines.some((l) => l.includes("● trabalha"))).toBe(true);
-    expect(lines.some((l) => l.includes("+19 agentes ocultos"))).toBe(true);
+    expect(lines.some((l) => l.includes("19 sessions"))).toBe(true);
+    expect(lines.some((l) => l.includes("18 finished"))).toBe(true);
+    expect(lines.some((l) => l.includes("● working"))).toBe(true);
+    expect(lines.some((l) => l.includes("+19 hidden agents"))).toBe(true);
     for (const worker of ["w1", "a01", "a18"]) expect(lines.join("\n")).not.toContain(worker);
   });
 });
 
 describe("paneButtonLabel", () => {
-  it("counts every session of the run, orchestrator included", () => {
-    expect(paneButtonLabel(snapshot({ total: 3 }))).toBe("3 agentes · 1 trabalhando");
+  it("shows only the workers that are working now", () => {
+    expect(paneButtonLabel(snapshot({ total: 3 }))).toBe("1 working");
   });
 
-  it("drops the working half when nobody is working", () => {
+  it("shows waiting workers when nobody is working", () => {
+    const waiting = snapshot({
+      rows: [{ id: "b2", status: "needs_input", agent: "claude", name: "beta" }],
+      total: 2,
+    });
+    expect(paneButtonLabel(waiting)).toBe("1 waiting for you");
+  });
+
+  it("does not count finished workers", () => {
     const idle = snapshot({
       rows: [{ id: "b2", status: "completed", agent: "claude", name: "beta" }],
       total: 2,
     });
-    expect(paneButtonLabel(idle)).toBe("2 agentes");
+    expect(paneButtonLabel(idle)).toBe("no active agents");
   });
 
   it("counts starting as working, matching the pane header", () => {
@@ -598,19 +621,19 @@ describe("paneButtonLabel", () => {
       rows: [{ id: "a1", status: "starting", agent: "codex", name: "alpha" }],
       total: 2,
     });
-    expect(paneButtonLabel(booting)).toBe("2 agentes · 1 trabalhando");
+    expect(paneButtonLabel(booting)).toBe("1 working");
   });
 
-  it("says agente in the singular", () => {
-    expect(paneButtonLabel(snapshot({ rows: [], hidden: 0, total: 1 }))).toBe("1 agente");
+  it("shows an inactive run without its historical total", () => {
+    expect(paneButtonLabel(snapshot({ rows: [], hidden: 0, total: 1 }))).toBe("no active agents");
   });
 
   it("falls back to a bare word before the first refresh lands", () => {
-    expect(paneButtonLabel(undefined)).toBe("agentes");
+    expect(paneButtonLabel(undefined)).toBe("agents");
   });
 
   it("survives a snapshot the daemon mangled, because a throw drops the drawing", () => {
     const broken = { rows: "nope", total: "many" } as unknown as PaneSnapshot;
-    expect(paneButtonLabel(broken)).toBe("0 agentes");
+    expect(paneButtonLabel(broken)).toBe("no active agents");
   });
 });

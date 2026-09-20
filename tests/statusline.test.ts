@@ -94,7 +94,7 @@ const payload = (cost: number, contextTokens: Record<string, unknown> = {}) => (
 });
 
 describe("Claude statusline", () => {
-  it("renders the aggregate total and worker count using the exact usage argv", async () => {
+  it("renders aggregate usage using the exact usage argv", async () => {
     const result = await render({
       payload: payload(0.25, { total_input_tokens: 900_000, total_output_tokens: 100_000 }),
       runId: "run-example",
@@ -111,7 +111,7 @@ describe("Claude statusline", () => {
       },
     });
 
-    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2.3k tok · run $0.65 · 2 agents`);
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2.3k tok · run $0.65`);
     expect(result.args).toEqual(["usage", "run-example", "--json"]);
     expect(result.output).not.toContain("▌RAGE");
     expect(result.output).not.toContain("claude-sonnet-4");
@@ -214,7 +214,7 @@ describe("Claude statusline", () => {
     expect(stripAnsi(result.output)).toContain("0 tok · run $0.42?");
   });
 
-  it("renders only live agents in the run summary", async () => {
+  it("does not render a duplicate run session count", async () => {
     const result = await render({
       payload: payload(0),
       runId: "run-live-agents",
@@ -231,7 +231,7 @@ describe("Claude statusline", () => {
       },
     });
 
-    expect(stripAnsi(result.output)).toContain("1 agents");
-    expect(stripAnsi(result.output)).not.toContain("4 agents");
+    expect(stripAnsi(result.output)).toContain("run $0.42");
+    expect(stripAnsi(result.output)).not.toContain("agents");
   });
 });

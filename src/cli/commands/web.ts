@@ -55,7 +55,7 @@ export function sseNamed(name: string, data: unknown): string {
   return `event: ${name}\n${sseData(data)}`;
 }
 
-export function sseComment(text = "conectado"): string {
+export function sseComment(text = "connected"): string {
   return `: ${text}\n\n`;
 }
 

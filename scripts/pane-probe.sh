@@ -32,7 +32,7 @@ SESSION="pane-probe-$$-${RANDOM}"
 COLS=200
 ROWS=50
 TIMEOUT=45
-FRAME_TEXT="Canvas do run $RUN_ID"
+FRAME_TEXT="Run canvas $RUN_ID"
 
 probe_char=$'\xc3\xa9'
 if [[ ${#probe_char} -ne 1 ]]; then

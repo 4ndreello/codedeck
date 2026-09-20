@@ -102,7 +102,7 @@ describe("sse framing", () => {
   it("frames data, named events, and comments", () => {
     expect(sseData({ a: 1 })).toBe('data: {"a":1}\n\n');
     expect(sseNamed("done", {})).toBe("event: done\ndata: {}\n\n");
-    expect(sseComment()).toBe(": conectado\n\n");
+    expect(sseComment()).toBe(": connected\n\n");
   });
 });
 
@@ -113,7 +113,7 @@ describe("web handler", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
-    expect(html).toContain("Canvas das runs");
+    expect(html).toContain("Run canvas");
   });
 
   it("answers health and unknown routes", async () => {
@@ -181,7 +181,7 @@ describe("web handler", () => {
       if (text.includes("event: done")) break;
     }
     await reader.cancel();
-    expect(text).toContain(": conectado");
+    expect(text).toContain(": connected");
     expect(text).toContain('"text.delta"');
     expect(text).toContain("event: done");
     // Give the server close handler a tick to run the unsubscribe.
@@ -343,8 +343,25 @@ describe("canvas page", () => {
     expect(CANVAS_PAGE).not.toContain("${");
   });
 
-  it("does not contain robotic 'começou:' prefix in action feed", () => {
-    expect(CANVAS_PAGE).not.toContain("começou:");
+  it("does not contain a robotic 'started:' prefix in action feed", () => {
+    expect(CANVAS_PAGE).not.toContain("started:");
+  });
+
+  it("keeps canvas labels in English", () => {
+    for (const label of [
+      "Run canvas",
+      "Working",
+      "Waiting for you",
+      "Mark as completed",
+      "Session details",
+      "message for this session",
+      "No messages yet.",
+    ]) {
+      expect(CANVAS_PAGE).toContain(label);
+    }
+    for (const oldLabel of ["Canvas das runs", "Trabalhando", "Esperando você", "Enviar"]) {
+      expect(CANVAS_PAGE).not.toContain(oldLabel);
+    }
   });
 });
 

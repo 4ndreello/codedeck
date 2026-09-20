@@ -119,28 +119,28 @@ export const CANVAS_PAGE: string = `<!doctype html>
 <body>
 <canvas id="scene"></canvas>
 <div id="nodes"></div>
-<div class="hud" id="title"><h1><span class="live"></span>Canvas das runs</h1><p id="summary">conectando...</p></div>
+<div class="hud" id="title"><h1><span class="live"></span>Run canvas</h1><p id="summary">connecting...</p></div>
 <div class="hud" id="tools">
-  <button id="btnMotion" class="on" type="button" title="Pausar movimento"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l2.5-6 3.5 12 3-9 2 3H22"/></svg></button>
-  <button id="btnReset" type="button" title="Recentralizar" aria-label="Recentralizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
-  <button id="btnHide" type="button" title="Ocultar concluídas" aria-label="Ocultar concluídas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-2.9 3.6M6.6 6.6C3.6 8.2 2 12 2 12s3 7 10 7c1.5 0 2.8-.3 4-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
+  <button id="btnMotion" class="on" type="button" title="Pause motion"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l2.5-6 3.5 12 3-9 2 3H22"/></svg></button>
+  <button id="btnReset" type="button" title="Recenter" aria-label="Recenter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button id="btnHide" type="button" title="Hide completed" aria-label="Hide completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c7 0 10 7 10 7a17 17 0 0 1-2.9 3.6M6.6 6.6C3.6 8.2 2 12 2 12s3 7 10 7c1.5 0 2.8-.3 4-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
 </div>
-<div class="hud" id="legend"><span><i class="dot working"></i>Trabalhando</span><span><i class="dot waiting"></i>Esperando você</span><span><i class="dot resting"></i>Em pausa</span><span><i class="dot done"></i>Concluída</span></div>
-<div class="hud" id="feed"><h2>AGORA MESMO</h2><ul id="feedList"></ul></div>
-<div class="hud" id="hint">arraste para organizar · scroll dá zoom · clique num agente para o detalhe</div>
-<aside id="detail" aria-label="Detalhe da sessão">
-  <button id="detailClose" type="button" aria-label="Fechar">×</button>
+<div class="hud" id="legend"><span><i class="dot working"></i>Working</span><span><i class="dot waiting"></i>Waiting for you</span><span><i class="dot resting"></i>Paused</span><span><i class="dot done"></i>Completed</span></div>
+<div class="hud" id="feed"><h2>RIGHT NOW</h2><ul id="feedList"></ul></div>
+<div class="hud" id="hint">drag to arrange · scroll to zoom · click an agent for details</div>
+<aside id="detail" aria-label="Session details">
+  <button id="detailClose" type="button" aria-label="Close">×</button>
   <h2 id="dTitle"></h2>
   <p class="dsub" id="dSub"></p>
   <dl id="dRows"></dl>
-  <h3>CONVERSA</h3>
+  <h3>CONVERSATION</h3>
   <div id="dChat"></div>
   <form id="dSend">
-    <input id="dSendText" type="text" autocomplete="off" placeholder="mensagem para esta sessão">
-    <button id="dSendBtn" type="submit">Enviar</button>
+    <input id="dSendText" type="text" autocomplete="off" placeholder="message for this session">
+    <button id="dSendBtn" type="submit">Send</button>
   </form>
   <p id="dSendMsg" role="status"></p>
-  <button id="dArchive" type="button" style="display:none">Marcar como concluída</button>
+  <button id="dArchive" type="button" style="display:none">Mark as completed</button>
 </aside>
 <script>
 "use strict";
@@ -157,9 +157,9 @@ function logoFor(agent) {
 }
 var AGENT_NAME = { claude: "Claude", codex: "Codex", opencode: "OpenCode", omp: "OMP", antigravity: "Antigravity" };
 function agentName(a) { return AGENT_NAME[a] || a || "?"; }
-var STATUS_HUMAN = { working: "Trabalhando agora", starting: "Trabalhando agora", needs_input: "Esperando você",
-  idle: "Em pausa", completed: "Concluída", failed: "Falhou", stopped: "Parada",
-  orphaned: "Interrompida", interrupted: "Interrompida", dead: "Morreu" };
+var STATUS_HUMAN = { working: "Working now", starting: "Working now", needs_input: "Waiting for you",
+  idle: "Paused", completed: "Completed", failed: "Failed", stopped: "Stopped",
+  orphaned: "Interrupted", interrupted: "Interrupted", dead: "Died" };
 var STATUS_DOT = { working: "working", starting: "working", needs_input: "waiting", idle: "resting",
   completed: "done", failed: "failed", stopped: "done", orphaned: "waiting", interrupted: "waiting", dead: "done" };
 var STATUS_COLOR = { working: "#30d158", starting: "#30d158", needs_input: "#ff9f0a", idle: "#636366",
@@ -167,18 +167,18 @@ var STATUS_COLOR = { working: "#30d158", starting: "#30d158", needs_input: "#ff9
   dead: "#3a3a3c" };
 function lastEventHuman(last) {
   if (!last) return "";
-  if (last === "exit 0") return "terminou bem";
-  if (last === "agent_end") return "terminou a resposta";
+  if (last === "exit 0") return "finished successfully";
+  if (last === "agent_end") return "finished its response";
   if (last.indexOf("tool: ") === 0) {
     var tool = last.slice(6);
-    if (tool === "bash") return "rodando comandos no terminal";
-    return "usando " + tool;
+    if (tool === "bash") return "running terminal commands";
+    return "using " + tool;
   }
-  if (last.indexOf("send: ") === 0) return "recebeu sua mensagem";
+  if (last.indexOf("send: ") === 0) return "received your message";
   return "";
 }
 function toolHuman(name) {
-  if (!name) return "uma tarefa";
+  if (!name) return "a task";
   if (name === "bash" || name === "Bash") return "terminal";
   return name;
 }
@@ -195,7 +195,7 @@ function inputSnippet(input) {
   if (!input) return "";
   if (typeof input === "string") return clip(input);
   if (typeof input !== "object") return "";
-  if (Array.isArray(input.todos)) return "(" + input.todos.length + " tarefas)";
+  if (Array.isArray(input.todos)) return "(" + input.todos.length + " tasks)";
   var pathKeys = ["filePath", "file_path", "filename", "file", "path", "target", "dest", "directory", "dir"];
   for (var p = 0; p < pathKeys.length; p++) {
     var pv = input[pathKeys[p]];
@@ -215,7 +215,7 @@ function clip(s) {
 function toolLabel(tool) {
   var name = (tool && tool.name) || "";
   var snip = (tool && tool.title && typeof tool.title === "string") ? clip(tool.title) : inputSnippet(tool && tool.input);
-  if (!name) return snip || "tarefa";
+  if (!name) return snip || "task";
   if (name === "bash" || name === "Bash") return snip ? "$ " + snip : "terminal";
   return snip ? name + " " + snip : name;
 }
@@ -223,11 +223,11 @@ function timeAgo(iso) {
   var t = new Date(iso).getTime();
   if (!t) return "";
   var m = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (m < 1) return "agora mesmo";
-  if (m < 60) return "há " + m + " min";
+  if (m < 1) return "just now";
+  if (m < 60) return m + " min ago";
   var h = Math.floor(m / 60);
-  if (h < 24) return "há " + h + " h";
-  return "há " + Math.floor(h / 24) + " dias";
+  if (h < 24) return h + " hr ago";
+  return Math.floor(h / 24) + " days ago";
 }
 function ringSlot(wi) {
   var j = 0, start = 0;
@@ -323,23 +323,23 @@ function makeNodeEl(n) {
 function paintNode(n) {
   n.dotEl.className = "dot " + (STATUS_DOT[n.status] || "done");
   if (n.logoEl) n.logoEl.innerHTML = n.isOrch ? LOGO_ORCH : logoFor(n.agent);
-  n.nameEl.textContent = n.isOrch ? "Orquestrador" : agentName(n.agent);
+  n.nameEl.textContent = n.isOrch ? "Orchestrator" : agentName(n.agent);
   if (n.isOrch) {
     n.subEl.style.display = "";
-    n.subEl.textContent = n.count + (n.count === 1 ? " sessão" : " sessões");
+    n.subEl.textContent = n.count + (n.count === 1 ? " session" : " sessions");
   } else {
     n.subEl.style.display = "none";
     n.subEl.textContent = "";
   }
   n.actEl.innerHTML = "";
   var b = document.createElement("b");
-  b.textContent = STATUS_HUMAN[n.status] || "Encerrada";
+  b.textContent = STATUS_HUMAN[n.status] || "Completed";
   n.actEl.appendChild(b);
   n.actEl.appendChild(document.createTextNode(" · " + n.activity));
   n.actEl.title = (STATUS_HUMAN[n.status] || "") + (n.activity ? " · " + n.activity : "");
   n.el.classList.toggle("orch", !!n.isOrch);
   n.el.classList.toggle("alert", n.status === "needs_input");
-  n.el.title = "sessão " + n.id + (n.label ? " · " + n.label : "");
+  n.el.title = "session " + n.id + (n.label ? " · " + n.label : "");
 }
 function feed(agent, text, kind) {
   if (!text) return;
@@ -386,24 +386,24 @@ function paintSummary() {
   });
   var el = document.getElementById("summary");
   el.innerHTML = "";
-  el.appendChild(document.createTextNode(nodes.length + " sessões · "));
-  var b1 = document.createElement("b"); b1.textContent = working + " trabalhando"; el.appendChild(b1);
+  el.appendChild(document.createTextNode(nodes.length + " sessions · "));
+  var b1 = document.createElement("b"); b1.textContent = working + " working"; el.appendChild(b1);
   el.appendChild(document.createTextNode(" · "));
-  var b2 = document.createElement("b"); b2.textContent = waiting + " esperando você"; el.appendChild(b2);
-  if (hidden > 0) el.appendChild(document.createTextNode(" · " + hidden + " ocultas"));
+  var b2 = document.createElement("b"); b2.textContent = waiting + " waiting for you"; el.appendChild(b2);
+  if (hidden > 0) el.appendChild(document.createTextNode(" · " + hidden + " hidden"));
 }
 
 /* Reconcilia o poll com os nos: preserva posicao arrastada, atualiza status. */
 var streams = {};
 function baseActivity(s) {
-  if (s.status === "needs_input") return "quer sua aprovação para continuar";
+  if (s.status === "needs_input") return "waiting for your approval";
   var last = lastEventHuman(s.lastEvent);
-  if (s.status === "failed") return last ? "falhou quando estava " + last : "falhou, abra os logs para ver";
-  if (s.status === "dead") return last ? "morreu quando estava " + last : "morreu, o processo sumiu";
-  if (s.status === "completed") return last ? "concluída, " + last : "concluída";
-  if (s.status === "working" || s.status === "starting") return last || "processando...";
-  if (last) return "por último: " + last;
-  return "sem atividade recente";
+  if (s.status === "failed") return last ? "failed while " + last : "failed, check the logs";
+  if (s.status === "dead") return last ? "died while " + last : "died, the process disappeared";
+  if (s.status === "completed") return last ? "completed, " + last : "completed";
+  if (s.status === "working" || s.status === "starting") return last || "processing...";
+  if (last) return "last: " + last;
+  return "no recent activity";
 }
 var lastSessions = [];
 function visibleNodes() {
@@ -602,7 +602,7 @@ function onEvent(n, ev) {
   if (!ev || !ev.type) return;
   if (ev.type === "text.delta") {
     spawnFlow(n, "#30d158", 1);
-    touch(n, "escrevendo resposta");
+    touch(n, "writing a response");
   } else if (ev.type === "tool.started") {
     spawnRing(n, "#0a84ff");
     spawnFlow(n, "#0a84ff", 1);
@@ -610,35 +610,35 @@ function onEvent(n, ev) {
     feed(agentName(n.agent), toolLabel(ev.tool));
   } else if (ev.type === "tool.completed") {
     var bad = ev.tool && ev.tool.success === false;
-    touch(n, toolLabel(ev.tool) + (bad ? " (com erro)" : " ✓"));
-    if (bad) feed(agentName(n.agent), "falhou: " + toolLabel(ev.tool), "bad");
+    touch(n, toolLabel(ev.tool) + (bad ? " (failed)" : " ✓"));
+    if (bad) feed(agentName(n.agent), "failed: " + toolLabel(ev.tool), "bad");
   } else if (ev.type === "message") {
     if (ev.role === "assistant") {
-      touch(n, "respondendo");
+      touch(n, "responding");
       var textSnippet = clip(ev.content || "");
       if (textSnippet) feed(agentName(n.agent), textSnippet);
     }
   } else if (ev.type === "message.queued") {
-    touch(n, "mensagem na fila");
-    feed(agentName(n.agent), "mensagem na fila");
+    touch(n, "message queued");
+    feed(agentName(n.agent), "message queued");
     if (n.id && n.id === detailId) { detailPending = ev.prompt || true; paintSendState(); }
   } else if (ev.type === "turn.started") {
     if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
   } else if (ev.type === "turn.completed") {
     // turn completion is recorded on node activity
   } else if (ev.type === "file.changed") {
-    feed(agentName(n.agent), "salvou " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "arquivo"));
+    feed(agentName(n.agent), "saved " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "file"));
   } else if (ev.type === "permission.requested") {
     n.status = "needs_input";
-    touch(n, "quer sua aprovação para continuar");
+    touch(n, "waiting for your approval");
     paintSummary();
     spawnRing(n, "#ff9f0a");
-    feed(agentName(n.agent), "precisa de aprovação", "warn");
+    feed(agentName(n.agent), "needs approval", "warn");
   } else if (ev.type === "session.completed" || ev.type === "session.failed") {
     n.status = ev.type === "session.failed" ? "failed" : "completed";
-    touch(n, ev.type === "session.failed" ? ("falhou: " + (ev.error || "")) : "concluída");
+    touch(n, ev.type === "session.failed" ? ("failed: " + (ev.error || "")) : "completed");
     paintSummary();
-    feed(agentName(n.agent), ev.type === "session.failed" ? "falhou" : "concluída", ev.type === "session.failed" ? "bad" : "");
+    feed(agentName(n.agent), ev.type === "session.failed" ? "failed" : "completed", ev.type === "session.failed" ? "bad" : "");
     // Stop/release cancels the queue server-side: drop a stale "na fila"
     // hint on the open detail, mirroring the turn.started branch.
     if (n.id && n.id === detailId && detailPending) { detailPending = null; paintSendState(); }
@@ -893,7 +893,7 @@ var hideDone = urlHide;
 document.getElementById("btnHide").onclick = function (ev) {
   hideDone = !hideDone;
   ev.currentTarget.classList.toggle("on", hideDone);
-  ev.currentTarget.title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
+  ev.currentTarget.title = hideDone ? "Show completed" : "Hide completed";
   // Trocar o filtro reempacota o mundo e reenquadra: sem isso os nos
   // visiveis ficam presos nos slots antigos, a um oceano de distancia.
   layoutVisible();
@@ -903,7 +903,7 @@ document.getElementById("btnHide").onclick = function (ev) {
 };
 document.getElementById("btnMotion").classList.toggle("on", motion);
 document.getElementById("btnHide").classList.toggle("on", hideDone);
-document.getElementById("btnHide").title = hideDone ? "Mostrar concluídas" : "Ocultar concluídas";
+document.getElementById("btnHide").title = hideDone ? "Show completed" : "Hide completed";
 
 /* Transcrição da sessão: a mensagem do usuário mora em turn.started.prompt
    (o daemon anexa no turno inicial e a cada send), a resposta em
@@ -937,11 +937,11 @@ function paintSendState() {
   // origin=open (TUI interativa) trava sempre; working/starting entra na
   // fila em vez de travar. Mensagem de sucesso não é apagada aqui.
   var reason = "";
-  if (detailOrigin === "open") reason = "sessão interativa não aceita mensagens";
+  if (detailOrigin === "open") reason = "interactive sessions do not accept messages";
   input.disabled = sendInFlight || reason !== "";
   btn.disabled = sendInFlight || reason !== "";
   if (reason) { msg.textContent = reason; sendBlockedNote = true; }
-  else if (detailPending) { msg.textContent = "1 mensagem na fila — envia quando o turno terminar"; sendBlockedNote = true; }
+  else if (detailPending) { msg.textContent = "1 message queued - sends when the turn ends"; sendBlockedNote = true; }
   else if (sendBlockedNote) { msg.textContent = ""; sendBlockedNote = false; }
 }
 function row(dt, dd) {
@@ -978,21 +978,21 @@ function selectSession(id) {
     logo.className = "logo";
     logo.innerHTML = isOrch ? LOGO_ORCH : logoFor(s.agent);
     title.appendChild(logo);
-    title.appendChild(document.createTextNode((isOrch ? "Orquestrador" : agentName(s.agent)) + " · " + (s.name || s.id)));
+    title.appendChild(document.createTextNode((isOrch ? "Orchestrator" : agentName(s.agent)) + " · " + (s.name || s.id)));
     document.getElementById("dSub").textContent = (STATUS_HUMAN[s.status] || s.status) +
-      (s.createdAt ? " · começou " + timeAgo(s.createdAt) : "");
+      (s.createdAt ? " · started " + timeAgo(s.createdAt) : "");
     var rows = document.getElementById("dRows");
     rows.innerHTML = "";
     var repo = s.repository ? String(s.repository).split("/").pop() : "";
     var items = [
-      ["Modelo", s.model || "—"],
+      ["Model", s.model || "—"],
       // effort chega sempre para claude/codex/omp/antigravity; ausente = opencode (ignora) ou sessão legada.
-      ["Esforço", s.effort || "n/a"],
+      ["Effort", s.effort || "n/a"],
       ["Repo", repo || "—"],
-      ["Atividade", s.lastEvent ? (lastEventHuman(s.lastEvent) || s.lastEvent) : "—"],
+      ["Activity", s.lastEvent ? (lastEventHuman(s.lastEvent) || s.lastEvent) : "—"],
     ];
     if (s.pid) items.push(["PID", String(s.pid)]);
-    if (s.updatedAt) items.push(["Atualizado", timeAgo(s.updatedAt)]);
+    if (s.updatedAt) items.push(["Updated", timeAgo(s.updatedAt)]);
     var events = j.events || [];
     var tools = 0, msgs = 0;
     events.forEach(function (ev) {
@@ -1000,8 +1000,8 @@ function selectSession(id) {
       if (ev.type === "tool.completed") tools++;
       if (ev.type === "message" && ev.role === "assistant") msgs++;
     });
-    items.push(["Ferramentas", String(tools)]);
-    items.push(["Respostas", String(msgs)]);
+    items.push(["Tools", String(tools)]);
+    items.push(["Replies", String(msgs)]);
     items.forEach(function (kv) {
       row(kv[0], kv[1]).forEach(function (el) { rows.appendChild(el); });
     });
@@ -1013,26 +1013,26 @@ function selectSession(id) {
       var ev = events[i];
       if (!ev || !ev.type) continue;
       if (ev.type === "turn.started" && ev.prompt) {
-        chat.appendChild(chatMsg("você", String(ev.prompt), "user"));
+        chat.appendChild(chatMsg("you", String(ev.prompt), "user"));
       } else if (ev.type === "message.queued" && ev.prompt) {
-        chat.appendChild(chatMsg("você", String(ev.prompt) + " (na fila)", "user"));
+        chat.appendChild(chatMsg("you", String(ev.prompt) + " (queued)", "user"));
       } else if (ev.type === "message" && ev.role === "assistant" && ev.content) {
         chat.appendChild(chatMsg(agentName(s.agent), String(ev.content), "assistant"));
       } else if (ev.type === "tool.started") {
         chat.appendChild(chatEvt(toolLabel(ev.tool)));
       } else if (ev.type === "tool.completed") {
         var bad = ev.tool && ev.tool.success === false;
-        if (bad) chat.appendChild(chatEvt("falhou: " + toolLabel(ev.tool)));
+        if (bad) chat.appendChild(chatEvt("failed: " + toolLabel(ev.tool)));
       } else if (ev.type === "permission.requested") {
-        chat.appendChild(chatEvt("precisa de aprovação: " + (ev.tool || "uma ação")));
+        chat.appendChild(chatEvt("needs approval: " + (ev.tool || "an action")));
       } else if (ev.type === "file.changed") {
-        chat.appendChild(chatEvt("salvou " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "arquivo")));
+        chat.appendChild(chatEvt("saved " + (shortPath(ev.path === "unknown" ? "" : ev.path) || "file")));
       }
     }
     if (!chat.children.length) {
       var empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "Sem mensagens ainda.";
+      empty.textContent = "No messages yet.";
       chat.appendChild(empty);
     }
     chat.scrollTop = chat.scrollHeight;
@@ -1051,7 +1051,7 @@ document.getElementById("dSend").addEventListener("submit", function (ev) {
   sendInFlight = true;
   input.disabled = true;
   btn.disabled = true;
-  msg.textContent = "enviando...";
+  msg.textContent = "sending...";
   fetch("api/sessions/" + encodeURIComponent(detailId) + "/send", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1063,17 +1063,17 @@ document.getElementById("dSend").addEventListener("submit", function (ev) {
       input.value = "";
       if (out.body && out.body.queued) {
         detailPending = text;
-        msg.textContent = "mensagem na fila — envia quando o turno terminar";
+        msg.textContent = "message queued - sends when the turn ends";
       } else {
         detailPending = null;
-        msg.textContent = "mensagem enviada — nova etapa começou";
+        msg.textContent = "message sent - new turn started";
       }
       poll();
     } else {
-      msg.textContent = (out.body && out.body.error) || "não deu para enviar";
+      msg.textContent = (out.body && out.body.error) || "could not send";
     }
   }).catch(function () {
-    msg.textContent = "daemon fora do ar?";
+    msg.textContent = "daemon is offline?";
   }).then(function () {
     sendInFlight = false;
     paintSendState();
@@ -1084,19 +1084,19 @@ document.getElementById("dArchive").addEventListener("click", function () {
   var msg = document.getElementById("dSendMsg");
   var btn = document.getElementById("dArchive");
   btn.disabled = true;
-  msg.textContent = "arquivando...";
+  msg.textContent = "archiving...";
   fetch("api/sessions/" + encodeURIComponent(detailId) + "/release", { method: "POST" }).then(function (r) {
     return r.json().then(function (j) { return { ok: r.ok, body: j }; });
   }).then(function (out) {
     if (out.ok) {
-      msg.textContent = "sessão arquivada como concluída";
+      msg.textContent = "session archived as completed";
       selectSession(detailId);
       poll();
     } else {
-      msg.textContent = (out.body && out.body.error) || "não deu para arquivar";
+      msg.textContent = (out.body && out.body.error) || "could not archive";
     }
   }).catch(function () {
-    msg.textContent = "daemon fora do ar?";
+    msg.textContent = "daemon is offline?";
   }).then(function () {
     btn.disabled = false;
   });
@@ -1106,7 +1106,7 @@ function poll() {
   fetch("api/sessions").then(function (r) { return r.json(); }).then(function (j) {
     reconcile(j.sessions || []);
   }).catch(function () {
-    document.getElementById("summary").textContent = "daemon fora do ar?";
+    document.getElementById("summary").textContent = "daemon is offline?";
   });
 }
 poll();

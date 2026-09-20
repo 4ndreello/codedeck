@@ -253,7 +253,6 @@ const fields = [
   contextField(),
   tokenField(),
   runUsage ? runField() : localField(),
-  runUsage && paint(TEXT, String(Math.max(0, Math.round(runUsage.activeSessionCount))) + " agents"),
 ].filter(Boolean);
 
 writeSync(1, fields.join(paint(MUTED, " · ")));
