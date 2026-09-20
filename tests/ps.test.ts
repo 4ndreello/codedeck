@@ -323,10 +323,20 @@ describe("ps responsive table", () => {
   });
 
   it("truncates a long NAME with an ellipsis", () => {
-    const row = renderPsTable([wideSession()], 200).split("\n")[2];
+    const row = renderPsTable([wideSession()], 120).split("\n")[2];
 
-    expect(row).toContain("tighten-shim-pe…");
+    expect(row).toContain("tighten-shim-per-extra-l…");
     expect(row).not.toContain("tighten-shim-per-extra-long");
+  });
+
+  it("uses available width to show the full model identifier", () => {
+    const model = "alibaba-token-plan/qwen3.8-max";
+    const row = renderPsTable(
+      [wideSession({ name: "worker", lastEvent: "x".repeat(100), cwd: "~/repo", model })],
+      160,
+    ).split("\n")[2];
+
+    expect(row).toContain(model);
   });
 
   it("keeps the tail of a truncated CWD", () => {

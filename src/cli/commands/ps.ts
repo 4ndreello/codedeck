@@ -159,6 +159,14 @@ const PS_DROP_ORDER: readonly PsColumnKey[] = [
   "status",
 ];
 
+const PS_GROW_ORDER: readonly PsColumnKey[] = [
+  "model",
+  "name",
+  "agent",
+  "status",
+  "lastEvent",
+];
+
 function columnValue(col: PsColumnKey, s: PsSession): string {
   switch (col) {
     case "id":
@@ -306,14 +314,50 @@ export function formatPsJson(sessions: readonly PsSession[]): string {
 export function renderPsTable(sessions: readonly PsSession[], width?: number): string {
   const maxWidth = resolvePsWidth(width);
   const { cols, widths } = planPsColumns(maxWidth);
+  const rowCells = sessions.map((s) => cols.map((c) => columnValue(c.key, s)));
+  const contentWidths = new Map<PsColumnKey, number>();
 
-  // CWD is fill: with rows it takes the longest path that still fits, without
-  // rows it shrinks to its header, so the divider matches the real width.
-  if (cols.some((c) => c.key === "cwd")) {
-    const cwdContent = Math.max(
-      3,
-      ...sessions.map((s) => visibleWidth(columnValue("cwd", s))),
+  for (const [index, col] of cols.entries()) {
+    const measured = Math.max(
+      visibleWidth(col.header),
+      ...rowCells.map((cells) => visibleWidth(cells[index] || "")),
     );
+    contentWidths.set(
+      col.key,
+      Number.isFinite(maxWidth) ? Math.max(col.pref, measured) : measured,
+    );
+  }
+
+  const naturalTableWidth =
+    cols.reduce((sum, col) => sum + (contentWidths.get(col.key) ?? col.pref), 0) +
+    SEP.length * Math.max(0, cols.length - 1);
+
+  // Keep complete values whenever the current column set fits. If one long
+  // value prevents that, spend the remaining width on the useful text columns
+  // before CWD gets its fill space.
+  if (Number.isFinite(maxWidth) && naturalTableWidth <= Math.floor(maxWidth)) {
+    for (const col of cols) {
+      widths.set(col.key, contentWidths.get(col.key) ?? col.pref);
+    }
+  } else if (Number.isFinite(maxWidth)) {
+    let available = Math.max(
+      0,
+      Math.floor(maxWidth) -
+        (cols.reduce((sum, col) => sum + (widths.get(col.key) ?? col.pref), 0) +
+          SEP.length * Math.max(0, cols.length - 1)),
+    );
+    for (const key of PS_GROW_ORDER) {
+      const current = widths.get(key);
+      const target = contentWidths.get(key);
+      if (current == null || target == null || target <= current || available <= 0) continue;
+      const increase = Math.min(target - current, available);
+      widths.set(key, current + increase);
+      available -= increase;
+    }
+  }
+
+  // CWD takes the remaining terminal width when stdout has a known size.
+  if (cols.some((c) => c.key === "cwd")) {
     if (Number.isFinite(maxWidth)) {
       const others = cols.filter((c) => c.key !== "cwd");
       const othersWidth =
@@ -321,10 +365,10 @@ export function renderPsTable(sessions: readonly PsSession[], width?: number): s
         SEP.length * Math.max(0, cols.length - 1);
       widths.set(
         "cwd",
-        Math.max(3, Math.min(cwdContent, Math.floor(maxWidth) - othersWidth)),
+        Math.max(3, Math.floor(maxWidth) - othersWidth),
       );
     } else {
-      widths.set("cwd", cwdContent);
+      widths.set("cwd", contentWidths.get("cwd") ?? 3);
     }
   }
 
@@ -336,7 +380,7 @@ export function renderPsTable(sessions: readonly PsSession[], width?: number): s
   };
 
   const header = formatRow(cols.map((c) => c.header));
-  const rows = sessions.map((s) => formatRow(cols.map((c) => columnValue(c.key, s))));
+  const rows = rowCells.map(formatRow);
   const tableWidth = Math.max(visibleWidth(header), ...rows.map((r) => visibleWidth(r)));
   const dividerWidth = Number.isFinite(maxWidth)
     ? Math.min(tableWidth, Math.floor(maxWidth))
