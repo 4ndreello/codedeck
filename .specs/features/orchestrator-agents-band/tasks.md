@@ -335,7 +335,7 @@ tree that cannot build. Removal and replacement are one change.
    `.specs/fixes/`. Independent of the pane, and carried onto its own branch off
    main so the urgent fix is reviewable without the feature.
 2. `feat(mods)`: the arcade deleted, the pane added. `plugin/`, `tests/mods-arcade/`
-   deleted, `tests/mods-agents/`, `scripts/pane-mock.mjs`, `scripts/pane-probe.sh`,
+   deleted, `tests/mods-agents/`, `scripts/pane-probe.sh`,
    `.specs/features/`, plus the stale "arcade mod" comments renamed in
    `src/open/runtime.ts`, `tests/open-args.test.ts` and `.github/workflows/ci.yml`,
    which are stale the moment the arcade is gone.
