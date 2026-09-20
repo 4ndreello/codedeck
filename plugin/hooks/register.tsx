@@ -7,6 +7,7 @@ import type { Register } from "claude-code";
 import { formatPane, paneButtonLabel, selectPane } from "../mods/agents/pane.js";
 import { parseRows } from "../mods/agents/parse.js";
 import type { PaneSnapshot } from "../mods/agents/types.js";
+import { togglePane } from "./pane-toggle.js";
 
 // Stable pane id: 1 to 64 letters, digits, "_" or "-". open carries it into
 // e.requestId on the render event, which is how this module tells its own pane
@@ -41,6 +42,12 @@ type Engine$ = {
     invalidate(target: string): Promise<unknown>;
   };
 };
+
+const toggleAgentsPane = async ($: Engine$, isOpen: boolean): Promise<boolean> =>
+  togglePane(isOpen, {
+    open: () => $.ui.open({ id: PANE_ID, side: "right" }),
+    close: () => $.ui.close({ id: PANE_ID }),
+  });
 
 // Passing $ into a helper is allowed, verified. What the engine refuses is
 // pulling a namespace off it: `const P = $.process` fails to load the module.
@@ -143,13 +150,7 @@ export const register: Register = (on) => {
     // is the one call here not yet verified in a PTY session, paneOpen stays
     // true and the next /band retries the close, instead of the flag and the
     // pane desyncing for the rest of the session.
-    if (paneOpen) {
-      await $.ui.close({ id: PANE_ID });
-      paneOpen = false;
-    } else {
-      await $.ui.open({ id: PANE_ID, side: "right" });
-      paneOpen = true;
-    }
+    paneOpen = await toggleAgentsPane($, paneOpen);
     await $.ui.invalidate("ui.render");
     return { text: paneOpen ? "agents pane open" : "agents pane closed" };
   });
@@ -175,14 +176,9 @@ export const register: Register = (on) => {
     // A $ captured from a past render does work, verified, but it outlives the
     // event it came from and nothing promises how long.
     if ((e as { element?: string }).element === BUTTON_KEY) {
-      await $.ui.open({ id: PANE_ID, side: "right" });
-      // Opening an already open pane is a no-op, verified live, so the button
-      // never has to know the truth. Re-syncing the flag is the point: the
-      // pane's own close box closes it without firing a single hook, and after
-      // that one /band would toggle the wrong way.
-      paneOpen = true;
+      paneOpen = await toggleAgentsPane($, paneOpen);
       await $.ui.invalidate("ui.render");
-      void refresh($, state);
+      if (paneOpen) void refresh($, state);
     }
     return await next(e);
   });
@@ -195,10 +191,9 @@ export const register: Register = (on) => {
   // wrong shape".
   on("ui.render", async ($, e, next) => {
     if (e.surface !== "terminal") return await next(e);
-    // The way back in. The pane can be closed from its own close box, which
-    // fires no hook, so without a visible affordance the only recovery is
-    // knowing that /band exists. One button above the prompt, only when there
-    // is a run behind it.
+    // The pane can be closed from its own close box, which fires no hook.
+    // Keep one button above the prompt as the visible toggle for the state
+    // transitions this module owns.
     if (e.component === "AbovePrompt") {
       if (!state.hasRun) return await next(e);
       const { Box, Button } = await $.ui.resolve(e, "Box", "Button");

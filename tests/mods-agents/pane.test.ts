@@ -205,7 +205,7 @@ describe("formatPane", () => {
       expect(lines[3]).toMatch(/^├─/);
       expect(lines[lines.length - 1]).toMatch(/^└─/);
       expect(lines[lines.length - 3]).toContain("● working");
-      expect(lines[lines.length - 2]).toContain("▲ Claude");
+      expect(lines[lines.length - 2]).toContain("\uEC82 Claude");
       expect(lines[lines.length - 4]).toMatch(/^├─/);
     }
   });
@@ -226,9 +226,20 @@ describe("formatPane", () => {
     expect(joined).not.toContain("Completed");
     expect(joined).not.toContain("Paused");
     expect(joined).toContain("HISTORY · 3 finished");
-    expect(joined).toContain("▲ k4  k-done");
-    expect(joined).toContain("⬟ k5  k-stop");
-    expect(joined).toContain("■ k6  k-odd");
+    expect(joined).toContain("\uEC82 k4  k-done");
+    expect(joined).toContain("\uE903 k5  k-stop");
+    expect(joined).toContain("\uE902 k6  k-odd");
+  });
+
+  it("uses brand marks when the legend has room and hides labels when it does not", () => {
+    const wide = formatPane(snapshot(), 40);
+    expect(wide[wide.length - 2]).toContain("\uEC82 Claude  \uE902 OpenCode  \uEC81 Codex  \uE903 OMP");
+
+    const narrow = formatPane(snapshot(), 24);
+    expect(narrow[narrow.length - 3]).toContain("● ◉ ○");
+    expect(narrow[narrow.length - 3]).not.toContain("working");
+    expect(narrow[narrow.length - 2]).toContain("\uEC82  \uE902  \uEC81  \uE903");
+    expect(narrow[narrow.length - 2]).not.toContain("Claude");
   });
 
   it("drops history before live cards when the pane is short (rule 5)", () => {
@@ -499,7 +510,7 @@ describe("formatPane", () => {
     expect(lines).toHaveLength(21);
     expect(lines[20]).toBe("└" + "─".repeat(87) + "┘");
     expect(lines[18]).toContain("● working");
-    expect(lines[19]).toContain("▲ Claude");
+    expect(lines[19]).toContain("\uEC82 Claude");
     expect(lines.some((l) => l.includes("19 sessions"))).toBe(true);
     expect(lines.some((l) => l.includes("1 working"))).toBe(true);
     expect(lines.some((l) => l.includes("0 waiting for you"))).toBe(true);

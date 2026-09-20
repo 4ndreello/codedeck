@@ -60,11 +60,14 @@ const STATUS_WORD = vocab({
   stopped: "Paused",
   failed: "Failed",
 });
+// Brand marks from the JetBrains Nerd Font and Omarchy icon font. The pane is
+// a terminal surface, so these keep the identity of each harness without
+// spending the width of its full name.
 const HARNESS_GLYPH = vocab({
-  claude: "▲",
-  opencode: "■",
-  codex: "◆",
-  omp: "⬟",
+  claude: "\uEC82",
+  opencode: "\uE902",
+  codex: "\uEC81",
+  omp: "\uE903",
 });
 const HARNESS_LABEL = vocab({
   claude: "Claude",
@@ -182,6 +185,29 @@ function dot(status: unknown): string {
 
 function statusWord(status: unknown): string {
   return STATUS_WORD[text(status)] ?? cell(status);
+}
+
+function footerLegend(columns: number): [string, string] {
+  const fullStatus = " ● working  ◉ waiting  ○ finished";
+  const fullHarness =
+    " " +
+    glyph("claude") +
+    " Claude  " +
+    glyph("opencode") +
+    " OpenCode  " +
+    glyph("codex") +
+    " Codex  " +
+    glyph("omp") +
+    " OMP";
+  if (fullStatus.length <= columns - 2 && fullHarness.length <= columns - 2) {
+    return [fullStatus, fullHarness];
+  }
+
+  const compactStatus = " ● wk  ◉ wait  ○ done";
+  const iconHarness =
+    " " + glyph("claude") + "  " + glyph("opencode") + "  " + glyph("codex") + "  " + glyph("omp");
+  if (compactStatus.length + 4 <= columns - 2) return [compactStatus, iconHarness];
+  return [" ● ◉ ○", iconHarness];
 }
 
 function age(iso: unknown, now: number): string {
@@ -356,11 +382,12 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
     frameSep(),
     frameRow(""),
   ];
+  const [statusLegend, harnessLegend] = footerLegend(W);
   const tail = [
     frameRow(""),
     frameSep(),
-    frameRow(" ● working  ◉ waiting  ○ finished"),
-    frameRow(" ▲ Claude    ■ OpenCode    ◆ Codex    ⬟ OMP"),
+    frameRow(statusLegend),
+    frameRow(harnessLegend),
     frameBot(),
   ];
   const fixed = head.length + tail.length;

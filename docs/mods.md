@@ -169,10 +169,13 @@ prompt.
 
 The dock draws an `✕` in its top-right corner. Clicking it closes the pane and
 fires no hook at all: no `ui.press`, no render, nothing. A module that tracks
-open state in a flag will desync there, and the next toggle goes the wrong way.
+open state in a flag will desync there.
 
 `$.ui.open` on an already open pane is a no-op, no error and no second dock, so
-the safe shape for a reopen affordance is a button that only ever opens.
+the agents pane keeps a small internal flag for the transitions it owns. The
+`/band` command and the button above the prompt both toggle the pane. Closing
+with the native `✕` remains an engine limitation: the next toggle can consume
+the stale close state before the pane opens again.
 
 ### Clicking a button from a test
 
