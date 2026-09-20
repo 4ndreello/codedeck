@@ -116,5 +116,98 @@ describe("usage daemon methods", () => {
     expect(response.result.byAgent.length).toBe(1);
     expect(response.result.byAgent[0].key).toBe("codex");
   });
+
+  it("accumulates incremental usage events across steps", async () => {
+    const createResponse = await request("session.create", createParams("run-incremental"));
+    const created = createResponse.result.session;
+
+    const daemonAny = daemon as any;
+    // Step 1
+    daemonAny.updateSessionFromEvent(created.id, {
+      type: "usage.updated",
+      sessionId: created.id,
+      timestamp: new Date().toISOString(),
+      incremental: true,
+      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 50, cost: 0.01 },
+    });
+    let sess = seam(daemon!).sessions.get(created.id);
+    expect(sess?.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 50,
+      cost: 0.01,
+    });
+
+    // Step 2
+    daemonAny.updateSessionFromEvent(created.id, {
+      type: "usage.updated",
+      sessionId: created.id,
+      timestamp: new Date().toISOString(),
+      incremental: true,
+      usage: { inputTokens: 200, outputTokens: 30, cachedTokens: 80, cost: 0.02 },
+    });
+    sess = seam(daemon!).sessions.get(created.id);
+    expect(sess?.usage?.inputTokens).toBe(300);
+    expect(sess?.usage?.outputTokens).toBe(50);
+    expect(sess?.usage?.cachedTokens).toBe(130);
+    expect(sess?.usage?.cost).toBeCloseTo(0.03, 5);
+
+    // Non-incremental event overwrites
+    daemonAny.updateSessionFromEvent(created.id, {
+      type: "usage.updated",
+      sessionId: created.id,
+      timestamp: new Date().toISOString(),
+      incremental: false,
+      usage: { inputTokens: 500, outputTokens: 100, cachedTokens: 0, cost: 0.1 },
+    });
+    sess = seam(daemon!).sessions.get(created.id);
+    expect(sess?.usage?.inputTokens).toBe(500);
+    expect(sess?.usage?.outputTokens).toBe(100);
+  });
+
+  it("accumulates incremental events without cost and computes table cost on usage.get", async () => {
+    const runId = "run-incremental-no-cost";
+    const createResponse = await request("session.create", {
+      ...createParams(runId),
+      agent: "opencode",
+      model: "alibaba-token-plan/qwen3.8-max",
+    });
+    const created = createResponse.result.session;
+    const daemonAny = daemon as any;
+
+    // Step 1: incremental usage with cost: undefined (OpenCode behavior)
+    daemonAny.updateSessionFromEvent(created.id, {
+      type: "usage.updated",
+      sessionId: created.id,
+      timestamp: new Date().toISOString(),
+      incremental: true,
+      usage: { inputTokens: 500_000, outputTokens: 250_000, cachedTokens: 500_000, cost: undefined },
+    });
+
+    // Step 2: second step incremental usage with cost: undefined
+    daemonAny.updateSessionFromEvent(created.id, {
+      type: "usage.updated",
+      sessionId: created.id,
+      timestamp: new Date().toISOString(),
+      incremental: true,
+      usage: { inputTokens: 500_000, outputTokens: 250_000, cachedTokens: 500_000, cost: undefined },
+    });
+
+    const sess = seam(daemon!).sessions.get(created.id);
+    expect(sess?.usage?.inputTokens).toBe(1_000_000);
+    expect(sess?.usage?.outputTokens).toBe(500_000);
+    expect(sess?.usage?.cachedTokens).toBe(1_000_000);
+    expect(sess?.usage?.cost).toBeUndefined();
+
+    // Query usage: should compute cost using alibaba-token-plan/qwen3.8-max table price:
+    // (1M * 2.0 + 0.5M * 6.0 + 1M * 0.2) = 5.2
+    const usageResponse = await request("usage.get", { runId });
+    expect(usageResponse.result.inputTokens).toBe(1_000_000);
+    expect(usageResponse.result.outputTokens).toBe(500_000);
+    expect(usageResponse.result.cachedTokens).toBe(1_000_000);
+    expect(usageResponse.result.costUsd).toBeCloseTo(5.2, 5);
+    expect(usageResponse.result.costComplete).toBe(true);
+    expect(usageResponse.result.sessionsWithoutCost).toBe(0);
+  });
 });
 

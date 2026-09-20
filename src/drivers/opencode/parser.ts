@@ -87,6 +87,33 @@ export function parseOpencodeLine(line: string, sessionId: string): AgentEvent[]
     return events;
   }
 
-  // step_start / step_finish are turn boundaries with no transcript content.
+  if (obj.type === "step_finish") {
+    const part = obj.part ?? {};
+    const tokens = part.tokens ?? obj.tokens;
+    const rawCost = typeof part.cost === "number" ? part.cost : typeof obj.cost === "number" ? obj.cost : undefined;
+    const cost = rawCost !== undefined && rawCost > 0 ? rawCost : undefined;
+
+    if (tokens || cost !== undefined) {
+      const inputTokens = tokens?.input ?? 0;
+      const outputTokens = (tokens?.output ?? 0) + (tokens?.reasoning ?? 0);
+      const cachedTokens = tokens?.cache?.read ?? 0;
+      events.push({
+        type: "usage.updated",
+        sessionId,
+        timestamp: ts,
+        incremental: true,
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          cost,
+        },
+        raw,
+      } as AgentEvent);
+    }
+    return events;
+  }
+
+  // step_start and any unhandled event types produce no events.
   return events;
 }

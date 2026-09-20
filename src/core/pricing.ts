@@ -26,11 +26,18 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   // Claude's current CodeDeck default and model examples. Claude normally
   // reports its own cost, but these entries keep the fallback table complete.
   // TODO: ajustar preço for these model ids if their catalog prices change.
-  "claude-opus-4-8": { input: 15, output: 75 },
-  "claude-opus-5": { input: 15, output: 75 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-sonnet-5": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 0.8, output: 4 },
+  "claude-opus-4-8": { input: 15, output: 75, cached: 1.5 },
+  "claude-opus-5": { input: 15, output: 75, cached: 1.5 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cached: 0.3 },
+  "claude-sonnet-5": { input: 3, output: 15, cached: 0.3 },
+  "claude-haiku-4-5": { input: 0.8, output: 4, cached: 0.08 },
+
+  // Alibaba Qwen models.
+  "qwen3.8-max": { input: 2, output: 6, cached: 0.2 },
+  "qwen3.8-flash": { input: 0.16, output: 0.47, cached: 0.016 },
+  "qwen-max": { input: 2, output: 6, cached: 0.2 },
+  "qwen-plus": { input: 0.4, output: 1.2, cached: 0.04 },
+  "qwen-turbo": { input: 0.05, output: 0.2, cached: 0.005 },
 
   // Google Antigravity (Gemini) models.
   "gemini-3.8-flash": { input: 0.1, output: 0.4, cached: 0.025 },
@@ -83,6 +90,46 @@ function isUsablePrice(price: ModelPrice): boolean {
 }
 
 /**
+ * Resolves a model name to its ModelPrice configuration.
+ * Handles exact matches, stripped display labels, and stripping provider prefixes
+ * like 'opencode/', 'alibaba-token-plan/', 'openrouter/', etc.
+ */
+export function resolveModelPrice(model: string | undefined | null): ModelPrice | undefined {
+  if (!model) return undefined;
+  const trimmed = model.trim();
+  if (!trimmed) return undefined;
+
+  // 1. Direct match with original string
+  if (MODEL_PRICES[trimmed]) return MODEL_PRICES[trimmed];
+
+  // 2. Strip trailing display labels (e.g. "model-id   Display Name")
+  const idOnly = trimmed.split(/\s+/)[0] ?? trimmed;
+  if (MODEL_PRICES[idOnly]) return MODEL_PRICES[idOnly];
+
+  // 3. Strip leading provider prefix (e.g. "opencode/...", "alibaba-token-plan/...", "openrouter/...")
+  const slashIdx = idOnly.indexOf("/");
+  if (slashIdx !== -1) {
+    const afterFirstSlash = idOnly.slice(slashIdx + 1);
+    if (MODEL_PRICES[afterFirstSlash]) return MODEL_PRICES[afterFirstSlash];
+
+    // If there's another slash (e.g. openrouter/meta/model-name), test last component
+    const lastSlashIdx = idOnly.lastIndexOf("/");
+    if (lastSlashIdx !== slashIdx) {
+      const lastComponent = idOnly.slice(lastSlashIdx + 1);
+      if (MODEL_PRICES[lastComponent]) return MODEL_PRICES[lastComponent];
+    }
+  }
+
+  // 4. Case-insensitive fallback
+  const lower = idOnly.toLowerCase();
+  if (lower !== idOnly) {
+    return resolveModelPrice(lower);
+  }
+
+  return undefined;
+}
+
+/**
  * Returns a reported cost when one exists, otherwise calculates a static-table
  * estimate. Cached tokens use the input price unless the model declares its
  * own cached price. Invalid or unknown data has no known cost and returns null.
@@ -96,7 +143,7 @@ export function computeSessionCost({
   // Zero is a valid reported cost and must win over every table entry.
   if (isFiniteNumber(reportedCost) && reportedCost >= 0) return reportedCost;
 
-  const price = model === undefined || model === null ? undefined : MODEL_PRICES[model];
+  const price = resolveModelPrice(model);
   if (!price || !isUsablePrice(price)) return null;
 
   const inputTokens = usage?.inputTokens ?? 0;
