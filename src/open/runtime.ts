@@ -179,6 +179,15 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // the boot screen. Only the line matters. A setting of the user's own is left
   // alone, since silencing mise everywhere is not this command's call.
   sanitized.MISE_QUIET ??= "1";
+
+  // Function hooks back the codedeck agents pane, and Claude Code only loads
+  // hook modules when the spawning environment enables them. The variable is
+  // namespaced to Claude Code, so the opencode and codex spawns that share
+  // this helper carry it inertly and behave exactly as before. A value of the
+  // user's own wins, which keeps an explicit opt-out working. The --no-bypass,
+  // --no-theme and --no-pty escape hatches ride in argv, not env, so they are
+  // untouched.
+  sanitized.CLAUDE_CODE_ENABLE_FUNCTION_HOOKS ??= "1";
   return sanitized;
 }
 

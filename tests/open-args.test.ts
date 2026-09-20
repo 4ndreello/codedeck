@@ -387,7 +387,7 @@ describe("open command pure helpers", () => {
     const env = { PATH: "/bin", CLAUDE_CODE_CHILD_SESSION: "1" };
     const sanitized = sanitizeEnv(env);
 
-    expect(sanitized).toEqual({ PATH: "/bin", MISE_QUIET: "1" });
+    expect(sanitized).toEqual({ PATH: "/bin", MISE_QUIET: "1", CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1" });
     expect(env.CLAUDE_CODE_CHILD_SESSION).toBe("1");
     // The caller's own object is never touched, whether a key is dropped or
     // added: it is process.env, and this runs before the launch.
@@ -834,6 +834,16 @@ describe("open command pure helpers", () => {
   it("quiets the mise shim without overriding a setting of the user's own", () => {
     expect(sanitizeEnv({}).MISE_QUIET).toBe("1");
     expect(sanitizeEnv({ MISE_QUIET: "0" }).MISE_QUIET).toBe("0");
+  });
+
+  // Function hooks back the codedeck agents pane, and Claude Code only loads
+  // hook modules when the spawning environment enables them. A value of the
+  // user's own wins, which keeps an explicit opt-out working.
+  it("enables function hooks without overriding a setting of the user's own", () => {
+    expect(sanitizeEnv({}).CLAUDE_CODE_ENABLE_FUNCTION_HOOKS).toBe("1");
+    expect(
+      sanitizeEnv({ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "0" }).CLAUDE_CODE_ENABLE_FUNCTION_HOOKS,
+    ).toBe("0");
   });
 
   it("resolves a module-relative plugin directory", () => {
