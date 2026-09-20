@@ -43,6 +43,12 @@ type Engine$ = {
   };
 };
 
+const toggleAgentsPane = async ($: Engine$, isOpen: boolean): Promise<boolean> =>
+  togglePane(isOpen, {
+    open: () => $.ui.open({ id: PANE_ID, side: "right" }),
+    close: () => $.ui.close({ id: PANE_ID }),
+  });
+
 // Passing $ into a helper is allowed, verified. What the engine refuses is
 // pulling a namespace off it: `const P = $.process` fails to load the module.
 // So refresh takes $ as a parameter and the state register owns travels beside
@@ -109,13 +115,6 @@ export const register: Register = (on) => {
   };
   let paneOpen = false;
 
-  const toggleAgentsPane = async ($: Engine$): Promise<void> => {
-    paneOpen = await togglePane(paneOpen, {
-      open: () => $.ui.open({ id: PANE_ID, side: "right" }),
-      close: () => $.ui.close({ id: PANE_ID }),
-    });
-  };
-
   on("session.start", async ($, e, next) => {
     // Not "agents": the engine refuses it with `$.command.register: "/agents"
     // refused: it is the built-in /agents`. "band", "deck" and
@@ -151,7 +150,7 @@ export const register: Register = (on) => {
     // is the one call here not yet verified in a PTY session, paneOpen stays
     // true and the next /band retries the close, instead of the flag and the
     // pane desyncing for the rest of the session.
-    await toggleAgentsPane($);
+    paneOpen = await toggleAgentsPane($, paneOpen);
     await $.ui.invalidate("ui.render");
     return { text: paneOpen ? "agents pane open" : "agents pane closed" };
   });
@@ -177,7 +176,7 @@ export const register: Register = (on) => {
     // A $ captured from a past render does work, verified, but it outlives the
     // event it came from and nothing promises how long.
     if ((e as { element?: string }).element === BUTTON_KEY) {
-      await toggleAgentsPane($);
+      paneOpen = await toggleAgentsPane($, paneOpen);
       await $.ui.invalidate("ui.render");
       if (paneOpen) void refresh($, state);
     }
