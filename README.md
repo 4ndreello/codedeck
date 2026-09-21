@@ -93,6 +93,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
 | `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
 | `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
+| `npx codedeck review [--port <n>] [--no-open]` | Open a local review of the current git changes |
 
 ## Open
 

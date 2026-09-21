@@ -1,6 +1,6 @@
 // Canvas layer of the orchestrator agents pane.
 //
-// The `codedeck web` canvas, drawn as ASCII boxes for a docked terminal pane.
+// The run canvas, drawn as ASCII boxes for a docked terminal pane.
 // Two pure functions behind one frozen interface: selectPane narrows the
 // daemon's full session list to one run, formatPane turns that snapshot into
 // the lines of the drawing and fits them to the height the pane was given.

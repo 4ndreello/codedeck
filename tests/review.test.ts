@@ -11,7 +11,7 @@ import {
   parseUnifiedDiff,
 } from "../src/git/review.js";
 import { REVIEW_PAGE } from "../src/web/review-page.js";
-import { createWebHandler, type WebBridge } from "../src/cli/commands/web.js";
+import { createReviewHandler } from "../src/cli/commands/review.js";
 
 function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ra-review-test-"));
@@ -174,7 +174,7 @@ describe("getLocalReview", () => {
   });
 });
 
-describe("review web routes", () => {
+describe("review HTTP routes", () => {
   let servers: http.Server[] = [];
   afterEach(async () => {
     await Promise.all(servers.map((s) => new Promise<void>((resolve) => s.close(() => resolve()))));
@@ -190,23 +190,32 @@ describe("review web routes", () => {
     return `http://127.0.0.1:${address.port}`;
   }
 
-  function stubBridge(): WebBridge {
-    return { request: async () => ({}) as never, subscribe: () => () => {} };
-  }
-
-  it("serves the review page at /review", async () => {
-    const base = await listen(createWebHandler(stubBridge()));
-    const res = await fetch(`${base}/review`);
+  it("serves the review page at the root", async () => {
+    const base = await listen(createReviewHandler());
+    const res = await fetch(`${base}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(await res.text()).toContain("Review local");
     expect(REVIEW_PAGE).toContain("api/review");
   });
 
+  it("keeps /review as an alias for the root page", async () => {
+    const base = await listen(createReviewHandler());
+    const res = await fetch(`${base}/review`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Review local");
+  });
+
+  it("does not expose the removed session canvas API", async () => {
+    const base = await listen(createReviewHandler());
+    const res = await fetch(`${base}/api/sessions`);
+    expect(res.status).toBe(404);
+  });
+
   it("proxies /api/review query to the loader", async () => {
     const seen: Array<{ root: string; ref: string; file?: string }> = [];
     const base = await listen(
-      createWebHandler(stubBridge(), {
+      createReviewHandler({
         root: "/repo",
         loadReview: async (root, ref, file) => {
           seen.push({ root, ref, file });
@@ -222,7 +231,7 @@ describe("review web routes", () => {
 
   it("maps a non-repo loader failure to 404", async () => {
     const base = await listen(
-      createWebHandler(stubBridge(), {
+      createReviewHandler({
         loadReview: async () => {
           throw new Error("not a git repository: /tmp/x");
         },
