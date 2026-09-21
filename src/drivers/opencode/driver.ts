@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { detectBinary, runCommandWithTimeout } from "../helpers.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
@@ -5,8 +8,18 @@ import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/mo
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 import { parseOpencodeLine } from "./parser.js";
 
+function opencodeV2BinaryPath(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, ".opencode", "bin", "opencode");
+}
+
+function resolveOpencodeCommand(homeDir: string = os.homedir()): string {
+  const localBin = opencodeV2BinaryPath(homeDir);
+  return fs.existsSync(localBin) ? localBin : "opencode";
+}
+
 export class OpencodeDriver extends SessionDriver {
   readonly id = "opencode" as const;
+  private detectedPath?: string;
 
   protected readonly hooks = createRuntimeHooks({
     parse: parseOpencodeLine,
@@ -15,6 +28,10 @@ export class OpencodeDriver extends SessionDriver {
   });
 
   protected readonly resumeError = "No native session id for Opencode resume";
+
+  protected override getCommand(): string {
+    return this.detectedPath ?? resolveOpencodeCommand();
+  }
 
   protected buildArgs(options: StartOptions): string[] {
     const args: string[] = ["run", "--format", "json"];
@@ -40,8 +57,16 @@ export class OpencodeDriver extends SessionDriver {
   }
 
   async detect(): Promise<AgentInstallation> {
-    const res = await detectBinary("opencode");
-    if (!res.installed) return { installed: false, error: "opencode binary not found" };
+    let res = await detectBinary("opencode");
+    if (!res.installed) {
+      const localBin = opencodeV2BinaryPath();
+      if (fs.existsSync(localBin)) res = await detectBinary(localBin);
+    }
+    if (!res.installed || !res.path) {
+      this.detectedPath = undefined;
+      return { installed: false, error: "opencode binary not found" };
+    }
+    this.detectedPath = res.path;
     return { installed: true, path: res.path, version: res.version, details: "opencode run --format json" };
   }
 
@@ -92,4 +117,3 @@ export class OpencodeDriver extends SessionDriver {
     }
   }
 }
-
