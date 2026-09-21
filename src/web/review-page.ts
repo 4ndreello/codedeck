@@ -1,4 +1,4 @@
-/** Local staged/unstaged review UI served by `codedeck web` at `/review`.
+/** Local staged/unstaged review UI served by `codedeck review`.
  *
  * Self-contained page (no external requests besides `api/review`): file
  * tree on the left, unified diff on the right, per-line comment boxes
@@ -103,7 +103,6 @@ export const REVIEW_PAGE: string = `<!doctype html>
   <span class="spacer"></span>
   <input id="filter" type="search" placeholder="filtrar arquivos…" aria-label="Filtrar arquivos">
   <button id="copyAll" type="button" title="Copiar todos os comentários em markdown">Copiar todos (<span id="nComments">0</span>)</button>
-  <a href="/" style="color:#98989f;font-size:12.5px">canvas</a>
 </header>
 <div id="layout">
   <nav id="files" aria-label="Arquivos"><h2>ARQUIVOS</h2><ul id="fileList"></ul></nav>
