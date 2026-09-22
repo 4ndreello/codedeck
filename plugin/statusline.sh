@@ -181,8 +181,17 @@ const getRunUsage = () => {
   const runId = text(process.env.CODEDECK_RUN_ID);
   if (!runId) return undefined;
 
+  const args = ["usage", runId, "--json"];
+  const sessionId = payload.session_id;
+  const observeCost = nonNegativeNumber(payload.cost?.total_cost_usd);
+  if (
+    typeof sessionId === "string" &&
+    /^[0-9a-fA-F-]{8,}$/.test(sessionId) &&
+    observeCost !== undefined
+  ) args.push("--observe", `${sessionId}=${observeCost}`);
+
   try {
-    const output = execFileSync("codedeck", ["usage", runId, "--json"], {
+    const output = execFileSync("codedeck", args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1000,
@@ -215,8 +224,30 @@ const getRunUsage = () => {
   }
 };
 
+const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+const getOrchestratorUsage = (usage) => {
+  const value = usage.orchestrator;
+  if (
+    !isObject(value) ||
+    nonNegativeNumber(value.costUsd) === undefined ||
+    typeof value.costComplete !== "boolean" ||
+    nonNegativeNumber(value.inputTokens) === undefined ||
+    nonNegativeNumber(value.outputTokens) === undefined ||
+    nonNegativeNumber(value.cachedTokens) === undefined ||
+    !Array.isArray(value.sources)
+  ) return undefined;
+  if (!value.sources.every((source) =>
+    isObject(source) &&
+    typeof source.nativeId === "string" &&
+    nonNegativeNumber(source.costUsd) !== undefined
+  )) return undefined;
+  return value;
+};
+
 const local = localCost();
 const runUsage = getRunUsage();
+const orchestratorUsage = runUsage ? getOrchestratorUsage(runUsage) : undefined;
 const workerTokens = runUsage
   ? runUsage.inputTokens + runUsage.outputTokens + runUsage.cachedTokens
   : undefined;
@@ -227,8 +258,14 @@ const tokenField = () => {
 
 const runField = () => {
   if (!runUsage) return undefined;
-  const total = (local ?? 0) + runUsage.costUsd;
-  const incomplete = !runUsage.costComplete;
+  const sourceCost = orchestratorUsage
+    ? orchestratorUsage.sources.reduce(
+      (sum, source) => source.nativeId === payload.session_id ? sum : sum + source.costUsd,
+      0,
+    )
+    : 0;
+  const total = (local ?? 0) + runUsage.costUsd + sourceCost;
+  const incomplete = !runUsage.costComplete || Boolean(orchestratorUsage && !orchestratorUsage.costComplete);
   if (!incomplete && total < COST_DISPLAY_THRESHOLD) return undefined;
   return paint(MUTED, "run ") + costAmount(total, incomplete);
 };
