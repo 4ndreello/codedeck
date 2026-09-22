@@ -69,7 +69,7 @@ echo "expecting promptBorder $prompt_border and inactive $inactive"
 # A pty is required: claude renders nothing recognisable when stdout is a pipe.
 # `script` supplies one. Two Ctrl+C keys are how the TUI is asked to quit.
 ( sleep "$SETTLE"; printf '\003'; sleep 1; printf '\003'; sleep 2 ) \
-  | timeout "$LIMIT" script -qec "node '$HERE/dist/cli/index.js' open general" /dev/null \
+  | timeout "$LIMIT" script -qec "node '$HERE/dist/cli/index.js' open general --no-worktree" /dev/null \
   > "$CAPTURE" 2>&1 || true
 
 missing=()

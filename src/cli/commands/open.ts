@@ -367,6 +367,62 @@ function selectRole(): Promise<Role> {
   });
 }
 
+export function askWorktree(): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise<boolean>((resolve, reject) => {
+    let settled = false;
+    const finish = (worktree: boolean) => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      resolve(worktree);
+    };
+
+    rl.once("close", () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Worktree selection was interrupted; nothing was launched."));
+    });
+
+    const ask = () => {
+      rl.question("Open in a worktree? [y/N]: ", (answer) => {
+        const choice = answer.trim().toLowerCase();
+        if (choice === "y" || choice === "yes") {
+          finish(true);
+          return;
+        }
+        if (choice === "" || choice === "n" || choice === "no") {
+          finish(false);
+          return;
+        }
+
+        process.stderr.write("Answer y or n.\n");
+        ask();
+      });
+    };
+
+    ask();
+  });
+}
+
+export async function resolveOpenWorktree(
+  flag: boolean | undefined,
+  ctx: { interactive: boolean; resume?: string; cwd: string },
+  ask: () => Promise<boolean> = askWorktree,
+): Promise<boolean> {
+  if (flag !== undefined) return flag;
+  if (!ctx.interactive || ctx.resume !== undefined) return false;
+
+  const gitInfo = await getGitInfo(ctx.cwd);
+  if (!gitInfo) return false;
+
+  return ask();
+}
+
 /**
  * `claude -p` answers one prompt and exits, so there is no session to choose a
  * role for. A terminal check alone does not catch this: under a pty (CI scripts,
@@ -520,7 +576,8 @@ export function registerOpenCommand(program: Command): void {
     .option("--autocompact [value]", "native auto-compact: Claude window size is auto or 100000-1000000 tokens; OpenCode toggles its native setting")
     .option("--no-autocompact", "disable native auto-compaction in Claude and OpenCode")
     .option("--resume <session>", "resume an interactive session")
-    .option("--worktree", "ask Claude Code to create an isolated worktree")
+    .option("--worktree", "open the session in an isolated git worktree")
+    .option("--no-worktree", "open in the current directory without asking")
     .option("--profile <name>", "use a saved setup profile instead of the active one (see profile list)")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
     .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
@@ -549,9 +606,14 @@ export function registerOpenCommand(program: Command): void {
       }
       const interactive = !isNonInteractiveLaunch(invocation.passthrough, hintLauncher);
       const role = await resolveRole(invocation.roleInput, interactive);
+      const cwd = currentWorkingDirectory();
+      opts.worktree = await resolveOpenWorktree(opts.worktree, {
+        interactive: interactive && isInteractiveTerminal(),
+        resume: opts.resume,
+        cwd,
+      });
       const pluginDir = resolvePluginDir();
       assertPluginDirectory(pluginDir);
-      const cwd = currentWorkingDirectory();
 
       const client = new IpcClient();
       await client.ensureDaemonStarted();

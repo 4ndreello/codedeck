@@ -54,7 +54,7 @@ echo "expecting the session to rename itself to the generated title"
 # --no-bypass keeps the gate runnable as root, where Claude Code refuses to
 # skip permission prompts. It changes nothing about the rename path.
 ( sleep "$SETTLE"; printf '%s\r' "$PROMPT"; sleep "$TURN"; printf '\003'; sleep 1; printf '\003'; sleep 2 ) \
-  | timeout "$LIMIT" script -qec "node '$HERE/dist/cli/index.js' open general --no-bypass" /dev/null \
+  | timeout "$LIMIT" script -qec "node '$HERE/dist/cli/index.js' open general --no-bypass --no-worktree" /dev/null \
   > "$CAPTURE" 2>&1 || true
 
 sidecar="$(ls -t "$SESSIONS"/codedeck-session-*.name 2>/dev/null | head -1 || true)"
