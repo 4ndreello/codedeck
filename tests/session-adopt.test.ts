@@ -2,7 +2,8 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { processStartTime, processAlive, killTree } from "../src/utils/process.js";
+import { processStartTime } from "../src/utils/process.js";
+import * as processUtils from "../src/utils/process.js";
 import { defaultCapabilities } from "../src/core/capabilities.js";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { Session, SessionStatus } from "../src/core/session.js";
@@ -33,6 +34,198 @@ async function callIpc(
 }
 
 describe("session.adopt", () => {
+  it("reuses the matching open row and refreshes supplied session details", async () => {
+    const daemon = new Daemon();
+    const resume = "native-session-123";
+    const previousUpdate = new Date("2026-01-01T00:00:00.000Z");
+    seed(daemon, "s-reuse", "failed", {
+      runId: "existing-run",
+      origin: "open",
+      nativeSessionId: resume,
+      name: "old-name",
+      agent: "claude",
+      model: "old-model",
+      effort: "low",
+      cwd: "/old-cwd",
+      updatedAt: previousUpdate,
+    });
+    seed(daemon, "s-other-agent", "completed", {
+      runId: "other-run",
+      origin: "open",
+      nativeSessionId: resume,
+      agent: "codex",
+      updatedAt: new Date("2026-02-01T00:00:00.000Z"),
+    });
+
+    const res = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume,
+      model: "new-model",
+      effort: "high",
+      cwd: "/tmp",
+      name: "new-name",
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result.session).toMatchObject({
+      id: "s-reuse",
+      runId: "existing-run",
+      status: "working",
+      agent: "claude",
+      model: "new-model",
+      effort: "high",
+      cwd: "/tmp",
+      name: "new-name",
+    });
+    expect(new Date(res.result.session.updatedAt).getTime()).toBeGreaterThan(previousUpdate.getTime());
+    expect(seam(daemon).sessions.list(50, true)).toHaveLength(2);
+    expect(seam(daemon).events.last("s-reuse")).toMatchObject({
+      type: "session.started",
+      sessionId: "s-reuse",
+      nativeSessionId: resume,
+    });
+  });
+
+  it("chooses the most recently updated matching open row", async () => {
+    const daemon = new Daemon();
+    const resume = "native-session-456";
+    seed(daemon, "s-older", "completed", {
+      runId: "older-run",
+      origin: "open",
+      nativeSessionId: resume,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    seed(daemon, "s-newer", "interrupted", {
+      runId: "newer-run",
+      origin: "open",
+      nativeSessionId: resume,
+      updatedAt: new Date("2026-02-01T00:00:00.000Z"),
+    });
+
+    const res = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume,
+      cwd: "/tmp",
+    });
+
+    expect(res.result.session.id).toBe("s-newer");
+    expect(res.result.session.runId).toBe("newer-run");
+    expect(seam(daemon).sessions.list(50, true)).toHaveLength(2);
+  });
+
+  it("creates a new row instead of taking over a live matching session", async () => {
+    const daemon = new Daemon();
+    const isAlive = vi.spyOn(processUtils, "processAlive").mockReturnValue(true);
+    vi.spyOn(processUtils, "processStartTime").mockReturnValue("current-process-start");
+    seed(daemon, "s-live-resume", "working", {
+      runId: "live-run",
+      origin: "open",
+      nativeSessionId: "native-session-live",
+      pid: 45678,
+      pidStartTime: "current-process-start",
+    });
+
+    const res = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume: "native-session-live",
+      cwd: "/tmp",
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result.session.id).not.toBe("s-live-resume");
+    expect(res.result.session.runId).toBe(res.result.session.id);
+    expect(seam(daemon).sessions.get("s-live-resume")?.status).toBe("working");
+    expect(seam(daemon).sessions.list(50, true)).toHaveLength(2);
+    expect(isAlive).toHaveBeenCalledWith(45678);
+  });
+
+  it("creates a new row when resume is absent or has no matching row", async () => {
+    const daemon = new Daemon();
+    seed(daemon, "s-existing", "completed", {
+      origin: "open",
+      nativeSessionId: "native-session-existing",
+    });
+
+    const absent = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      cwd: "/tmp",
+    });
+    const missing = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume: "native-session-missing",
+      cwd: "/tmp",
+    });
+
+    expect(absent.result.session.id).not.toBe("s-existing");
+    expect(absent.result.session.runId).toBe(absent.result.session.id);
+    expect(missing.result.session.id).not.toBe("s-existing");
+    expect(missing.result.session.runId).toBe(missing.result.session.id);
+    expect(missing.result.session.id).not.toBe(absent.result.session.id);
+    expect(seam(daemon).sessions.list(50, true)).toHaveLength(3);
+  });
+
+  it("clears stale process and terminal fields while keeping worktree metadata", async () => {
+    const daemon = new Daemon();
+    const completedAt = new Date("2026-01-01T00:00:00.000Z");
+    seed(daemon, "s-cleanup", "interrupted", {
+      runId: "cleanup-run",
+      origin: "open",
+      nativeSessionId: "native-session-cleanup",
+      pid: 12345,
+      pidStartTime: "old-start-time",
+      completedAt,
+      lastEvent: "stale terminal event",
+      failure: { code: "HARNESS_CRASH", blame: "harness", retryable: true },
+      worktree: "/tmp/worktree",
+      branch: "ra/old-branch",
+      baseCommit: "abc123",
+    });
+
+    const res = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume: "native-session-cleanup",
+      cwd: "/tmp",
+    });
+
+    expect(res.result.session).toMatchObject({
+      id: "s-cleanup",
+      runId: "cleanup-run",
+      status: "working",
+      worktree: "/tmp/worktree",
+      branch: "ra/old-branch",
+      baseCommit: "abc123",
+    });
+    expect(res.result.session.pid).toBeUndefined();
+    expect(res.result.session.pidStartTime).toBeUndefined();
+    expect(res.result.session.completedAt).toBeUndefined();
+    expect(res.result.session.lastEvent).toBeUndefined();
+    expect(res.result.session.failure).toBeUndefined();
+  });
+
+  it("releases a revived row as completed", async () => {
+    const daemon = new Daemon();
+    seed(daemon, "s-release-revived", "completed", {
+      runId: "release-run",
+      origin: "open",
+      nativeSessionId: "native-session-release",
+    });
+
+    const adopted = await callIpc(daemon, "session.adopt", {
+      agent: "claude",
+      resume: "native-session-release",
+      cwd: "/tmp",
+    });
+    expect(adopted.result.session.status).toBe("working");
+
+    const released = await callIpc(daemon, "session.release", {
+      id: "s-release-revived",
+    });
+
+    expect(released.error).toBeUndefined();
+    expect(released.result.session.status).toBe("completed");
+    expect(seam(daemon).events.last("s-release-revived")?.type).toBe("session.completed");
+  });
+
   it("creates a head session with 4-hex canonical id, origin=open, and status=working", async () => {
     const daemon = new Daemon();
     const res = await callIpc(daemon, "session.adopt", {

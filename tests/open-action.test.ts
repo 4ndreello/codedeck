@@ -34,6 +34,15 @@ function mockClaudeLaunch(): void {
 }
 
 describe("opencode dispatch", () => {
+  it("passes the resume value to session.adopt", async () => {
+    await runOpen(["reviewer", "--no-theme", "--resume", "native-session-789"]);
+
+    const adopt = vi.mocked(IpcClient.prototype.request).mock.calls.find(
+      ([method]) => method === "session.adopt",
+    );
+    expect(adopt?.[1]).toMatchObject({ resume: "native-session-789" });
+  });
+
   it("guarantees the daemon before spawning, in order", async () => {
     await runOpen(["reviewer", "--no-theme"]);
 

@@ -591,6 +591,7 @@ export function registerOpenCommand(program: Command): void {
         ...(openEffort !== undefined ? { effort: openEffort } : {}),
         cwd,
         name: role,
+        ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
       });
       const runId = adoptRes.session.id;
 

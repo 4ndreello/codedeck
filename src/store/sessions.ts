@@ -99,6 +99,17 @@ function rowToSession(row: SessionRow): Session {
 /** Window for the default `ps` view: sessions updated within this are "recent". */
 export const PS_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+type SessionUpdate = Omit<
+  Partial<Session>,
+  "completedAt" | "failure" | "lastEvent" | "pid" | "pidStartTime"
+> & {
+  completedAt?: Date | null;
+  failure?: FailureInfo | null;
+  lastEvent?: string | null;
+  pid?: number | null;
+  pidStartTime?: string | null;
+};
+
 export class SessionStore {
   constructor(private db: DatabaseSync) {}
 
@@ -205,7 +216,7 @@ export class SessionStore {
     return this.getByRunId(runId);
   }
 
-  update(id: string, patch: Partial<Session> & { status?: SessionStatus }): void {
+  update(id: string, patch: SessionUpdate): void {
     const existing = this.get(id);
     if (!existing) throw new Error(`Session ${id} not found`);
     const now = new Date().toISOString();
@@ -223,21 +234,29 @@ export class SessionStore {
       worktree: patch.worktree,
       branch: patch.branch,
       base_commit: patch.baseCommit,
-      pid: patch.pid,
-      completed_at: patch.completedAt ? (patch.completedAt as Date).toISOString() : undefined,
+      pid: patch.pid === undefined ? undefined : patch.pid ?? null,
+      completed_at: patch.completedAt === undefined
+        ? undefined
+        : patch.completedAt === null
+          ? null
+          : patch.completedAt.toISOString(),
       usage_input_tokens: patch.usage?.inputTokens,
       usage_output_tokens: patch.usage?.outputTokens,
       usage_cached_tokens: patch.usage?.cachedTokens,
       usage_cost: patch.usage?.cost,
-      last_event: patch.lastEvent,
+      last_event: patch.lastEvent === undefined ? undefined : patch.lastEvent ?? null,
       effort: patch.effort,
       fast: patch.fast === undefined ? undefined : patch.fast ? 1 : 0,
       sandbox: patch.sandbox,
       dangerously_bypass_approvals_and_sandbox: patch.dangerouslyBypassApprovalsAndSandbox === undefined ? undefined : patch.dangerouslyBypassApprovalsAndSandbox ? 1 : 0,
-      pid_start_time: patch.pidStartTime,
+      pid_start_time: patch.pidStartTime === undefined ? undefined : patch.pidStartTime ?? null,
       log_offset: patch.logOffset,
       stderr_offset: patch.stderrOffset,
-      failure: patch.failure === undefined ? undefined : JSON.stringify(patch.failure),
+      failure: patch.failure === undefined
+        ? undefined
+        : patch.failure === null
+          ? null
+          : JSON.stringify(patch.failure),
       origin: patch.origin,
       pending_message: patch.pendingMessage === undefined ? undefined : (patch.pendingMessage ?? null),
       pending_at: patch.pendingAt === undefined ? undefined : (patch.pendingAt ?? null),
@@ -259,8 +278,8 @@ export class SessionStore {
     (this.db.prepare(`UPDATE sessions SET ${fields.join(", ")} WHERE id = ?`) as any).run(...(values as any));
   }
 
-  setStatus(id: string, status: SessionStatus, extra?: Partial<Session>): void {
-    const patch: Partial<Session> & { status: SessionStatus } = { status, updatedAt: new Date(), ...extra };
+  setStatus(id: string, status: SessionStatus, extra?: SessionUpdate): void {
+    const patch: SessionUpdate & { status: SessionStatus } = { status, updatedAt: new Date(), ...extra };
     if (status === "completed" || status === "failed" || status === "stopped" || status === "orphaned" || status === "interrupted") {
       patch.completedAt = new Date();
     }
@@ -274,6 +293,13 @@ export class SessionStore {
   findByNativeId(nativeId: string): Session | null {
     const row = this.db.prepare(`SELECT * FROM sessions WHERE native_session_id = ? LIMIT 1`).get(nativeId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
+  }
+
+  listOpenByNativeId(nativeId: string): Session[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM sessions WHERE origin = 'open' AND native_session_id = ? ORDER BY updated_at DESC, id ASC`,
+    ).all(nativeId) as unknown as SessionRow[];
+    return rows.map(rowToSession);
   }
 
   queryUsage(params: UsageQueryParams = {}): UsageQueryResult {
