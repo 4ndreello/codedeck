@@ -94,9 +94,41 @@ export class Database {
         active INTEGER NOT NULL DEFAULT 1
       );
 
+      CREATE TABLE IF NOT EXISTS usage_sources (
+        source_key TEXT PRIMARY KEY,
+        cost REAL,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cached_tokens INTEGER,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS usage_attributions (
+        session_id TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        cost REAL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_tokens INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (session_id, source_key),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_key) REFERENCES usage_sources(source_key) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS session_native_links (
+        session_id TEXT NOT NULL,
+        native_id TEXT NOT NULL,
+        linked_at TEXT NOT NULL,
+        reconciled_at TEXT,
+        state TEXT,
+        PRIMARY KEY (session_id, native_id),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_attributions_source_key ON usage_attributions(source_key);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_active_session_path
         ON claims(session_id, path_glob) WHERE active = 1;
     `);
