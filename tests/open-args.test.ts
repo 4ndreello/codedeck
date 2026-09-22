@@ -569,6 +569,31 @@ describe("open command pure helpers", () => {
     }
   });
 
+  it("uses the last id in the sidecar and removes every matching name sidecar", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-test-"));
+    const sessionFile = path.join(tempDir, "session");
+    const ids = [
+      "92d88cce-bdbc-46db-8573-916afd32f6f7",
+      "3f1f93b8-c484-43aa-8a11-32a486109e22",
+    ];
+    fs.writeFileSync(sessionFile, `${ids.join("\n")}\n`);
+    for (const id of ids) fs.writeFileSync(`${sessionFile}.${id}.name`, "task name");
+
+    try {
+      const writes: string[] = [];
+      const result = finishOpenSession("reviewer", sessionFile, (text) => {
+        writes.push(text);
+      });
+
+      expect(result).toBe(ids[1]);
+      expect(writes.join("")).toContain(`codedeck open reviewer --resume ${ids[1]}`);
+      expect(fs.existsSync(sessionFile)).toBe(false);
+      for (const id of ids) expect(fs.existsSync(`${sessionFile}.${id}.name`)).toBe(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   // Off-tty Claude skips its hint too, and without an id there is no hint on
   // either side, so escape codes would only pollute redirected output.
   it("skips the erase off-tty or without an id to offer", () => {
