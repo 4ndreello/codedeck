@@ -24,6 +24,8 @@ import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
+import { UsageLedger } from "../store/usage-ledger.js";
+import { workerSourceKey } from "../core/usage-source.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -82,6 +84,7 @@ class Daemon {
   private sessions: SessionStore;
   private events: EventStore;
   private claims: ClaimsStore;
+  private usageLedger: UsageLedger;
   private registry = getRegistry();
   private server?: net.Server;
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
@@ -118,6 +121,7 @@ class Daemon {
     this.sessions = new SessionStore(handle);
     this.events = new EventStore(handle);
     this.claims = new ClaimsStore(handle);
+    this.usageLedger = new UsageLedger(handle);
   }
 
   async start(): Promise<void> {
@@ -1263,7 +1267,7 @@ class Daemon {
           }
           if (inserted !== 0) {
             // Update session status based on event.
-            this.updateSessionFromEvent(sessionId, ev);
+            this.updateSessionFromEvent(sessionId, ev, inserted);
           }
           db.exec("COMMIT");
         } catch (error) {
@@ -1330,7 +1334,7 @@ class Daemon {
     if (!this.shuttingDown) void this.tryDispatch(sessionId);
   }
 
-  private updateSessionFromEvent(sessionId: string, ev: AgentEvent): void {
+  private updateSessionFromEvent(sessionId: string, ev: AgentEvent, sequence?: number): void {
     try {
       const current = this.sessions.get(sessionId);
       if (current?.status === "stopped" && (ev.type === "session.completed" || ev.type === "session.failed")) {
@@ -1352,7 +1356,20 @@ class Daemon {
         const sess = this.sessions.get(sessionId);
         if (sess) {
           const next = ev.usage || {};
-          if (ev.incremental) {
+          const currentSequence = sequence ?? (
+            this.db.getHandle().prepare(
+              `SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE session_id = ?`,
+            ).get(sessionId) as { sequence: number }
+          ).sequence;
+          const processOrdinal = this.db.getHandle().prepare(`
+            SELECT COUNT(*) AS count FROM events
+            WHERE session_id = ? AND type = 'session.started' AND sequence <= ?
+          `).get(sessionId, currentSequence) as { count: number };
+          const sourceKey = workerSourceKey(sess, Math.max(1, processOrdinal.count));
+          if (sourceKey && !ev.incremental) {
+            this.usageLedger.observe(sessionId, sourceKey, next);
+            if (next.model) this.sessions.update(sessionId, { model: next.model });
+          } else if (ev.incremental) {
             const cur = sess.usage || {};
             const inputTokens = (cur.inputTokens ?? 0) + (next.inputTokens ?? 0);
             const outputTokens = (cur.outputTokens ?? 0) + (next.outputTokens ?? 0);

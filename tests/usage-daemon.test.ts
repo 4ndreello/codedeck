@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { RequestMethod } from "../src/daemon/protocol.js";
+import { parseClaudeLine } from "../src/drivers/claude/parser.js";
+import { parseCodexLine } from "../src/drivers/codex/parser.js";
 import { fakeSocket, seed, seam } from "./helpers/daemon-seam.js";
 
 let runAgentDir: string;
@@ -34,6 +36,26 @@ async function request(method: RequestMethod, params: unknown): Promise<Record<s
     socket,
   );
   return JSON.parse(writes[0]);
+}
+
+async function feedLines(
+  sessionId: string,
+  lines: string[],
+  parse: (line: string, sessionId: string) => any[],
+  sourcePrefix: string,
+): Promise<void> {
+  let eventIndex = 0;
+  const driver = {
+    getOffsets: () => undefined,
+    async *events() {
+      for (const line of lines) {
+        for (const event of parse(line, sessionId)) {
+          yield { ...event, sourceKey: `${sourcePrefix}:${eventIndex++}` };
+        }
+      }
+    },
+  };
+  await (daemon as any).attachDriverEvents(sessionId, driver, {});
 }
 
 const createParams = (runId: unknown) => ({
@@ -76,6 +98,15 @@ describe("usage daemon methods", () => {
       activeSessionCount: 1,
       costComplete: true,
       sessionsWithoutCost: 0,
+      orchestrator: {
+        costUsd: 0,
+        costComplete: true,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        sources: [],
+      },
+      total: { costUsd: 0.5 },
     });
   });
 
@@ -117,52 +148,38 @@ describe("usage daemon methods", () => {
     expect(response.result.byAgent[0].key).toBe("codex");
   });
 
-  it("accumulates incremental usage events across steps", async () => {
-    const createResponse = await request("session.create", createParams("run-incremental"));
+  it("keeps cumulative usage updates at the source high-water mark", async () => {
+    const createResponse = await request("session.create", createParams("run-cumulative"));
     const created = createResponse.result.session;
 
     const daemonAny = daemon as any;
-    // Step 1
     daemonAny.updateSessionFromEvent(created.id, {
       type: "usage.updated",
       sessionId: created.id,
       timestamp: new Date().toISOString(),
-      incremental: true,
-      usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 50, cost: 0.01 },
+      usage: { inputTokens: 300, outputTokens: 40, cachedTokens: 10, cost: 0.02 },
     });
     let sess = seam(daemon!).sessions.get(created.id);
     expect(sess?.usage).toEqual({
-      inputTokens: 100,
-      outputTokens: 20,
-      cachedTokens: 50,
-      cost: 0.01,
+      inputTokens: 300,
+      outputTokens: 40,
+      cachedTokens: 10,
+      cost: 0.02,
     });
 
-    // Step 2
     daemonAny.updateSessionFromEvent(created.id, {
       type: "usage.updated",
       sessionId: created.id,
       timestamp: new Date().toISOString(),
-      incremental: true,
-      usage: { inputTokens: 200, outputTokens: 30, cachedTokens: 80, cost: 0.02 },
-    });
-    sess = seam(daemon!).sessions.get(created.id);
-    expect(sess?.usage?.inputTokens).toBe(300);
-    expect(sess?.usage?.outputTokens).toBe(50);
-    expect(sess?.usage?.cachedTokens).toBe(130);
-    expect(sess?.usage?.cost).toBeCloseTo(0.03, 5);
-
-    // Non-incremental event overwrites
-    daemonAny.updateSessionFromEvent(created.id, {
-      type: "usage.updated",
-      sessionId: created.id,
-      timestamp: new Date().toISOString(),
-      incremental: false,
       usage: { inputTokens: 500, outputTokens: 100, cachedTokens: 0, cost: 0.1 },
     });
     sess = seam(daemon!).sessions.get(created.id);
-    expect(sess?.usage?.inputTokens).toBe(500);
-    expect(sess?.usage?.outputTokens).toBe(100);
+    expect(sess?.usage).toEqual({
+      inputTokens: 500,
+      outputTokens: 100,
+      cachedTokens: 10,
+      cost: 0.1,
+    });
   });
 
   it("accumulates incremental events without cost and computes table cost on usage.get", async () => {
@@ -209,5 +226,43 @@ describe("usage daemon methods", () => {
     expect(usageResponse.result.costComplete).toBe(true);
     expect(usageResponse.result.sessionsWithoutCost).toBe(0);
   });
-});
 
+  it("adds cumulative Claude cost across processes and ignores replayed lines", async () => {
+    const sessionId = "claude-worker";
+    seed(daemon!, sessionId, "working", { agent: "claude", runId: "claude-run" });
+    const firstLines = fs.readFileSync(
+      path.join(process.cwd(), "tests/fixtures/usage/claude-process-1.jsonl"),
+      "utf-8",
+    ).trim().split("\n");
+    const secondLines = fs.readFileSync(
+      path.join(process.cwd(), "tests/fixtures/usage/claude-process-2.jsonl"),
+      "utf-8",
+    ).trim().split("\n");
+
+    await feedLines(sessionId, firstLines, parseClaudeLine, "claude-process-1");
+    expect(seam(daemon!).sessions.get(sessionId)?.usage?.cost).toBeCloseTo(0.46615920000000005);
+
+    await feedLines(sessionId, firstLines, parseClaudeLine, "claude-process-1");
+    expect(seam(daemon!).sessions.get(sessionId)?.usage?.cost).toBeCloseTo(0.46615920000000005);
+
+    await feedLines(sessionId, secondLines, parseClaudeLine, "claude-process-2");
+    expect(seam(daemon!).sessions.get(sessionId)?.usage?.cost).toBeCloseTo(0.6278055);
+  });
+
+  it("keeps the latest cumulative Codex thread token totals", async () => {
+    const sessionId = "codex-worker";
+    seed(daemon!, sessionId, "working", { agent: "codex", runId: "codex-run" });
+    const lines = fs.readFileSync(
+      path.join(process.cwd(), "tests/fixtures/usage/codex-thread.jsonl"),
+      "utf-8",
+    ).trim().split("\n");
+
+    await feedLines(sessionId, lines, parseCodexLine, "codex-thread");
+
+    expect(seam(daemon!).sessions.get(sessionId)?.usage).toMatchObject({
+      inputTokens: 10_891_738,
+      outputTokens: 611,
+      cachedTokens: 10_551_808,
+    });
+  });
+});
