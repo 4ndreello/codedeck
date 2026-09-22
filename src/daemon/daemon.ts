@@ -25,7 +25,8 @@ import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
 import { UsageLedger } from "../store/usage-ledger.js";
-import { workerSourceKey } from "../core/usage-source.js";
+import { openSourceKey, workerSourceKey } from "../core/usage-source.js";
+import { NativeLinkStore } from "../store/native-links.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -85,6 +86,7 @@ class Daemon {
   private events: EventStore;
   private claims: ClaimsStore;
   private usageLedger: UsageLedger;
+  private nativeLinks: NativeLinkStore;
   private registry = getRegistry();
   private server?: net.Server;
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
@@ -122,6 +124,7 @@ class Daemon {
     this.events = new EventStore(handle);
     this.claims = new ClaimsStore(handle);
     this.usageLedger = new UsageLedger(handle);
+    this.nativeLinks = new NativeLinkStore(handle);
   }
 
   async start(): Promise<void> {
@@ -541,6 +544,26 @@ class Daemon {
         this.sessions.update(s.id, updates);
         const updated = this.sessions.get(s.id)!;
         send({ result: { session: updated } });
+        break;
+      }
+
+      case "session.linkNative": {
+        const p = (params || {}) as { id?: unknown; nativeId?: unknown };
+        if (typeof p.id !== "string" || typeof p.nativeId !== "string" || p.nativeId.length === 0) {
+          send({ error: { code: "INVALID", message: "id and nativeId required" } });
+          return;
+        }
+        const session = this.sessions.get(p.id);
+        if (!session) {
+          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
+          return;
+        }
+        if (session.origin !== "open") {
+          send({ result: { created: false } });
+          return;
+        }
+        const { created } = this.nativeLinks.link(session.id, p.nativeId);
+        send({ result: { created } });
         break;
       }
 
@@ -981,13 +1004,46 @@ class Daemon {
       }
 
       case "usage.get": {
-        const p = (params || {}) as { runId?: unknown };
+        const p = (params || {}) as {
+          runId?: unknown;
+          observe?: { nativeId?: unknown; costUsd?: unknown };
+        };
         if (typeof p.runId !== "string" || p.runId.length === 0) {
           send({ error: { code: "INVALID", message: "runId required" } });
           return;
         }
+        if (p.observe !== undefined) {
+          const { nativeId, costUsd } = p.observe;
+          if (
+            typeof nativeId !== "string" ||
+            nativeId.length === 0 ||
+            typeof costUsd !== "number" ||
+            !Number.isFinite(costUsd) ||
+            costUsd < 0
+          ) {
+            send({ error: { code: "INVALID", message: "observe requires nativeId and a finite non-negative costUsd" } });
+            return;
+          }
+          const session = this.sessions.getByRunId(p.runId)
+            .find((candidate) => candidate.id === p.runId && candidate.origin === "open");
+          if (session) {
+            const db = this.db.getHandle();
+            db.exec("BEGIN");
+            try {
+              this.nativeLinks.link(session.id, nativeId);
+              this.usageLedger.observe(session.id, openSourceKey(nativeId), { cost: costUsd });
+              db.exec("COMMIT");
+            } catch (error) {
+              try { db.exec("ROLLBACK"); } catch {}
+              throw error;
+            }
+          }
+        }
         const sessions = this.sessions.getByRunId(p.runId);
-        send({ result: aggregateRunUsage(p.runId, sessions) });
+        const sessionIds = sessions.map((session) => session.id);
+        const attributions = this.usageLedger.attributionsFor(sessionIds);
+        const linkStates = this.nativeLinks.linksFor(sessionIds).map(({ sessionId, state }) => ({ sessionId, state }));
+        send({ result: aggregateRunUsage(p.runId, sessions, attributions, linkStates) });
         break;
       }
 
