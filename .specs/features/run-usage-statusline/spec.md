@@ -1,5 +1,7 @@
 # Uso agregado do run na statusline
 
+> Substituído em parte por `.specs/features/orchestrator-usage/spec.md` (seção "Supersedes"): a linha `open` no store, o formato de `usage <run-id> --json`, o registro do custo do orquestrador pela statusline e o preço de cached tokens no Codex.
+
 ## Goal
 
 O CodeDeck SHALL mostrar na statusline do Claude Code o custo local do orquestrador e o custo e os tokens agregados dos workers do run atual. A configuração SHALL pedir atualização em dois segundos, com degradação para atualização orientada a eventos quando a versão do Claude Code não aceitar essa configuração.
