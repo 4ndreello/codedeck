@@ -608,7 +608,19 @@ describe("formatPane", () => {
 
 describe("paneButtonLabel", () => {
   it("shows only the workers that are working now", () => {
-    expect(paneButtonLabel(snapshot({ total: 3 }))).toBe("1 working");
+    expect(paneButtonLabel(snapshot({ total: 3 }))).toBe("1 working \uE902");
+  });
+
+  it("appends one brand glyph for each live worker", () => {
+    const live = snapshot({
+      rows: [
+        { id: "a1", status: "working", agent: "codex", name: "alpha" },
+        { id: "b2", status: "starting", agent: "claude", name: "beta" },
+        { id: "c3", status: "completed", agent: "opencode", name: "gamma" },
+      ],
+      total: 4,
+    });
+    expect(paneButtonLabel(live)).toBe("2 working \uEC81\uEC82");
   });
 
   it("shows waiting workers when nobody is working", () => {
@@ -616,7 +628,7 @@ describe("paneButtonLabel", () => {
       rows: [{ id: "b2", status: "needs_input", agent: "claude", name: "beta" }],
       total: 2,
     });
-    expect(paneButtonLabel(waiting)).toBe("1 waiting for you");
+    expect(paneButtonLabel(waiting)).toBe("1 waiting for you \uEC82");
   });
 
   it("does not count finished workers", () => {
@@ -632,7 +644,7 @@ describe("paneButtonLabel", () => {
       rows: [{ id: "a1", status: "starting", agent: "codex", name: "alpha" }],
       total: 2,
     });
-    expect(paneButtonLabel(booting)).toBe("1 working");
+    expect(paneButtonLabel(booting)).toBe("1 working \uEC81");
   });
 
   it("shows an inactive run without its historical total", () => {

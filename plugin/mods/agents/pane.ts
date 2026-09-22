@@ -470,10 +470,14 @@ export function paneButtonLabel(snapshot: PaneSnapshot | undefined): string {
   if (!snapshot || typeof snapshot !== "object") return "agents";
   try {
     const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
-    const working = rows.filter((row) => LIVE.has(row?.status ?? "")).length;
-    if (working > 0) return `${working} working`;
-    const waiting = rows.filter((row) => WAIT.has(row?.status ?? "")).length;
-    return waiting > 0 ? `${waiting} waiting for you` : "no active agents";
+    const workingRows = rows.filter((row) => LIVE.has(row?.status ?? ""));
+    if (workingRows.length > 0) {
+      return `${workingRows.length} working ${workingRows.map((row) => glyph(row?.agent)).join("")}`;
+    }
+    const waitingRows = rows.filter((row) => WAIT.has(row?.status ?? ""));
+    return waitingRows.length > 0
+      ? `${waitingRows.length} waiting for you ${waitingRows.map((row) => glyph(row?.agent)).join("")}`
+      : "no active agents";
   } catch {
     return "agents";
   }
