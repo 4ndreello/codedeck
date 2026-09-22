@@ -60,6 +60,7 @@ export interface AdoptSessionRequest {
     worktree?: string;
     branch?: string;
     baseCommit?: string;
+    resume?: string;
   };
 }
 

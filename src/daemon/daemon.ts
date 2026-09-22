@@ -435,11 +435,6 @@ class Daemon {
           return;
         }
 
-        let sessionId = generateSessionId();
-        while (this.sessions.get(sessionId)) {
-          sessionId = generateSessionId();
-        }
-
         const cwd = path.resolve(cwdIn);
         let repository: string | undefined;
         let baseCommit = p.baseCommit;
@@ -449,6 +444,46 @@ class Daemon {
           send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
           return;
         }
+
+        const matchingSession = typeof p.resume === "string" && p.resume.length > 0
+          ? this.sessions.listOpenByNativeId(p.resume).find((session) => session.agent === agent)
+          : undefined;
+        if (
+          matchingSession &&
+          (isTerminalStatus(matchingSession.status) || !livePidIdentity(matchingSession))
+        ) {
+          const now = new Date();
+          this.sessions.setStatus(matchingSession.id, "working", {
+            ...(p.model !== undefined ? { model: p.model } : {}),
+            ...(p.effort !== undefined ? { effort: p.effort } : {}),
+            ...(p.name !== undefined ? { name: p.name } : {}),
+            ...(p.cwd !== undefined ? { cwd } : {}),
+            pid: null,
+            pidStartTime: null,
+            completedAt: null,
+            lastEvent: null,
+            failure: null,
+            updatedAt: now,
+          });
+          const revived = this.sessions.get(matchingSession.id)!;
+          const event: AgentEvent = {
+            type: "session.started",
+            sessionId: revived.id,
+            timestamp: now.toISOString(),
+            agent,
+            nativeSessionId: p.resume,
+          };
+          this.events.append(revived.id, event);
+          this.broadcast(revived.id, event);
+          send({ result: { session: revived } });
+          break;
+        }
+
+        let sessionId = generateSessionId();
+        while (this.sessions.get(sessionId)) {
+          sessionId = generateSessionId();
+        }
+
         if (gitInfo) {
           repository = gitInfo.root;
           if (!baseCommit) baseCommit = gitInfo.head;
