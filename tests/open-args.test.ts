@@ -548,7 +548,7 @@ describe("open command pure helpers", () => {
   });
 
   // Claude Code prints its own resume hint on exit with no way to turn it
-  // off, so the farewell erases those two rows first on a tty, leaving only
+  // off, so the farewell clears the hint from column zero on a tty, leaving only
   // the BYE resume line.
   it("erases Claude's own resume hint before signing off on a tty", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-test-"));
@@ -582,14 +582,14 @@ describe("open command pure helpers", () => {
       finishOpenSession("reviewer", sessionFile, (text) => {
         piped.push(text);
       }, false);
-      expect(piped.join("")).not.toContain("\x1b[2A");
+      expect(piped.join("")).not.toContain(CLAUDE_RESUME_ERASE);
 
       fs.writeFileSync(sessionFile, sessionId);
       const noId: string[] = [];
       finishOpenSession("reviewer", path.join(tempDir, "missing"), (text) => {
         noId.push(text);
       }, true);
-      expect(noId.join("")).not.toContain("\x1b[2A");
+      expect(noId.join("")).not.toContain(CLAUDE_RESUME_ERASE);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

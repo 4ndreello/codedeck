@@ -47,13 +47,8 @@ function vocab(entries: Record<string, string>): Record<string, string> {
   return Object.assign(Object.create(null) as Record<string, string>, entries);
 }
 
-const STATUS_DOT = vocab({
-  working: "●",
-  starting: "●",
-  needs_input: "◉",
-});
 const STATUS_WORD = vocab({
-  working: "Working now",
+  working: "Working",
   starting: "Starting",
   needs_input: "Waiting for you",
   completed: "Completed",
@@ -111,6 +106,8 @@ function toPaneRow(row: SessionRow): PaneRow {
     id: row.id,
     status: row.status || EMPTY_CELL,
     agent: row.agent || EMPTY_CELL,
+    model: text(row.model) || undefined,
+    effort: text(row.effort) || undefined,
     name: row.name || EMPTY_CELL,
     updatedAt: iso,
   };
@@ -133,7 +130,11 @@ export function selectPane(rows: SessionRow[], runId: string, budget?: number): 
     );
     const orchestratorRow = matching.find((row) => row.origin === "open");
     const orchestrator = orchestratorRow
-      ? { agent: text(orchestratorRow.agent) || EMPTY_CELL }
+      ? {
+          agent: text(orchestratorRow.agent) || EMPTY_CELL,
+          model: text(orchestratorRow.model) || undefined,
+          effort: text(orchestratorRow.effort) || undefined,
+        }
       : undefined;
     const workers = matching.filter((row) => row.origin !== "open");
     const ordered = [...workers].sort(compareRows);
@@ -179,16 +180,11 @@ function harnessLabel(agent: unknown): string {
   return HARNESS_LABEL[key] ?? cell(agent);
 }
 
-function dot(status: unknown): string {
-  return STATUS_DOT[text(status)] ?? "○";
-}
-
 function statusWord(status: unknown): string {
   return STATUS_WORD[text(status)] ?? cell(status);
 }
 
-function footerLegend(columns: number): [string, string] {
-  const fullStatus = " ● working  ◉ waiting  ○ finished";
+function footerLegend(columns: number): string {
   const fullHarness =
     " " +
     glyph("claude") +
@@ -199,15 +195,11 @@ function footerLegend(columns: number): [string, string] {
     " Codex  " +
     glyph("omp") +
     " OMP";
-  if (fullStatus.length <= columns - 2 && fullHarness.length <= columns - 2) {
-    return [fullStatus, fullHarness];
-  }
+  if (fullHarness.length <= columns - 2) return fullHarness;
 
-  const compactStatus = " ● wk  ◉ wait  ○ done";
   const iconHarness =
     " " + glyph("claude") + "  " + glyph("opencode") + "  " + glyph("codex") + "  " + glyph("omp");
-  if (compactStatus.length + 4 <= columns - 2) return [compactStatus, iconHarness];
-  return [" ● ◉ ○", iconHarness];
+  return iconHarness;
 }
 
 function age(iso: unknown, now: number): string {
@@ -215,13 +207,23 @@ function age(iso: unknown, now: number): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
   const minutes = Math.floor((now - then) / 60000);
-  if (minutes < 1) return "agora";
+  if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h`;
 }
 
 function count(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+function detailLine(model: unknown, effort: unknown, status: string, when: string, width: number): string {
+  const state = status ? `${status}${when ? ` · ${when}` : ""}` : "";
+  const suffix = [text(effort).trim() ? `${cell(effort)} effort` : "", state]
+    .filter(Boolean)
+    .join(" · ");
+  const modelWidth = width - 3 - suffix.length - (suffix ? 3 : 0);
+  const modelText = text(model).trim() && modelWidth > 0 ? fit(cell(model), modelWidth).trimEnd() : "";
+  return `   ${[modelText, suffix].filter(Boolean).join(" · ")}`;
 }
 
 // How old a row looks for eviction: an unparseable timestamp is the oldest
@@ -256,7 +258,7 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   );
   const orchestrator =
     source.orchestrator && typeof source.orchestrator === "object"
-      ? (source.orchestrator as Partial<{ agent: string }>)
+      ? (source.orchestrator as Partial<{ agent: string; model: string; effort: string }>)
       : undefined;
   const hidden = count(source.hidden);
   const total = count(source.total);
@@ -322,8 +324,11 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   if (orchestrator !== undefined) {
     blocks.push(
       cardBlock(Number.POSITIVE_INFINITY, "", [
-        ` ${glyph(orchestrator.agent)} ● Orchestrator`,
+        ` ${glyph(orchestrator.agent)} Orchestrator`,
         `   ${harnessLabel(orchestrator.agent)} · ${workerTotal} agents`,
+        ...(text(orchestrator.model).trim() || text(orchestrator.effort).trim()
+          ? [detailLine(orchestrator.model, orchestrator.effort, "", "", INNER)]
+          : []),
       ]),
     );
   }
@@ -337,9 +342,9 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
       const word = statusWord(status);
       blocks.push(
         cardBlock(rowAge(row.updatedAt), cell(row.id), [
-          ` ${glyph(row.agent)} ${dot(row.status)} ${cell(row.id)}  ${harnessLabel(row.agent)}`,
+          ` ${glyph(row.agent)} ${cell(row.id)}  ${harnessLabel(row.agent)}`,
           `   ${cell(row.name)}`,
-          when === "" ? `   ${word}` : `   ${word} · ${when}`,
+          detailLine(row.model, row.effort, word, when, INNER),
         ]),
       );
     }
@@ -373,8 +378,7 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   const stemAbove = (list: Block[], i: number): boolean =>
     i > 0 && (list[i].kind === "card" || list[i - 1].kind === "card");
 
-  // Rule 3: these ten lines are the frame. Whenever anything is drawn at all
-  // they are drawn, and they are never the lines that the fit cuts.
+  // These frame lines are always drawn when the pane has content.
   const head = [
     frameTop(`Run canvas ${cell(source.runId)}`),
     frameRow(` ${total} sessions · ${working} working`),
@@ -382,11 +386,9 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
     frameSep(),
     frameRow(""),
   ];
-  const [statusLegend, harnessLegend] = footerLegend(W);
+  const harnessLegend = footerLegend(W);
   const tail = [
-    frameRow(""),
     frameSep(),
-    frameRow(statusLegend),
     frameRow(harnessLegend),
     frameBot(),
   ];
@@ -433,6 +435,10 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   if (hiddenTotal > 0) {
     if (kept.length > 0 && kept[kept.length - 1].kind === "card") out.push(stem(), hiddenRow);
     else out.push(hiddenRow);
+  }
+  if (limit !== undefined) {
+    const spare = limit - out.length - tail.length;
+    for (let i = 0; i < spare; i += 1) out.push(frameRow(""));
   }
   out.push(...tail);
   return out;

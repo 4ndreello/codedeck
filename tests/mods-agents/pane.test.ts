@@ -175,9 +175,9 @@ describe("formatPane", () => {
   it("keeps a compact history preview when rows is not a usable number (rule 2)", () => {
     const snap = workerFixture();
     const wide = formatPane(snap, 89);
-    // 10 frame + the live card + its stem + the five-line history section
+    // 8 frame + the live card + its stem + the five-line history section
     // and its stem. The 18 finished workers no longer get one line each.
-    expect(wide).toHaveLength(21);
+    expect(wide).toHaveLength(19);
     expect(wide.some((l) => l.includes("hidden agents"))).toBe(false);
     expect(wide.join("\n")).toContain("HISTORY · 18 finished");
     expect(wide.join("\n")).toContain("a01");
@@ -188,8 +188,8 @@ describe("formatPane", () => {
     expect(formatPane(snap, 89, Number.POSITIVE_INFINITY)).toEqual(wide);
     expect(formatPane(snap, 89, "44" as unknown as number)).toEqual(wide);
     // A shorter pane keeps the live card and drops the history first.
-    const short = formatPane(snap, 89, 20);
-    expect(short.length).toBeLessThanOrEqual(20);
+    const short = formatPane(snap, 89, 16);
+    expect(short.length).toBeLessThanOrEqual(16);
     expect(short.join("\n")).toContain("w1");
     expect(short.join("\n")).not.toContain("a01");
   });
@@ -204,15 +204,14 @@ describe("formatPane", () => {
       expect(lines[2]).toContain("finished");
       expect(lines[3]).toMatch(/^├─/);
       expect(lines[lines.length - 1]).toMatch(/^└─/);
-      expect(lines[lines.length - 3]).toContain("● working");
       expect(lines[lines.length - 2]).toContain("\uEC82 Claude");
-      expect(lines[lines.length - 4]).toMatch(/^├─/);
+      expect(lines[lines.length - 3]).toMatch(/^├─/);
     }
   });
 
   it("draws live rows as cards and groups finished rows in history (rule 4)", () => {
     const rows: PaneRow[] = [
-      { id: "k1", status: "working", agent: "opencode", name: "k-live" },
+      { id: "k1", status: "working", agent: "opencode", model: "gpt-6-luna", effort: "max", name: "k-live" },
       { id: "k2", status: "needs_input", agent: "claude", name: "k-wait" },
       { id: "k3", status: "starting", agent: "codex", name: "k-boot" },
       { id: "k4", status: "completed", agent: "claude", name: "k-done" },
@@ -220,7 +219,9 @@ describe("formatPane", () => {
       { id: "k6", status: "weird", agent: "opencode", name: "k-odd" },
     ];
     const joined = formatPane(snapshot({ rows, hidden: 0, total: 7 }), 89).join("\n");
-    expect(joined).toContain("Working now");
+    expect(joined).toContain("Working");
+    expect(joined).toContain("gpt-6-luna · max effort · Working");
+    expect(joined).not.toContain("\uE902 ● k1");
     expect(joined).toContain("Waiting for you");
     expect(joined).toContain("Starting");
     expect(joined).not.toContain("Completed");
@@ -236,8 +237,6 @@ describe("formatPane", () => {
     expect(wide[wide.length - 2]).toContain("\uEC82 Claude  \uE902 OpenCode  \uEC81 Codex  \uE903 OMP");
 
     const narrow = formatPane(snapshot(), 24);
-    expect(narrow[narrow.length - 3]).toContain("● ◉ ○");
-    expect(narrow[narrow.length - 3]).not.toContain("working");
     expect(narrow[narrow.length - 2]).toContain("\uEC82  \uE902  \uEC81  \uE903");
     expect(narrow[narrow.length - 2]).not.toContain("Claude");
   });
@@ -251,20 +250,20 @@ describe("formatPane", () => {
     ];
     const snap = snapshot({ rows, orchestrator: undefined, hidden: 0, total: 4 });
     // The history section leaves as a unit, so both live cards remain visible.
-    const at24 = formatPane(snap, 40, 24);
-    expect(at24).toHaveLength(23);
-    expect(at24.join("\n")).toContain("wNew");
-    expect(at24.join("\n")).toContain("wOld");
-    expect(at24.join("\n")).not.toContain("cOld");
-    expect(at24.join("\n")).not.toContain("cNew");
-    expect(at24.join("\n")).toContain("+2 hidden agents");
-
-    // At 21 the live cards still win, and the hidden line gives way if needed.
     const at21 = formatPane(snap, 40, 21);
     expect(at21).toHaveLength(21);
     expect(at21.join("\n")).toContain("wNew");
     expect(at21.join("\n")).toContain("wOld");
-    expect(at21.join("\n")).not.toContain("hidden agents");
+    expect(at21.join("\n")).not.toContain("cOld");
+    expect(at21.join("\n")).not.toContain("cNew");
+    expect(at21.join("\n")).toContain("+2 hidden agents");
+
+    // At 20 the live cards still win, and the hidden line gives way.
+    const at20 = formatPane(snap, 40, 20);
+    expect(at20).toHaveLength(20);
+    expect(at20.join("\n")).toContain("wNew");
+    expect(at20.join("\n")).toContain("wOld");
+    expect(at20.join("\n")).not.toContain("hidden agents");
   });
 
   it("keeps history counts in the summary and reports dropped blocks when useful (rule 6)", () => {
@@ -276,8 +275,8 @@ describe("formatPane", () => {
     expect(unbounded.join("\n")).toContain("+2 earlier");
 
     // The history block represents all 18 finished workers, while the live
-    // card stays visible in a 20-row pane.
-    const fitted = formatPane(workerFixture(), 89, 20);
+    // card stays visible in a 16-row pane.
+    const fitted = formatPane(workerFixture(), 89, 16);
     expect(fitted.filter((l) => l.includes("hidden agents"))).toHaveLength(1);
     expect(fitted.join("\n")).toContain("+18 hidden agents");
     expect(fitted.join("\n")).toContain("w1");
@@ -292,7 +291,7 @@ describe("formatPane", () => {
 
   it("returns nothing when the height cannot hold the frame alone (rule 7)", () => {
     const snap = workerFixture();
-    expect(formatPane(snap, 89, 9)).toEqual([]);
+    expect(formatPane(snap, 89, 7)).toEqual([]);
     expect(formatPane(snap, 89, 0)).toEqual([]);
     expect(formatPane(snap, 89, -5)).toEqual([]);
     expect(formatPane(snap, 89, 10)).toHaveLength(10);
@@ -507,10 +506,9 @@ describe("formatPane", () => {
 
   it("renders 19 workers at 89x44 with a compact history section (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 44);
-    expect(lines).toHaveLength(21);
-    expect(lines[20]).toBe("└" + "─".repeat(87) + "┘");
-    expect(lines[18]).toContain("● working");
-    expect(lines[19]).toContain("\uEC82 Claude");
+    expect(lines).toHaveLength(44);
+    expect(lines[43]).toBe("└" + "─".repeat(87) + "┘");
+    expect(lines[42]).toContain("\uEC82 Claude");
     expect(lines.some((l) => l.includes("19 sessions"))).toBe(true);
     expect(lines.some((l) => l.includes("1 working"))).toBe(true);
     expect(lines.some((l) => l.includes("0 waiting for you"))).toBe(true);
@@ -533,10 +531,10 @@ describe("formatPane", () => {
     expect(drawn).toBe(4);
   });
 
-  it("keeps the live worker when the 89x20 pane drops history (mandatory)", () => {
-    const lines = formatPane(workerFixture(), 89, 20);
-    expect(lines).toHaveLength(17);
-    expect(lines[16]).toBe("└" + "─".repeat(87) + "┘");
+  it("keeps the live worker when the 89x16 pane drops history (mandatory)", () => {
+    const lines = formatPane(workerFixture(), 89, 16);
+    expect(lines).toHaveLength(16);
+    expect(lines[15]).toBe("└" + "─".repeat(87) + "┘");
     const joined = lines.join("\n");
     expect(joined).toContain("w1");
     expect(joined).toContain("+18 hidden agents");
@@ -572,7 +570,7 @@ describe("formatPane", () => {
     const lines = formatPane(snapshot({ orchestrator: undefined, rows, hidden: 0, total: 3 }), 89);
     // The history block is the root, so there is nothing above it to hang a
     // stem from.
-    expect(lines).toHaveLength(14);
+    expect(lines).toHaveLength(12);
     expect(lines.filter((l) => l === STEM89)).toHaveLength(0);
     expect(lines[5]).toContain("HISTORY · 3 finished");
   });
@@ -586,21 +584,20 @@ describe("formatPane", () => {
     expect(joined16).toContain("+2 hidden agents");
     expect(joined16).not.toContain("a1");
     expect(joined16).not.toContain("b2");
-    // One row tighter still keeps the root, but the hidden line gives way.
-    const at15 = formatPane(snapshot(), 40, 15);
-    expect(at15).toHaveLength(14);
-    const joined15 = at15.join("\n");
-    expect(joined15).toContain("Orchestrator");
-    expect(joined15).not.toContain("hidden agents");
+    // At 13 rows the root stays, but the hidden line gives way.
+    const at13 = formatPane(snapshot(), 40, 13);
+    expect(at13).toHaveLength(13);
+    const joined13 = at13.join("\n");
+    expect(joined13).toContain("Orchestrator");
+    expect(joined13).not.toContain("hidden agents");
   });
 
   it("renders the same 19 workers at 12 rows as header, footer and hidden line (mandatory)", () => {
     const lines = formatPane(workerFixture(), 89, 12);
-    expect(lines).toHaveLength(11);
-    expect(lines[10]).toBe("└" + "─".repeat(87) + "┘");
+    expect(lines).toHaveLength(12);
+    expect(lines[11]).toBe("└" + "─".repeat(87) + "┘");
     expect(lines.some((l) => l.includes("19 sessions"))).toBe(true);
     expect(lines.some((l) => l.includes("18 finished"))).toBe(true);
-    expect(lines.some((l) => l.includes("● working"))).toBe(true);
     expect(lines.some((l) => l.includes("+19 hidden agents"))).toBe(true);
     for (const worker of ["w1", "a01", "a18"]) expect(lines.join("\n")).not.toContain(worker);
   });

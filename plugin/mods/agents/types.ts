@@ -13,6 +13,8 @@ export interface SessionRow {
   origin?: string | null;
   name?: string;
   agent?: string;
+  model?: string;
+  effort?: string;
   status?: string;
   updatedAt?: string;
 }
@@ -26,6 +28,8 @@ export interface PaneRow {
   id: string;
   status: string;
   agent: string;
+  model?: string;
+  effort?: string;
   name: string;
   updatedAt?: string;
 }
@@ -34,7 +38,7 @@ export interface PaneRow {
 export interface PaneSnapshot {
   runId: string;
   /** The orchestrator's own row, the only one whose origin is "open". */
-  orchestrator: { agent: string } | undefined;
+  orchestrator: { agent: string; model?: string; effort?: string } | undefined;
   rows: PaneRow[];
   /** Rows that matched the run but fell outside the budget. */
   hidden: number;
