@@ -79,9 +79,10 @@ export class UsageLedger {
     for (const field of fields) {
       const observed = obs[field.observation];
       if (observed === undefined) continue;
-      const mark = source[field.source] ?? 0;
+      const storedMark = source[field.source];
+      const mark = storedMark ?? 0;
       const delta = observed - mark;
-      if (delta <= 0) continue;
+      if (delta < 0 || (delta === 0 && storedMark !== null)) continue;
       deltas[field.attribution] = delta;
       sourceUpdates.push(`${field.source} = ?`);
       sourceValues.push(observed);

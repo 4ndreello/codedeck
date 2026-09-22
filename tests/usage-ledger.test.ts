@@ -281,6 +281,37 @@ describe("UsageLedger", () => {
     });
   });
 
+  it("records a first zero-valued observation as known usage", () => {
+    withLedger((db, ledger, sessions) => {
+      sessions.create(makeSession("zero-cost", "/tmp"));
+
+      expect(ledger.observe("zero-cost", "free-source", { cost: 0 })).toBe(true);
+      expect(sourceFor(db, "free-source")).toEqual({
+        cost: 0,
+        input_tokens: null,
+        output_tokens: null,
+        cached_tokens: null,
+      });
+      expect(ledger.attributionsFor(["zero-cost"])).toEqual([{
+        sessionId: "zero-cost",
+        sourceKey: "free-source",
+        cost: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+      }]);
+      expect(usageFor(db, "zero-cost")).toEqual({
+        usage_input_tokens: 0,
+        usage_output_tokens: 0,
+        usage_cached_tokens: 0,
+        usage_cost: 0,
+      });
+
+      expect(ledger.observe("zero-cost", "free-source", { cost: 0 })).toBe(false);
+      expect(ledger.attributionsFor(["zero-cost"])[0].cost).toBe(0);
+    });
+  });
+
   it("seeds existing usage once before applying a new source", () => {
     withLedger((db, ledger, sessions) => {
       sessions.create(makeSession("seeded", "/tmp", {
