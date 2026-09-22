@@ -63,6 +63,7 @@ export async function fetchUsageQuery(params: UsageQueryParams): Promise<UsageQu
         byModel: [],
         byAgent: [],
         byRun: [],
+        byOrigin: [],
       };
     }
 

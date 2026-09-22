@@ -208,6 +208,7 @@ export interface UsageQueryResult {
   byModel: UsageMetricBucket[];
   byAgent: UsageMetricBucket[];
   byRun: UsageMetricBucket[];
+  byOrigin: UsageMetricBucket[];
 }
 
 export interface QueryUsageRequest {

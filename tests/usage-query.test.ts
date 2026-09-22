@@ -46,6 +46,7 @@ describe("SessionStore.queryUsage", () => {
     expect(result.totals.costComplete).toBe(true);
     expect(result.byDay).toEqual([]);
     expect(result.byRepository).toEqual([]);
+    expect(result.byOrigin).toEqual([]);
   });
 
   it("aggregates tokens, calculated costs, and reported costs accurately", () => {
@@ -88,6 +89,39 @@ describe("SessionStore.queryUsage", () => {
     expect(result.byRepository.length).toBe(1);
     expect(result.byRepository[0].key).toBe("codedeck");
     expect(result.byRepository[0].sessionCount).toBe(2);
+  });
+
+  it("includes orchestrator costs and groups open, NULL, and other origins", () => {
+    store.create(
+      makeSession("open", {
+        origin: "open",
+        agent: "claude",
+        usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 10, cost: 0.7 },
+      }),
+    );
+    store.create(
+      makeSession("codex", {
+        origin: null,
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 900_000 },
+      }),
+    );
+    store.create(
+      makeSession("other-worker", {
+        origin: "run",
+        agent: "omp",
+        usage: { cost: 0.25 },
+      }),
+    );
+
+    const result = store.queryUsage({ period: "all" });
+    const orchestrator = result.byOrigin.find((bucket) => bucket.key === "orchestrator");
+    const worker = result.byOrigin.find((bucket) => bucket.key === "worker");
+
+    expect(result.totals.costUsd).toBeCloseTo(1.95, 5);
+    expect(result.totals.sessionCount).toBe(3);
+    expect(orchestrator).toMatchObject({ sessionCount: 1, costUsd: 0.7 });
+    expect(worker).toMatchObject({ sessionCount: 2, costUsd: 1.25 });
   });
 
   it("marks costComplete as false when encountering unpriced models without reported cost", () => {

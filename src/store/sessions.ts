@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type Session, type SessionStatus, type AgentId, isActiveStatus } from "../core/session.js";
 import type { FailureInfo } from "../core/errors.js";
-import { computeSessionCost } from "../core/pricing.js";
+import { cachedInInputFor, computeSessionCost } from "../core/pricing.js";
 import type { UsageQueryParams, UsageQueryResult, UsageMetricBucket, UsageTotals } from "../daemon/protocol.js";
 
 export interface SessionRow {
@@ -310,7 +310,7 @@ export class SessionStore {
         id, run_id, name, agent, model, status,
         repository, cwd, worktree,
         created_at, updated_at, completed_at,
-        usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost
+        usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost, origin
       FROM sessions
       WHERE created_at >= ? AND created_at <= ?
       ORDER BY created_at ASC
@@ -331,6 +331,7 @@ export class SessionStore {
       usage_output_tokens: number | null;
       usage_cached_tokens: number | null;
       usage_cost: number | null;
+      origin: string | null;
     }>;
 
     const totals: UsageTotals = {
@@ -352,6 +353,7 @@ export class SessionStore {
     const byModelMap = new Map<string, UsageMetricBucket>();
     const byAgentMap = new Map<string, UsageMetricBucket>();
     const byRunMap = new Map<string, UsageMetricBucket>();
+    const byOriginMap = new Map<string, UsageMetricBucket>();
 
     const repoFilter = params.repository?.toLowerCase();
     const modelFilter = params.model?.toLowerCase();
@@ -375,6 +377,7 @@ export class SessionStore {
 
       const cost = computeSessionCost({
         model: row.model,
+        cachedInInput: cachedInInputFor(row.agent),
         reportedCost: row.usage_cost,
         usage: { inputTokens, outputTokens, cachedTokens },
       });
@@ -443,6 +446,8 @@ export class SessionStore {
       if (row.run_id) {
         accumulate(byRunMap, row.run_id, row.name ? `${row.name} (${row.run_id.slice(0, 8)})` : row.run_id.slice(0, 8));
       }
+
+      accumulate(byOriginMap, row.origin === "open" ? "orchestrator" : "worker");
     }
 
     const sortDescending = (a: UsageMetricBucket, b: UsageMetricBucket) => {
@@ -455,6 +460,7 @@ export class SessionStore {
     const byModel = [...byModelMap.values()].sort(sortDescending);
     const byAgent = [...byAgentMap.values()].sort(sortDescending);
     const byRun = [...byRunMap.values()].sort(sortDescending);
+    const byOrigin = [...byOriginMap.values()].sort(sortDescending);
 
     return {
       range: {
@@ -468,6 +474,7 @@ export class SessionStore {
       byModel,
       byAgent,
       byRun,
+      byOrigin,
     };
   }
 }
