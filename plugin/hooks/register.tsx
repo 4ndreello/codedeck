@@ -125,20 +125,15 @@ export const register: Register = (on) => {
       description: "toggle the codedeck agents pane",
       immediate: true,
     });
-    // Only open when there is actually a run behind the pane. A session that
-    // loads this plugin by manual --plugin-dir or a global install has no
-    // CODEDECK_RUN_ID, and the dock there is permanently empty while eating
-    // most of the screen for the whole session. /band stays the escape hatch
-    // for anyone who wants the pane anyway.
+    // Only show the button when there is actually a run behind the pane. A
+    // session that loads this plugin by manual --plugin-dir or a global
+    // install has no CODEDECK_RUN_ID, and its dock stays empty. /band remains
+    // available for anyone who wants to open it anyway.
     const runId = await $.env.get("CODEDECK_RUN_ID");
     state.hasRun = Boolean(runId);
     if (runId) {
-      // No width is requested: the engine sizes the dock itself and reports
-      // the usable content back as e.props.bodyColumns on every render.
-      await $.ui.open({ id: PANE_ID, side: "right" });
-      paneOpen = true;
-      // Populate before the first turn, or the pane stays blank through the
-      // whole opening exchange, which is exactly when the run is dispatched.
+      // Prime the button label without taking screen space when the session
+      // starts. The panel opens only on an explicit button press or /band.
       void refresh($, state);
     }
     return next(e);
@@ -152,6 +147,7 @@ export const register: Register = (on) => {
     // pane desyncing for the rest of the session.
     paneOpen = await toggleAgentsPane($, paneOpen);
     await $.ui.invalidate("ui.render");
+    if (paneOpen) void refresh($, state);
     return { text: paneOpen ? "agents pane open" : "agents pane closed" };
   });
 
