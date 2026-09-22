@@ -112,6 +112,13 @@ export async function readTranscriptUsage(file: string): Promise<TranscriptUsage
 
     if (parsed.type !== "assistant" || !isRecord(parsed.message) || !isRecord(parsed.message.usage)) continue;
 
+    const usage = parsed.message.usage;
+    const inputTokens = tokenCount(usage.input_tokens);
+    const outputTokens = tokenCount(usage.output_tokens);
+    const cacheReadTokens = tokenCount(usage.cache_read_input_tokens);
+    const cacheCreationTokens = tokenCount(usage.cache_creation_input_tokens);
+    if (inputTokens === 0 && outputTokens === 0 && cacheReadTokens === 0 && cacheCreationTokens === 0) continue;
+
     const messageId = parsed.message.id;
     const requestId = parsed.requestId;
     if (messageId != null && requestId != null) {
@@ -122,10 +129,9 @@ export async function readTranscriptUsage(file: string): Promise<TranscriptUsage
 
     const model = typeof parsed.message.model === "string" ? parsed.message.model : undefined;
     const totals = usageByModel.get(model) ?? emptyUsage();
-    const usage = parsed.message.usage;
-    totals.inputTokens += tokenCount(usage.input_tokens);
-    totals.outputTokens += tokenCount(usage.output_tokens);
-    totals.cachedTokens += tokenCount(usage.cache_read_input_tokens) + tokenCount(usage.cache_creation_input_tokens);
+    totals.inputTokens += inputTokens;
+    totals.outputTokens += outputTokens;
+    totals.cachedTokens += cacheReadTokens + cacheCreationTokens;
     usageByModel.set(model, totals);
   }
 

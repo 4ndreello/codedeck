@@ -58,6 +58,19 @@ describe("Claude transcript usage", () => {
     expect(usage).toMatchObject({ inputTokens: 25, outputTokens: 10, cachedTokens: 5 });
   });
 
+  it("ignores zero-token synthetic assistant lines when pricing fallback usage", async () => {
+    const usage = await readTranscriptUsage(fixturePath("synthetic.jsonl"));
+
+    expect(usage).toMatchObject({
+      state: "tokens",
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedTokens: 30,
+      model: "claude-opus-5",
+    });
+    expect(usage.cost).toBeCloseTo(0.005295, 12);
+  });
+
   it("finds a transcript in a direct project subdirectory and tolerates missing paths", () => {
     const projectsDir = makeTempDir();
     const projectDir = path.join(projectsDir, "-tmp-project");
@@ -75,9 +88,9 @@ describe("Claude transcript usage", () => {
     const file = path.join(dir, "large.jsonl");
     try {
       const stream = createWriteStream(file);
-      const segment = "x".repeat(4 * 1024 * 1024);
+      const segment = "x".repeat(64 * 1024);
 
-      for (let index = 0; index < 13; index += 1) {
+      for (let index = 0; index < 820; index += 1) {
         if (!stream.write(`{\"type\":\"ignored\",\"data\":\"${segment}\"}\n`)) {
           await once(stream, "drain");
         }
@@ -87,10 +100,23 @@ describe("Claude transcript usage", () => {
       await finished;
       expect(fs.statSync(file).size).toBeGreaterThan(50 * 1024 * 1024);
 
-      const heapBefore = process.memoryUsage().heapUsed;
-      await readTranscriptUsage(file);
-      const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
-      expect(heapGrowth).toBeLessThan(50 * 1024 * 1024);
+      const memoryBefore = process.memoryUsage();
+      let peakHeapUsed = memoryBefore.heapUsed;
+      let peakExternal = memoryBefore.external;
+      const originalParse = JSON.parse;
+      JSON.parse = ((...args: Parameters<typeof JSON.parse>) => {
+        const memory = process.memoryUsage();
+        peakHeapUsed = Math.max(peakHeapUsed, memory.heapUsed);
+        peakExternal = Math.max(peakExternal, memory.external);
+        return originalParse(...args);
+      }) as typeof JSON.parse;
+      try {
+        await readTranscriptUsage(file);
+      } finally {
+        JSON.parse = originalParse;
+      }
+      expect(peakHeapUsed - memoryBefore.heapUsed).toBeLessThan(50 * 1024 * 1024);
+      expect(peakExternal - memoryBefore.external).toBeLessThan(50 * 1024 * 1024);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
