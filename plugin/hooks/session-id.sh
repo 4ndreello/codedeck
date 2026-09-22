@@ -20,4 +20,4 @@ target=${CODEDECK_SESSION_FILE:-}
 id=$(grep -oE '"session_id":"[0-9a-fA-F-]+"' | head -1 | cut -d'"' -f4)
 [[ -n "$id" ]] || exit 0
 
-printf '%s' "$id" > "$target"
+printf '%s\n' "$id" >> "$target"
