@@ -5,6 +5,7 @@ import type { RunUsageSummary } from "../../core/run-usage.js";
 import type { AgentId } from "../../core/session.js";
 import type { UsagePeriod, UsageQueryParams, UsageQueryResult } from "../../daemon/protocol.js";
 import { getPaths } from "../../config/paths.js";
+import { SESSION_ID_PATTERN } from "../../open/runtime.js";
 import { Database } from "../../store/database.js";
 import { SessionStore, resolveUsageDateRange } from "../../store/sessions.js";
 import { renderSnapshot } from "../usage/snapshot.js";
@@ -23,15 +24,40 @@ export interface UsageCommandOptions {
   model?: string;
   agent?: string;
   run?: string;
-  by?: "day" | "repo" | "model" | "agent" | "run";
+  by?: "day" | "repo" | "model" | "agent" | "run" | "origin";
   tui?: boolean;
   watch?: boolean;
   interval?: string;
+  observe?: string;
+}
+
+function parseUsageObservation(value: string | undefined): { nativeId: string; costUsd: number } | undefined {
+  if (value === undefined) return undefined;
+  const separator = value.lastIndexOf("=");
+  if (separator <= 0 || separator === value.length - 1) return undefined;
+
+  const nativeId = value.slice(0, separator);
+  const costUsd = Number(value.slice(separator + 1));
+  if (!SESSION_ID_PATTERN.test(nativeId) || !Number.isFinite(costUsd) || costUsd < 0) return undefined;
+  return { nativeId, costUsd };
 }
 
 export function formatUsageSummary(summary: RunUsageSummary): string {
   const cost = `$${summary.costUsd.toFixed(2)}${summary.costComplete ? "" : "?"}`;
   return `Run ${summary.runId}: ${summary.sessionCount} sessions, ${summary.inputTokens} input / ${summary.outputTokens} output / ${summary.cachedTokens} cached tokens, cost ${cost}`;
+}
+
+function renderUsageSnapshot(
+  result: UsageQueryResult,
+  options: { plain: boolean; by: UsageCommandOptions["by"] },
+): string {
+  const { plain, by } = options;
+  if (by !== "origin") return renderSnapshot(result, { plain, by });
+  const rows = result.byOrigin.map((bucket) => {
+    const cost = `$${bucket.costUsd.toFixed(2)}${bucket.costComplete ? "" : "?"}`;
+    return `${bucket.key}: ${bucket.sessionCount} sessions, ${bucket.inputTokens} input / ${bucket.outputTokens} output / ${bucket.cachedTokens} cached tokens, cost ${cost}`;
+  });
+  return ["Usage by origin", ...rows].join("\n");
 }
 
 export async function fetchUsageQuery(params: UsageQueryParams): Promise<UsageQueryResult> {
@@ -92,7 +118,8 @@ export function registerUsageCommand(program: Command): void {
     .option("-c, --current", "filter by current working directory repository")
     .option("-m, --model <model>", "filter by model name")
     .option("-a, --agent <agent>", "filter by agent harness (e.g. codex, claude)")
-    .option("--by <dimension>", "group by dimension: day, repo, model, agent, run")
+    .option("--by <dimension>", "group by dimension: day, repo, model, agent, run, origin")
+    .option("--observe <nativeId=cost>", "report live orchestrator cost")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
     .option("--interval <seconds>", "refresh interval for --watch (default: 2)", "2")
@@ -114,7 +141,11 @@ export function registerUsageCommand(program: Command): void {
 
         let summary: RunUsageSummary;
         try {
-          summary = await client.request<RunUsageSummary>("usage.get", { runId: targetRunId });
+          const observe = parseUsageObservation(opts.observe);
+          summary = await client.request<RunUsageSummary>("usage.get", {
+            runId: targetRunId,
+            ...(observe ? { observe } : {}),
+          });
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
           process.exitCode = 3;
@@ -183,7 +214,7 @@ export function registerUsageCommand(program: Command): void {
         const intervalSec = Math.max(1, Number(opts.interval) || 2);
         const printLive = async () => {
           const res = await fetchUsageQuery(queryParams);
-          const snap = renderSnapshot(res, { plain: false, by: opts.by });
+          const snap = renderUsageSnapshot(res, { plain: false, by: opts.by });
           process.stdout.write(`\x1b[H\x1b[2J${snap}\n\n  \x1b[2mUpdating every ${intervalSec}s... (Ctrl+C to quit)\x1b[0m\n`);
         };
         await printLive();
@@ -210,7 +241,7 @@ export function registerUsageCommand(program: Command): void {
         console.log(JSON.stringify(result, null, 2));
       } else {
         const isPlain = opts.plain ?? !process.stdout.isTTY;
-        console.log(renderSnapshot(result, { plain: isPlain, by: opts.by }));
+        console.log(renderUsageSnapshot(result, { plain: isPlain, by: opts.by }));
       }
     });
 }
