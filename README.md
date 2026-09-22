@@ -126,7 +126,7 @@ Two things worth knowing before you edit an agent file. `--agent` layers on top 
 npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 ```
 
-`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, `--no-pty` opts out of the session naming itself, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults.
+`--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, `--no-pty` opts out of the session naming itself, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults. Interactive opens ask about a worktree when neither `--worktree` nor `--no-worktree` is set.
 
 ### What the session looks like
 
