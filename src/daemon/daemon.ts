@@ -27,6 +27,7 @@ import { aggregateRunUsage } from "../core/run-usage.js";
 import { UsageLedger } from "../store/usage-ledger.js";
 import { openSourceKey, workerSourceKey } from "../core/usage-source.js";
 import { NativeLinkStore } from "../store/native-links.js";
+import { findTranscript, readTranscriptUsage } from "../core/claude-transcript.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -320,6 +321,53 @@ class Daemon {
     }
   }
 
+  private async reconcileOpenUsage(sessionId: string, nativeIds?: readonly string[]): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.origin !== "open" || session.agent !== "claude") return;
+    const selectedIds = nativeIds === undefined ? undefined : new Set(nativeIds);
+
+    for (const link of this.nativeLinks.unreconciled(sessionId)) {
+      if (selectedIds && !selectedIds.has(link.nativeId)) continue;
+      const transcript = findTranscript(link.nativeId);
+      if (!transcript) {
+        this.nativeLinks.markReconciled(sessionId, link.nativeId, "missing");
+        continue;
+      }
+
+      const usage = await readTranscriptUsage(transcript);
+      const db = this.db.getHandle();
+      db.exec("BEGIN");
+      try {
+        this.usageLedger.observe(sessionId, openSourceKey(link.nativeId), {
+          cost: usage.cost,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedTokens: usage.cachedTokens,
+          model: usage.model,
+        });
+        this.nativeLinks.markReconciled(sessionId, link.nativeId, usage.state);
+        db.exec("COMMIT");
+      } catch (error) {
+        try { db.exec("ROLLBACK"); } catch {}
+        throw error;
+      }
+    }
+  }
+
+  private async reconcileOpenUsageSafely(sessionId: string, nativeIds?: readonly string[]): Promise<void> {
+    try {
+      await this.reconcileOpenUsage(sessionId, nativeIds);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      try {
+        fs.appendFileSync(
+          getPaths().daemonLog,
+          `[${new Date().toISOString()}] usage reconcile failed session=${sessionId}: ${detail}\n`,
+        );
+      } catch {}
+    }
+  }
+
   private async handleRequest(req: IpcRequest, socket: net.Socket): Promise<void> {
     const { id, method, params } = req;
     const send = (res: Omit<IpcResponse, "id">) => {
@@ -562,7 +610,8 @@ class Daemon {
           send({ result: { created: false } });
           return;
         }
-        const { created } = this.nativeLinks.link(session.id, p.nativeId);
+        const { created, previous } = this.nativeLinks.link(session.id, p.nativeId);
+        if (previous.length > 0) await this.reconcileOpenUsageSafely(session.id, previous);
         send({ result: { created } });
         break;
       }
@@ -602,6 +651,9 @@ class Daemon {
           extra.lastEvent = "released";
         }
         this.sessions.setStatus(s.id, targetStatus, extra);
+        if (s.origin === "open" && s.agent === "claude") {
+          await this.reconcileOpenUsageSafely(s.id);
+        }
 
         const ev: AgentEvent = targetStatus === "failed"
           ? {
@@ -1029,14 +1081,16 @@ class Daemon {
           if (session) {
             const db = this.db.getHandle();
             db.exec("BEGIN");
+            let previous: string[] = [];
             try {
-              this.nativeLinks.link(session.id, nativeId);
+              previous = this.nativeLinks.link(session.id, nativeId).previous;
               this.usageLedger.observe(session.id, openSourceKey(nativeId), { cost: costUsd });
               db.exec("COMMIT");
             } catch (error) {
               try { db.exec("ROLLBACK"); } catch {}
               throw error;
             }
+            if (previous.length > 0) await this.reconcileOpenUsageSafely(session.id, previous);
           }
         }
         const sessions = this.sessions.getByRunId(p.runId);

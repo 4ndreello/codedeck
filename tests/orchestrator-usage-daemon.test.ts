@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { RequestMethod } from "../src/daemon/protocol.js";
+import type { Session } from "../src/core/session.js";
 import { fakeSocket, makeTempDir, removeTempDir, seed, seam } from "./helpers/daemon-seam.js";
 
 let runAgentDir: string;
@@ -42,8 +42,21 @@ async function request(method: RequestMethod, params: unknown): Promise<Record<s
   return JSON.parse(writes[0]);
 }
 
-function seedOpen(id: string, extra: Record<string, unknown> = {}): void {
+function seedOpen(id: string, extra: Partial<Session> = {}): void {
   seed(daemon!, id, "working", { runId: id, origin: "open", agent: "claude", ...extra });
+}
+
+function transcriptFile(nativeId: string): string {
+  const projectDir = path.join(homeDir, ".claude", "projects", "fixture-project");
+  fs.mkdirSync(projectDir, { recursive: true });
+  return path.join(projectDir, `${nativeId}.jsonl`);
+}
+
+function installTranscript(nativeId: string, fixture: string): void {
+  fs.copyFileSync(
+    path.join(process.cwd(), "tests/fixtures/usage", fixture),
+    transcriptFile(nativeId),
+  );
 }
 
 describe("orchestrator usage daemon methods", () => {
@@ -130,5 +143,84 @@ describe("orchestrator usage daemon methods", () => {
     expect(missing.error?.code).toBe("SESSION_NOT_FOUND");
     expect(worker.result).toEqual({ created: false });
     expect((daemon as any).nativeLinks.linksFor(["worker-link-row"])).toEqual([]);
+  });
+
+  it("reconciles transcript high-water totals across two open rows", async () => {
+    const nativeId = "native-shared";
+    seedOpen("row-a");
+    seedOpen("row-b");
+
+    await request("session.linkNative", { id: "row-a", nativeId });
+    await request("usage.get", { runId: "row-a", observe: { nativeId, costUsd: 4 } });
+    await request("usage.get", { runId: "row-a", observe: { nativeId, costUsd: 3.5 } });
+    installTranscript(nativeId, "cost-state-10.jsonl");
+    const releasedA = await request("session.release", { id: "row-a" });
+    expect(releasedA.result.session.status).toBe("completed");
+
+    await request("session.linkNative", { id: "row-b", nativeId });
+    await request("usage.get", { runId: "row-b", observe: { nativeId, costUsd: 10 } });
+    await request("usage.get", { runId: "row-b", observe: { nativeId, costUsd: 12 } });
+    installTranscript(nativeId, "cost-state-15.jsonl");
+    await request("session.release", { id: "row-b" });
+
+    expect(seam(daemon!).sessions.get("row-a")?.usage).toMatchObject({
+      cost: 10,
+      inputTokens: 1000,
+      outputTokens: 200,
+      cachedTokens: 35,
+    });
+    expect(seam(daemon!).sessions.get("row-b")?.usage).toMatchObject({
+      cost: 5,
+      inputTokens: 500,
+      outputTokens: 100,
+      cachedTokens: 20,
+    });
+    const query = await request("usage.query", { period: "all" });
+    expect(query.result.byOrigin.find((bucket: { key: string }) => bucket.key === "orchestrator").costUsd)
+      .toBe(15);
+  });
+
+  it("reconciles an earlier linked id when another id is added", async () => {
+    seedOpen("row-relink");
+    installTranscript("native-x", "cost-state-3.jsonl");
+    await request("session.linkNative", { id: "row-relink", nativeId: "native-x" });
+
+    await request("session.linkNative", { id: "row-relink", nativeId: "native-y" });
+
+    expect(seam(daemon!).sessions.get("row-relink")?.usage?.cost).toBe(3);
+    expect((daemon as any).nativeLinks.linksFor(["row-relink"])).toMatchObject([
+      { nativeId: "native-x", state: "cost-state" },
+      { nativeId: "native-y", state: null },
+    ]);
+  });
+
+  it.each(["completed", "failed"] as const)(
+    "releases an open row as %s when its transcript is missing",
+    async (status) => {
+      const rowId = `row-missing-${status}`;
+      seedOpen(rowId);
+      await request("session.linkNative", { id: rowId, nativeId: `native-missing-${status}` });
+
+      const response = await request("session.release", { id: rowId, status });
+
+      expect(response.result.session.status).toBe(status);
+      expect(seam(daemon!).sessions.get(rowId)?.usage).toBeUndefined();
+      expect((daemon as any).nativeLinks.linksFor([rowId])).toMatchObject([
+        { state: "missing" },
+      ]);
+    },
+  );
+
+  it("logs transcript read errors and still replies to release", async () => {
+    seedOpen("row-reader-error");
+    await request("session.linkNative", { id: "row-reader-error", nativeId: "native-reader-error" });
+    fs.mkdirSync(transcriptFile("native-reader-error"));
+
+    const response = await request("session.release", { id: "row-reader-error" });
+
+    expect(response.result.session.status).toBe("completed");
+    expect(fs.readFileSync(path.join(runAgentDir, "daemon.log"), "utf-8"))
+      .toContain("usage reconcile failed session=row-reader-error");
+    expect((daemon as any).nativeLinks.unreconciled("row-reader-error")).toHaveLength(1);
   });
 });

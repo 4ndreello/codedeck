@@ -1,0 +1,1 @@
+{"type":"cost-state","totalCostUSD":10,"modelUsage":{"claude-sonnet-4-5":{"inputTokens":1000,"outputTokens":200,"cacheReadInputTokens":30,"cacheCreationInputTokens":5,"costUSD":10}}}
