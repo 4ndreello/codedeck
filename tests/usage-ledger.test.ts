@@ -21,6 +21,12 @@ interface SourceRow {
   cached_tokens: number | null;
 }
 
+interface CostInvariantRow {
+  source_key: string;
+  cost: number | null;
+  attributed_cost: number | null;
+}
+
 function withLedger(fn: (db: Database, ledger: UsageLedger, sessions: SessionStore) => void): void {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "usage-ledger-"));
   const db = new Database(path.join(dir, "test.db"));
@@ -29,9 +35,23 @@ function withLedger(fn: (db: Database, ledger: UsageLedger, sessions: SessionSto
   const sessions = new SessionStore(handle);
   try {
     fn(db, ledger, sessions);
+    expectCostInvariants(db);
   } finally {
     db.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function expectCostInvariants(db: Database): void {
+  const rows = db.getHandle().prepare(`
+    SELECT sources.source_key, sources.cost, SUM(attributions.cost) AS attributed_cost
+    FROM usage_sources AS sources
+    LEFT JOIN usage_attributions AS attributions ON attributions.source_key = sources.source_key
+    GROUP BY sources.source_key, sources.cost
+    ORDER BY sources.source_key
+  `).all() as unknown as CostInvariantRow[];
+  for (const row of rows) {
+    expect(row.attributed_cost, `cost attribution for ${row.source_key}`).toBe(row.cost);
   }
 }
 
@@ -312,7 +332,7 @@ describe("UsageLedger", () => {
     });
   });
 
-  it("seeds existing usage once before applying a new source", () => {
+  it("seeds existing usage onto an incoming source with no mark", () => {
     withLedger((db, ledger, sessions) => {
       sessions.create(makeSession("seeded", "/tmp", {
         inputTokens: 12,
@@ -326,37 +346,135 @@ describe("UsageLedger", () => {
         outputTokens: 4,
         model: "claude-opus-4-1",
       })).toBe(true);
-      expect(sourceFor(db, "seed:seeded")).toEqual({
+      expect(sourceFor(db, "next-process")).toEqual({
         cost: 0.75,
         input_tokens: 12,
-        output_tokens: 3,
+        output_tokens: 4,
         cached_tokens: 1,
       });
       expect(ledger.attributionsFor(["seeded"])).toEqual([
         {
           sessionId: "seeded",
           sourceKey: "next-process",
-          cost: null,
-          inputTokens: 2,
-          outputTokens: 4,
-          cachedTokens: 0,
-        },
-        {
-          sessionId: "seeded",
-          sourceKey: "seed:seeded",
           cost: 0.75,
           inputTokens: 12,
-          outputTokens: 3,
+          outputTokens: 4,
           cachedTokens: 1,
         },
       ]);
       expect(usageFor(db, "seeded")).toEqual({
-        usage_input_tokens: 14,
-        usage_output_tokens: 7,
+        usage_input_tokens: 12,
+        usage_output_tokens: 4,
         usage_cached_tokens: 1,
         usage_cost: 0.75,
       });
       expect(sessions.get("seeded")?.model).toBe("claude-opus-4-1");
+    });
+  });
+
+  it("seeds the incoming source mark before applying higher or lower cost", () => {
+    withLedger((db, ledger, sessions) => {
+      sessions.create(makeSession("upgrade-higher", "/tmp", { cost: 0.4 }));
+
+      expect(ledger.observe("upgrade-higher", "claude:process-1", { cost: 0.5 })).toBe(true);
+      expect(sourceFor(db, "claude:process-1")).toEqual({
+        cost: 0.5,
+        input_tokens: null,
+        output_tokens: null,
+        cached_tokens: null,
+      });
+      expect(ledger.attributionsFor(["upgrade-higher"])).toEqual([{
+        sessionId: "upgrade-higher",
+        sourceKey: "claude:process-1",
+        cost: 0.5,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+      }]);
+      expect(usageFor(db, "upgrade-higher")).toEqual({
+        usage_input_tokens: 0,
+        usage_output_tokens: 0,
+        usage_cached_tokens: 0,
+        usage_cost: 0.5,
+      });
+
+      sessions.create(makeSession("upgrade-lower", "/tmp", { cost: 0.4 }));
+      expect(ledger.observe("upgrade-lower", "claude:process-2", { cost: 0.3 })).toBe(false);
+      expect(sourceFor(db, "claude:process-2")).toEqual({
+        cost: 0.4,
+        input_tokens: null,
+        output_tokens: null,
+        cached_tokens: null,
+      });
+      expect(ledger.attributionsFor(["upgrade-lower"])).toEqual([{
+        sessionId: "upgrade-lower",
+        sourceKey: "claude:process-2",
+        cost: 0.4,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+      }]);
+      expect(usageFor(db, "upgrade-lower")).toEqual({
+        usage_input_tokens: null,
+        usage_output_tokens: null,
+        usage_cached_tokens: null,
+        usage_cost: 0.4,
+      });
+    });
+  });
+
+  it("keeps the seed source when the incoming source is already marked elsewhere", () => {
+    withLedger((db, ledger, sessions) => {
+      sessions.create(makeSession("existing-owner", "/tmp"));
+      sessions.create(makeSession("upgrade-seeded", "/tmp", { cost: 0.25 }));
+
+      expect(ledger.observe("existing-owner", "shared-process", { cost: 0.5 })).toBe(true);
+      expect(ledger.observe("upgrade-seeded", "shared-process", { cost: 0.75 })).toBe(true);
+
+      expect(sourceFor(db, "shared-process")).toEqual({
+        cost: 0.75,
+        input_tokens: null,
+        output_tokens: null,
+        cached_tokens: null,
+      });
+      expect(sourceFor(db, "seed:upgrade-seeded")).toEqual({
+        cost: 0.25,
+        input_tokens: null,
+        output_tokens: null,
+        cached_tokens: null,
+      });
+      expect(ledger.attributionsFor(["existing-owner", "upgrade-seeded"])).toEqual([
+        {
+          sessionId: "existing-owner",
+          sourceKey: "shared-process",
+          cost: 0.5,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+        },
+        {
+          sessionId: "upgrade-seeded",
+          sourceKey: "seed:upgrade-seeded",
+          cost: 0.25,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+        },
+        {
+          sessionId: "upgrade-seeded",
+          sourceKey: "shared-process",
+          cost: 0.25,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+        },
+      ]);
+      expect(usageFor(db, "upgrade-seeded")).toEqual({
+        usage_input_tokens: 0,
+        usage_output_tokens: 0,
+        usage_cached_tokens: 0,
+        usage_cost: 0.5,
+      });
     });
   });
 });

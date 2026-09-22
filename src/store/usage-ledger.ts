@@ -61,7 +61,7 @@ export class UsageLedger {
     `).get(sessionId) as SessionUsageRow | undefined;
     if (!session) throw new Error(`Session ${sessionId} not found`);
 
-    this.seedSessionUsage(sessionId, session);
+    this.seedSessionUsage(sessionId, sourceKey, session);
 
     const now = new Date().toISOString();
     this.db.prepare(`
@@ -132,7 +132,11 @@ export class UsageLedger {
     ).get(sourceKey) !== undefined;
   }
 
-  private seedSessionUsage(sessionId: string, session: SessionUsageRow): void {
+  private seedSessionUsage(
+    sessionId: string,
+    sourceKey: string,
+    session: SessionUsageRow,
+  ): void {
     const hasUsage = session.usage_input_tokens !== null ||
       session.usage_output_tokens !== null ||
       session.usage_cached_tokens !== null ||
@@ -144,7 +148,13 @@ export class UsageLedger {
     ).get(sessionId);
     if (attribution) return;
 
-    const sourceKey = `seed:${sessionId}`;
+    const existingSource = this.db.prepare(
+      `SELECT * FROM usage_sources WHERE source_key = ?`,
+    ).get(sourceKey) as unknown as UsageSourceRow | undefined;
+    const sourceHasMark = existingSource !== undefined && fields.some(
+      (field) => existingSource[field.source] !== null,
+    );
+    const attributionSourceKey = sourceHasMark ? `seed:${sessionId}` : sourceKey;
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO usage_sources (source_key, cost, input_tokens, output_tokens, cached_tokens, updated_at)
@@ -156,7 +166,7 @@ export class UsageLedger {
         cached_tokens = excluded.cached_tokens,
         updated_at = excluded.updated_at
     `).run(
-      sourceKey,
+      attributionSourceKey,
       session.usage_cost,
       session.usage_input_tokens,
       session.usage_output_tokens,
@@ -169,7 +179,7 @@ export class UsageLedger {
       ) VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       sessionId,
-      sourceKey,
+      attributionSourceKey,
       session.usage_cost,
       session.usage_input_tokens ?? 0,
       session.usage_output_tokens ?? 0,
