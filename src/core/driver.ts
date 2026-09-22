@@ -44,6 +44,7 @@ export interface StartOptions {
   sessionId: string;
   prompt: string;
   cwd: string;
+  runId?: string;
   model?: string;
   effort?: ReasoningEffort;
   // Claude's native compaction setting. Other drivers ignore this field.

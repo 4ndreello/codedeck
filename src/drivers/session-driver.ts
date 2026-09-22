@@ -84,6 +84,7 @@ export abstract class SessionDriver implements AgentDriver {
   protected getEnv?(_options: StartOptions): NodeJS.ProcessEnv | undefined;
 
   async start(options: StartOptions): Promise<DriverSession> {
+    const env = this.getEnv?.(options) ?? {};
     const runtime = SessionRuntime.spawn({
       sessionId: options.sessionId,
       cmd: this.getCommand(),
@@ -91,7 +92,10 @@ export abstract class SessionDriver implements AgentDriver {
       cwd: options.cwd,
       nativeSessionId: options.resumeSessionId,
       hooks: this.hooks,
-      env: this.getEnv?.(options),
+      env: {
+        ...env,
+        CODEDECK_RUN_ID: options.runId && options.runId.length > 0 ? options.runId : undefined,
+      },
     });
     this.handles.set(options.sessionId, runtime);
 
