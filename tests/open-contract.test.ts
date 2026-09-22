@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   effectiveModel,
@@ -12,6 +12,11 @@ import {
 } from "../src/open/contract.js";
 import type { HarnessModels } from "../src/core/models.js";
 import { resolvePluginDir } from "../src/core/roles.js";
+import { IpcClient } from "../src/daemon/ipc.js";
+import * as claudeLauncher from "../src/open/launchers/claude.js";
+import * as linkWatcher from "../src/open/link-watcher.js";
+import * as runtime from "../src/open/runtime.js";
+import { setupOpenHarness } from "./helpers/open-harness.js";
 
 const catalog = (models: string[]): HarnessModels => ({
   agent: "opencode",
@@ -26,6 +31,19 @@ const catalog = (models: string[]): HarnessModels => ({
 });
 
 const pluginDir = resolvePluginDir();
+const { runOpen } = setupOpenHarness({ prefix: "codedeck-open-link-contract-" });
+
+function runClaudeOpen(argv: string[]): Promise<void> {
+  const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+  if (!configDir) throw new Error("test config directory is missing");
+  fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
+    agents: { reviewer: { harness: "claude", model: "claude-sonnet-4-6", effort: "high" } },
+  }));
+  vi.spyOn(claudeLauncher, "preflightModel").mockResolvedValue(undefined);
+  vi.spyOn(claudeLauncher, "resolveBinary").mockResolvedValue("/bin/claude");
+  vi.spyOn(claudeLauncher, "assertSupport").mockResolvedValue(undefined);
+  return runOpen(argv);
+}
 
 afterEach(() => {
   delete process.env.CODEDECK_CLI_NAME;
@@ -202,5 +220,49 @@ describe("effectiveModel", () => {
 
   it("returns undefined when the passthrough carries no model", () => {
     expect(effectiveModel(["--add-dir", "other"])).toBeUndefined();
+  });
+});
+
+describe("open native session linking", () => {
+  it("links every sidecar id before releasing the Claude row", async () => {
+    const nativeId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    await runClaudeOpen(["reviewer", "--no-theme", "--no-worktree"]);
+
+    const [, , options] = vi.mocked(runtime.spawnHarness).mock.calls[0]!;
+    fs.writeFileSync(options.sessionFile, `${nativeId}\n`);
+    await options.onClose();
+
+    const lifecycleCalls = vi.mocked(IpcClient.prototype.request).mock.calls
+      .filter(([method]) => method === "session.linkNative" || method === "session.release");
+    expect(lifecycleCalls.map(([method]) => method)).toEqual([
+      "session.linkNative",
+      "session.release",
+    ]);
+    expect(lifecycleCalls[0]?.[1]).toEqual({ id: "0001", nativeId });
+  });
+
+  it("stops the watcher and releases the session when flush rejects", async () => {
+    const events: string[] = [];
+    const nativeWatcher = {
+      flush: vi.fn(async () => {
+        events.push("flush");
+        throw new Error("link failed");
+      }),
+      stop: vi.fn(() => {
+        events.push("stop");
+      }),
+    };
+    vi.spyOn(linkWatcher, "startLinkWatcher").mockReturnValue(nativeWatcher);
+    vi.mocked(runtime.finishOpenSession).mockImplementation(() => {
+      events.push("finish");
+    });
+
+    await runClaudeOpen(["reviewer", "--no-theme", "--no-worktree"]);
+    const [, , options] = vi.mocked(runtime.spawnHarness).mock.calls[0]!;
+    await options.onClose();
+
+    expect(events).toEqual(["flush", "stop", "finish"]);
+    expect(vi.mocked(IpcClient.prototype.request).mock.calls.map(([method]) => method))
+      .toContain("session.release");
   });
 });
