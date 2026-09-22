@@ -95,8 +95,9 @@ draws off the edge:
 Measured together in one 200 by 50 terminal: `bodyColumns` 89,
 `scroll.bodyRows` 44, `viewport` `{ columns: 110, rows: 50 }`.
 
-The pane draws from session start, as soon as one refresh has a snapshot. It
-does not wait for a turn.
+The first snapshot loads during session start, so the button can show agent
+status before the first turn. The pane stays closed until the button or `/band`
+opens it.
 
 ### Capitalized tags, resolved from the event
 
