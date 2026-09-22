@@ -90,7 +90,7 @@ describe("Claude transcript usage", () => {
       const stream = createWriteStream(file);
       const segment = "x".repeat(64 * 1024);
 
-      for (let index = 0; index < 820; index += 1) {
+      for (let index = 0; index < 1600; index += 1) {
         if (!stream.write(`{\"type\":\"ignored\",\"data\":\"${segment}\"}\n`)) {
           await once(stream, "drain");
         }
