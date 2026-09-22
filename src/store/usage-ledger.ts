@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { SessionStore } from "./sessions.js";
 
 export interface UsageObservation {
   cost?: number;
@@ -214,15 +215,15 @@ export class UsageLedger {
       output_tokens: number | null;
       cached_tokens: number | null;
     };
-    this.db.prepare(`
-      UPDATE sessions SET usage_input_tokens = ?, usage_output_tokens = ?,
-        usage_cached_tokens = ?, usage_cost = ? WHERE id = ?
-    `).run(
-      usage.input_tokens ?? 0,
-      usage.output_tokens ?? 0,
-      usage.cached_tokens ?? 0,
-      usage.cost,
-      sessionId,
-    );
+    new SessionStore(this.db).update(sessionId, {
+      usage: {
+        inputTokens: usage.input_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+        cachedTokens: usage.cached_tokens ?? 0,
+        ...(usage.cost === null ? {} : { cost: usage.cost }),
+      },
+    });
+    this.db.prepare(`UPDATE sessions SET usage_cost = ? WHERE id = ?`)
+      .run(usage.cost, sessionId);
   }
 }
