@@ -10,6 +10,7 @@ import { Database } from "../../store/database.js";
 import { SessionStore, resolveUsageDateRange } from "../../store/sessions.js";
 import { renderSnapshot } from "../usage/snapshot.js";
 import { runDashboard, type DashboardFetcher } from "../usage/dashboard.js";
+import { backfillUsage } from "./usage-backfill.js";
 
 export interface UsageCommandOptions {
   json?: boolean;
@@ -29,6 +30,7 @@ export interface UsageCommandOptions {
   watch?: boolean;
   interval?: string;
   observe?: string;
+  backfill?: boolean;
 }
 
 function parseUsageObservation(value: string | undefined): { nativeId: string; costUsd: number } | undefined {
@@ -120,12 +122,25 @@ export function registerUsageCommand(program: Command): void {
     .option("-a, --agent <agent>", "filter by agent harness (e.g. codex, claude)")
     .option("--by <dimension>", "group by dimension: day, repo, model, agent, run, origin")
     .option("--observe <nativeId=cost>", "report live orchestrator cost")
+    .option("--backfill", "import historical orchestrator usage")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
     .option("--interval <seconds>", "refresh interval for --watch (default: 2)", "2")
     .option("--plain", "output plain text table without ANSI colors")
     .option("--json", "output usage data as JSON")
     .action(async (runId: string | undefined, opts: UsageCommandOptions) => {
+      if (opts.backfill) {
+        try {
+          const summary = await backfillUsage();
+          if (opts.json) console.log(JSON.stringify(summary));
+          else console.log(`Usage backfill: imported ${summary.imported}, skipped ${summary.skipped}`);
+        } catch (error) {
+          console.error(`Failed to backfill usage: ${error instanceof Error ? error.message : String(error)}`);
+          process.exitCode = 3;
+        }
+        return;
+      }
+
       const targetRunId = opts.run ?? runId;
 
       // 1. Single-Run Branch (100% Backwards Compatible with statusline.sh)
