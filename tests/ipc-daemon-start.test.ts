@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -41,33 +42,47 @@ describe("IpcClient.ensureDaemonStarted", () => {
   });
 
   it("resolves within 50 ms after the socket starts accepting connections", async () => {
+    vi.useFakeTimers();
     const socketPath = path.join(tempDir, "daemon.sock");
-    const offsets = [5, 30, 55, 80, 105, 130];
+    const originalExistsSync = fs.existsSync.bind(fs);
+    const existsSync = vi.spyOn(fs, "existsSync").mockImplementation((file) =>
+      file === socketPath ? true : originalExistsSync(file),
+    );
+    let ready = false;
+    let readinessAt = 0;
+    let resolvedAt = 0;
+    let settled = false;
+    const createConnection = vi.spyOn(net, "createConnection").mockImplementation(((...args: unknown[]) => {
+      const socket = new EventEmitter() as EventEmitter & { end: () => void; destroy: () => void };
+      socket.end = vi.fn();
+      socket.destroy = vi.fn();
+      queueMicrotask(() => {
+        if (ready) (args[1] as () => void)();
+        else socket.emit("error", new Error("Daemon is not ready"));
+      });
+      return socket;
+    }) as typeof net.createConnection);
 
-    for (const [index, offset] of offsets.entries()) {
-      server = net.createServer();
-      const attemptServer = server;
-      let listeningAt = 0;
-      const started = new IpcClient().ensureDaemonStarted().then(() => Date.now());
-      const listening = new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          attemptServer.once("error", reject);
-          attemptServer.listen(socketPath, () => {
-            listeningAt = Date.now();
-            resolve();
-          });
-        }, offset);
+    try {
+      const started = new IpcClient().ensureDaemonStarted().then(() => {
+        resolvedAt = Date.now();
+        settled = true;
       });
 
-      const [resolvedAt] = await Promise.all([started, listening.then(() => undefined)]);
-      expect(resolvedAt - listeningAt).toBeLessThanOrEqual(50);
-      expect(spawn).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(createConnection).toHaveBeenCalledTimes(1);
+      expect(spawn).toHaveBeenCalledTimes(1);
+      ready = true;
+      readinessAt = Date.now();
+      await vi.advanceTimersByTimeAsync(50);
 
-      await new Promise<void>((resolve, reject) => {
-        attemptServer.close((error) => error ? reject(error) : resolve());
-      });
-      fs.rmSync(socketPath, { force: true });
-      server = undefined;
+      expect(settled).toBe(true);
+      expect(resolvedAt - readinessAt).toBeLessThanOrEqual(50);
+      expect(spawn).toHaveBeenCalledTimes(1);
+      await started;
+    } finally {
+      existsSync.mockRestore();
+      createConnection.mockRestore();
     }
   });
 
