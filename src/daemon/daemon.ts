@@ -116,6 +116,7 @@ class Daemon {
   private inhibitChild: ChildProcess | null = null;
   private inhibitExitHookInstalled = false;
   private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
+  private inFlightOpenUsageReconciliations = new Map<string, Promise<boolean>>();
   private liveTranscriptCursors = new Map<string, LiveTranscriptCursor>();
   private liveTranscriptQueues = new Map<string, Promise<void>>();
 
@@ -231,10 +232,24 @@ class Daemon {
 
   private queueOpenUsageReconciliation(sessionId: string, nativeIds: readonly string[]): void {
     const uniqueIds = [...new Set(nativeIds)];
-    if (uniqueIds.length === 0) return;
-    queueMicrotask(() => {
-      void this.reconcileOpenUsageSafely(sessionId, uniqueIds);
-    });
+    const keyFor = (nativeId: string) => JSON.stringify([sessionId, nativeId]);
+    const pendingIds = uniqueIds.filter((nativeId) =>
+      !this.inFlightOpenUsageReconciliations.has(keyFor(nativeId)));
+    if (pendingIds.length === 0) return;
+
+    const keys = pendingIds.map(keyFor);
+    const reconciliation = Promise.resolve().then(() =>
+      this.reconcileOpenUsageSafely(sessionId, pendingIds));
+    for (const key of keys) this.inFlightOpenUsageReconciliations.set(key, reconciliation);
+
+    const clearInFlight = () => {
+      for (const key of keys) {
+        if (this.inFlightOpenUsageReconciliations.get(key) === reconciliation) {
+          this.inFlightOpenUsageReconciliations.delete(key);
+        }
+      }
+    };
+    void reconciliation.then(clearInFlight, clearInFlight);
   }
 
   private async cleanupReleasedTranscriptCursors(sessionId: string): Promise<void> {

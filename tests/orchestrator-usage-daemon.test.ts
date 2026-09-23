@@ -909,7 +909,7 @@ describe("orchestrator usage daemon methods", () => {
     expect(seam(daemon!).sessions.get("row-live-restart")?.usage).toMatchObject({ inputTokens: 35, outputTokens: 14 });
   });
 
-  it("returns the live response before reconciling earlier linked ids", async () => {
+  it("deduplicates deferred earlier-id reconciliation while it is in flight", async () => {
     seedOpen("row-deferred-reconcile");
     await request("session.linkNative", { id: "row-deferred-reconcile", nativeId: "native-earlier-unreconciled" });
     const liveId = "native-current-live";
@@ -917,15 +917,17 @@ describe("orchestrator usage daemon methods", () => {
     fs.writeFileSync(file, `${assistantLine("message-current-live", "request-current-live", 9, 4)}\n`);
 
     const reconciliationStarted = deferred();
-    const finishReconciliation = deferred();
-    let reconciledSessionId: string | undefined;
-    let reconciledNativeIds: readonly string[] | undefined;
+    const finishFirstReconciliation = deferred();
+    const secondReconciliationStarted = deferred();
+    const reconciliations: Array<{ sessionId: string; nativeIds?: readonly string[] }> = [];
     const originalReconcile = (daemon as any).reconcileOpenUsageSafely.bind(daemon);
     (daemon as any).reconcileOpenUsageSafely = async (sessionId: string, nativeIds?: readonly string[]) => {
-      reconciledSessionId = sessionId;
-      reconciledNativeIds = nativeIds;
-      reconciliationStarted.resolve();
-      await finishReconciliation.promise;
+      reconciliations.push({ sessionId, nativeIds });
+      if (reconciliations.length === 1) {
+        reconciliationStarted.resolve();
+        await finishFirstReconciliation.promise;
+      }
+      if (reconciliations.length === 2) secondReconciliationStarted.resolve();
       return true;
     };
     try {
@@ -935,10 +937,34 @@ describe("orchestrator usage daemon methods", () => {
       });
       expect(response.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
       await reconciliationStarted.promise;
-      expect(reconciledSessionId).toBe("row-deferred-reconcile");
-      expect(reconciledNativeIds).toEqual(["native-earlier-unreconciled"]);
+      expect(reconciliations[0]).toEqual({
+        sessionId: "row-deferred-reconcile",
+        nativeIds: ["native-earlier-unreconciled"],
+      });
+
+      const secondResponse = await request("usage.get", {
+        runId: "row-deferred-reconcile",
+        transcript: { nativeId: liveId, path: file },
+      });
+      expect(secondResponse.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
+      expect(reconciliations).toHaveLength(1);
+
+      finishFirstReconciliation.resolve();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const thirdResponse = await request("usage.get", {
+        runId: "row-deferred-reconcile",
+        transcript: { nativeId: liveId, path: file },
+      });
+      expect(thirdResponse.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
+      await secondReconciliationStarted.promise;
+      expect(reconciliations).toHaveLength(2);
+      expect(reconciliations[1]).toEqual({
+        sessionId: "row-deferred-reconcile",
+        nativeIds: ["native-earlier-unreconciled"],
+      });
     } finally {
-      finishReconciliation.resolve();
+      finishFirstReconciliation.resolve();
       (daemon as any).reconcileOpenUsageSafely = originalReconcile;
     }
   });
