@@ -304,8 +304,11 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     element("setup-apply")?.addEventListener?.("click", () => { void apply(); });
   }
 
-  async function loadJson(path: string): Promise<{ response: SetupPageResponse; payload: Record<string, unknown> }> {
-    const response = await options.fetcher(path);
+  async function loadJson(
+    path: string,
+    init?: SetupPageFetchInit,
+  ): Promise<{ response: SetupPageResponse; payload: Record<string, unknown> }> {
+    const response = await options.fetcher(path, init);
     const payload = await response.json();
     return {
       response,
@@ -351,7 +354,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     update();
     refreshInFlight = (async () => {
       try {
-        const { response, payload } = await loadJson("/api/setup/catalog/refresh");
+        const { response, payload } = await loadJson("/api/setup/catalog/refresh", { method: "POST" });
         if (response.status === 403) {
           state.error = options.expiredMessage;
           return { ok: false, status: 403, payload };

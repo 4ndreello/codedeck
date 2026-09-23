@@ -146,6 +146,7 @@ describe("setup page selection", () => {
   it("shows discovery while refreshing and retains the previous catalog when discovery is unavailable", async () => {
     const { document, elements } = fakeDocument();
     let finishRefresh: ((value: SetupPageResponse) => void) | undefined;
+    const requests: Array<[string, string]> = [];
     const previousCatalog = {
       models: [{ agent: "codex", available: true, providers: [{ provider: "openai", models: [] }] }],
       status: "fresh" as const,
@@ -154,7 +155,10 @@ describe("setup page selection", () => {
       cacheWriteFailed: false,
     };
     const controller = createSetupPageController({
-      fetcher: async () => new Promise((resolve) => { finishRefresh = resolve; }),
+      fetcher: async (path, init) => {
+        requests.push([path, init?.method ?? "GET"]);
+        return new Promise((resolve) => { finishRefresh = resolve; });
+      },
       buildSelection: (values, bindings) => buildSetupSelection(values, bindings, {
         roles: ROLES,
         efforts: REASONING_EFFORTS,
@@ -179,6 +183,7 @@ describe("setup page selection", () => {
     }));
     await pending;
 
+    expect(requests).toEqual([["/api/setup/catalog/refresh", "POST"]]);
     expect(controller.state.catalog).toBe(previousCatalog);
     expect(controller.state.discoveryError).toBe("network discovery failed");
     expect(controller.state.refreshing).toBe(false);
