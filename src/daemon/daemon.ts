@@ -673,6 +673,9 @@ class Daemon {
         }
         this.sessions.setStatus(s.id, targetStatus, extra);
         if (s.origin === "open" && s.agent === "claude") {
+          if (typeof p.nativeSessionId === "string" && p.nativeSessionId.length > 0) {
+            this.nativeLinks.link(s.id, p.nativeSessionId);
+          }
           await this.reconcileOpenUsageSafely(s.id);
         }
 

@@ -297,6 +297,23 @@ describe("orchestrator usage daemon methods", () => {
     ]);
   });
 
+  it("links a release native id before final transcript reconciliation", async () => {
+    const nativeId = "native-release-flush";
+    seedOpen("row-release-flush");
+    installTranscript(nativeId, "cost-state-3.jsonl");
+
+    const response = await request("session.release", {
+      id: "row-release-flush",
+      nativeSessionId: nativeId,
+    });
+
+    expect(response.result.session.status).toBe("completed");
+    expect(seam(daemon!).sessions.get("row-release-flush")?.usage?.cost).toBe(3);
+    expect((daemon as any).nativeLinks.linksFor(["row-release-flush"])).toMatchObject([
+      { nativeId, state: "cost-state" },
+    ]);
+  });
+
   it("reconciles an earlier linked id when another id is added", async () => {
     seedOpen("row-relink");
     installTranscript("native-x", "cost-state-3.jsonl");
