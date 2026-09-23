@@ -132,16 +132,23 @@ class Daemon {
   async start(): Promise<void> {
     const paths = getPaths();
     const isDead = (session: Session) => !livePidIdentity(session);
-    // recover() terminalizes dead open rows, so retain candidates before it
-    // and combine them with any rows still stale afterward.
-    const staleBeforeRecover = this.nativeLinks.staleOpenRows(isDead);
     // Recover orphaned sessions
     await this.recover();
-    const staleRows = new Map<string, Session>();
-    for (const session of staleBeforeRecover) staleRows.set(session.id, session);
-    for (const session of this.nativeLinks.staleOpenRows(isDead)) staleRows.set(session.id, session);
+    const staleSessionIds = new Set(
+      this.nativeLinks.staleOpenRows(isDead).map((session) => session.id),
+    );
+    const retryableRows = this.db.getHandle().prepare(`
+      SELECT DISTINCT sessions.id
+      FROM sessions
+      INNER JOIN session_native_links ON session_native_links.session_id = sessions.id
+      WHERE sessions.origin = 'open'
+        AND sessions.agent = 'claude'
+        AND sessions.status IN ('completed', 'failed')
+        AND session_native_links.reconciled_at IS NULL
+    `).all() as Array<{ id: string }>;
+    for (const row of retryableRows) staleSessionIds.add(row.id);
     this.startupReconcilePromise = Promise.all(
-      [...staleRows.keys()].map((sessionId) => this.reconcileOpenUsageSafely(sessionId)),
+      [...staleSessionIds].map((sessionId) => this.reconcileOpenUsageSafely(sessionId)),
     ).then(() => {});
 
     this.server = createIpcServer(async (req, socket) => {

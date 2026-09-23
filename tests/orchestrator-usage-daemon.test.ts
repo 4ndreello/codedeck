@@ -240,10 +240,12 @@ describe("orchestrator usage daemon methods", () => {
     },
   );
 
-  it("logs transcript read errors and still replies to release", async () => {
+  it("logs transcript read errors, replies to release, and retries at startup", async () => {
     seedOpen("row-reader-error");
-    await request("session.linkNative", { id: "row-reader-error", nativeId: "native-reader-error" });
-    fs.mkdirSync(transcriptFile("native-reader-error"));
+    const nativeId = "native-reader-error";
+    await request("session.linkNative", { id: "row-reader-error", nativeId });
+    const brokenTranscript = transcriptFile(nativeId);
+    fs.mkdirSync(brokenTranscript);
 
     const response = await request("session.release", { id: "row-reader-error" });
 
@@ -251,6 +253,15 @@ describe("orchestrator usage daemon methods", () => {
     expect(fs.readFileSync(path.join(runAgentDir, "daemon.log"), "utf-8"))
       .toContain("usage reconcile failed session=row-reader-error");
     expect((daemon as any).nativeLinks.unreconciled("row-reader-error")).toHaveLength(1);
+
+    fs.rmSync(brokenTranscript, { recursive: true, force: true });
+    installTranscript(nativeId, "cost-state-3.jsonl");
+    (daemon as any).maybeSpawnInhibit = () => {};
+    await daemon!.start();
+    await (daemon as any).startupReconcilePromise;
+
+    expect(seam(daemon!).sessions.get("row-reader-error")?.usage?.cost).toBe(3);
+    expect((daemon as any).nativeLinks.unreconciled("row-reader-error")).toHaveLength(0);
   });
 
   it("reconciles stale open rows after startup without reading a live row", async () => {
