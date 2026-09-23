@@ -357,6 +357,15 @@ export class SessionStore {
           ORDER BY ended_at ASC
         `).all(since, until) as unknown as UsageLegacyRow[]
       : [];
+    const unknownOpenCostSessionIds = new Set(
+      (this.db.prepare(`
+        SELECT DISTINCT session_native_links.session_id
+        FROM session_native_links
+        INNER JOIN sessions ON sessions.id = session_native_links.session_id
+        WHERE sessions.origin = 'open'
+          AND session_native_links.state IN ('missing', 'no-price')
+      `).all() as Array<{ session_id: string }>).map((row) => row.session_id),
+    );
 
     const totals: UsageTotals = {
       sessionCount: 0,
@@ -436,12 +445,13 @@ export class SessionStore {
       const cachedTokens = row.usage_cached_tokens ?? 0;
       const totalTokens = inputTokens + outputTokens + cachedTokens;
 
-      const cost = computeSessionCost({
+      const calculatedCost = computeSessionCost({
         model: row.model,
         cachedInInput: cachedInInputFor(row.agent),
         reportedCost: row.usage_cost,
         usage: { inputTokens, outputTokens, cachedTokens },
       });
+      const cost = unknownOpenCostSessionIds.has(row.id) ? null : calculatedCost;
 
       totals.sessionCount++;
       if (isActiveStatus(row.status as SessionStatus)) totals.activeSessionCount++;

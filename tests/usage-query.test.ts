@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Database } from "../src/store/database.js";
 import { SessionStore } from "../src/store/sessions.js";
+import { NativeLinkStore } from "../src/store/native-links.js";
 import type { Session } from "../src/core/session.js";
 
 let tmpDir: string;
@@ -195,6 +196,30 @@ describe("SessionStore.queryUsage", () => {
     expect(result.totals.costComplete).toBe(false);
     expect(result.totals.sessionsWithoutCost).toBe(1);
   });
+
+  it.each(["missing", "no-price"] as const)(
+    "marks an open row with a %s native link as missing cost",
+    (state) => {
+      const sessionId = `open-${state}`;
+      store.create(
+        makeSession(sessionId, {
+          origin: "open",
+          agent: "claude",
+          model: "claude-sonnet-4-6",
+        }),
+      );
+      const nativeLinks = new NativeLinkStore(db.getHandle());
+      nativeLinks.link(sessionId, `native-${state}`);
+      nativeLinks.markReconciled(sessionId, `native-${state}`, state);
+
+      const result = store.queryUsage({ period: "all" });
+
+      expect(result.totals).toMatchObject({ costComplete: false, sessionsWithoutCost: 1 });
+      expect(result.byOrigin).toMatchObject([
+        { key: "orchestrator", costComplete: false },
+      ]);
+    },
+  );
 
   it("filters correctly by repository substring", () => {
     store.create(makeSession("s1", { repository: "/dev/frontend" }));
