@@ -14,12 +14,23 @@ interface RenderOptions {
   payload: Record<string, unknown>;
   runId?: string;
   usage?: Record<string, unknown>;
+  usageOutput?: string;
   shimExitCode?: number;
+  shimDelaySeconds?: number;
   sessionId?: string;
   taskName?: string;
 }
 
-async function render({ payload, runId, usage, shimExitCode = 0, sessionId, taskName }: RenderOptions): Promise<{
+async function render({
+  payload,
+  runId,
+  usage,
+  usageOutput,
+  shimExitCode = 0,
+  shimDelaySeconds,
+  sessionId,
+  taskName,
+}: RenderOptions): Promise<{
   output: string;
   args: string[];
   exitCode: number | null;
@@ -33,7 +44,8 @@ async function render({ payload, runId, usage, shimExitCode = 0, sessionId, task
     [
       "#!/bin/sh",
       'printf "%s\\n" "$@" > "$CODEDECK_SHIM_ARGS"',
-      `printf '%s\\n' '${JSON.stringify(usage ?? {})}'`,
+      ...(shimDelaySeconds === undefined ? [] : [`sleep ${shimDelaySeconds}`]),
+      `printf '%s\\n' '${usageOutput ?? JSON.stringify(usage ?? {})}'`,
       `exit ${shimExitCode}`,
       "",
     ].join("\n"),
@@ -103,11 +115,21 @@ describe("Claude statusline", () => {
         inputTokens: 1200,
         outputTokens: 800,
         cachedTokens: 300,
+        totalTokens: 2300,
         costUsd: 0.4,
         sessionCount: 2,
         activeSessionCount: 2,
         costComplete: true,
         sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 0,
+          costComplete: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          totalTokens: 0,
+          sources: [],
+        },
       },
     });
 
@@ -120,8 +142,9 @@ describe("Claude statusline", () => {
   it("reports the local orchestrator cost without counting its live source twice", async () => {
     const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
     const otherSourceId = "3f1f93b8-c484-43aa-8a11-32a486109e22";
+    const transcriptPath = "/home/user/.claude/projects/project path/transcript=part.jsonl";
     const result = await render({
-      payload: { ...payload(1), session_id: sessionId },
+      payload: { ...payload(1), session_id: sessionId, transcript_path: transcriptPath },
       sessionId,
       runId: "run-example",
       usage: {
@@ -129,6 +152,7 @@ describe("Claude statusline", () => {
         inputTokens: 1200,
         outputTokens: 800,
         cachedTokens: 300,
+        totalTokens: 120,
         costUsd: 0.5,
         sessionCount: 2,
         activeSessionCount: 2,
@@ -140,6 +164,7 @@ describe("Claude statusline", () => {
           inputTokens: 0,
           outputTokens: 0,
           cachedTokens: 0,
+          totalTokens: 90,
           sources: [
             { nativeId: otherSourceId, costUsd: 3 },
             { nativeId: sessionId, costUsd: 0.8 },
@@ -149,6 +174,8 @@ describe("Claude statusline", () => {
       },
     });
 
+    expect(stripAnsi(result.output)).toContain("210 tok");
+    expect(stripAnsi(result.output)).not.toContain("510 tok");
     expect(stripAnsi(result.output)).toContain("run $4.50");
     expect(result.args).toEqual([
       "usage",
@@ -156,6 +183,8 @@ describe("Claude statusline", () => {
       "--json",
       "--observe",
       `${sessionId}=1`,
+      "--transcript",
+      `${sessionId}=${transcriptPath}`,
     ]);
   });
 
@@ -167,12 +196,20 @@ describe("Claude statusline", () => {
       runId: "run-example",
     });
     const invalidId = await render({
-      payload: { ...payload(1), session_id: "ses_invalid" },
+      payload: {
+        ...payload(1),
+        session_id: "ses_invalid",
+        transcript_path: "/tmp/ses_invalid.jsonl",
+      },
       sessionId: "ses_invalid",
       runId: "run-example",
     });
     const negativeCost = await render({
-      payload: { ...payload(-1), session_id: sessionId },
+      payload: {
+        ...payload(-1),
+        session_id: sessionId,
+        transcript_path: "/tmp/session.jsonl",
+      },
       sessionId,
       runId: "run-example",
     });
@@ -185,7 +222,30 @@ describe("Claude statusline", () => {
       `${sessionId}=0`,
     ]);
     expect(invalidId.args).toEqual(["usage", "run-example", "--json"]);
-    expect(negativeCost.args).toEqual(["usage", "run-example", "--json"]);
+    expect(negativeCost.args).toEqual([
+      "usage",
+      "run-example",
+      "--json",
+      "--transcript",
+      `${sessionId}=/tmp/session.jsonl`,
+    ]);
+  });
+
+  it("skips transcript forwarding when the transcript path is empty", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const result = await render({
+      payload: { ...payload(0), session_id: sessionId, transcript_path: "" },
+      sessionId,
+      runId: "run-example",
+    });
+
+    expect(result.args).toEqual([
+      "usage",
+      "run-example",
+      "--json",
+      "--observe",
+      `${sessionId}=0`,
+    ]);
   });
 
   it("renders the task name from its sidecar before the role", async () => {
@@ -225,16 +285,52 @@ describe("Claude statusline", () => {
     expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $0.25`);
   });
 
-  it("keeps the local token snapshot when the usage CLI fails", async () => {
+  it("omits run tokens when the usage CLI fails", async () => {
     const result = await render({
       payload: payload(1, { total_input_tokens: 1_200, total_output_tokens: 800 }),
       runId: "run-unavailable",
       shimExitCode: 1,
     });
 
-    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $1.00`);
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $1.00`);
+    expect(result.exitCode).toBe(0);
     expect(stripAnsi(result.output)).not.toContain(" · run ");
-    expect(stripAnsi(result.output)).not.toContain("agents");
+    expect(stripAnsi(result.output)).not.toContain(" tok");
+  });
+
+  it("omits run tokens when the usage CLI times out", async () => {
+    const result = await render({
+      payload: payload(1, { total_input_tokens: 1_200, total_output_tokens: 800 }),
+      runId: "run-timeout",
+      shimDelaySeconds: 2,
+    });
+
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $1.00`);
+    expect(result.exitCode).toBe(0);
+    expect(stripAnsi(result.output)).not.toContain(" tok");
+  });
+
+  it("omits run tokens when the usage summary is invalid", async () => {
+    const result = await render({
+      payload: payload(1, { total_input_tokens: 1_200, total_output_tokens: 800 }),
+      runId: "run-invalid-summary",
+      usage: {
+        runId: "another-run",
+        inputTokens: 100,
+        outputTokens: 100,
+        cachedTokens: 0,
+        totalTokens: 200,
+        costUsd: 0.25,
+        sessionCount: 1,
+        activeSessionCount: 0,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+      },
+    });
+
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $1.00`);
+    expect(result.exitCode).toBe(0);
+    expect(stripAnsi(result.output)).not.toContain(" tok");
   });
 
   it("formats token totals compactly", async () => {
@@ -246,11 +342,21 @@ describe("Claude statusline", () => {
         inputTokens: 1_000_000,
         outputTokens: 234_567,
         cachedTokens: 0,
+        totalTokens: 1_234_567,
         costUsd: 0,
         sessionCount: 1,
         activeSessionCount: 1,
         costComplete: true,
         sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 0,
+          costComplete: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          totalTokens: 0,
+          sources: [],
+        },
       },
     });
     const thousands = await render({
@@ -265,7 +371,7 @@ describe("Claude statusline", () => {
     expect(stripAnsi(small.output)).toContain("980 tok");
   });
 
-  it("uses a valid run totalTokens value for the tok field", async () => {
+  it("adds worker and orchestrator totals without counting cached tokens again", async () => {
     const result = await render({
       payload: payload(0),
       runId: "run-cached-tokens",
@@ -273,40 +379,79 @@ describe("Claude statusline", () => {
         runId: "run-cached-tokens",
         inputTokens: 1_000,
         outputTokens: 100,
-        cachedTokens: 800,
-        totalTokens: 1_100,
+        cachedTokens: 80,
+        totalTokens: 110,
         costUsd: 0,
         sessionCount: 1,
         activeSessionCount: 1,
         costComplete: true,
         sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 0,
+          costComplete: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 70,
+          totalTokens: 50,
+          sources: [],
+        },
       },
     });
 
-    expect(stripAnsi(result.output)).toContain("1.1k tok");
-    expect(stripAnsi(result.output)).not.toContain("1.9k tok");
+    expect(stripAnsi(result.output)).toContain("160 tok");
+    expect(stripAnsi(result.output)).not.toContain("310 tok");
   });
 
-  it("falls back to the token sum when totalTokens is invalid", async () => {
-    const result = await render({
-      payload: payload(0),
-      runId: "run-invalid-token-total",
-      usage: {
-        runId: "run-invalid-token-total",
-        inputTokens: 1_000,
-        outputTokens: 100,
-        cachedTokens: 800,
-        totalTokens: -1,
-        costUsd: 0,
-        sessionCount: 1,
-        activeSessionCount: 1,
-        costComplete: true,
-        sessionsWithoutCost: 0,
+  const invalidRunTokenTotals = [
+    { label: "missing", value: undefined },
+    { label: "nonnumeric", value: "1200" },
+    { label: "non-finite", value: "__statusline_non_finite__" },
+    { label: "negative", value: -1 },
+  ];
+
+  for (const level of ["worker", "orchestrator"] as const) {
+    it.each(invalidRunTokenTotals)(
+      `omits tok when the ${level} totalTokens value is $label`,
+      async ({ value }) => {
+        const usage: Record<string, unknown> & { orchestrator: Record<string, unknown> } = {
+          runId: "run-invalid-token-total",
+          inputTokens: 1_000,
+          outputTokens: 100,
+          cachedTokens: 800,
+          totalTokens: 1_100,
+          costUsd: 0,
+          sessionCount: 1,
+          activeSessionCount: 0,
+          costComplete: true,
+          sessionsWithoutCost: 0,
+          orchestrator: {
+            costUsd: 0,
+            costComplete: true,
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedTokens: 700,
+            totalTokens: 500,
+            sources: [],
+          },
+        };
+        if (level === "worker") usage.totalTokens = value;
+        else usage.orchestrator.totalTokens = value;
+        const usageOutput = JSON.stringify(usage).replaceAll(
+          '"__statusline_non_finite__"',
+          "1e9999",
+        );
+        const result = await render({
+          payload: payload(1, { total_input_tokens: 1_200, total_output_tokens: 800 }),
+          runId: "run-invalid-token-total",
+          usageOutput,
+        });
+
+        expect(stripAnsi(result.output)).not.toContain(" tok");
+        expect(stripAnsi(result.output)).toContain("run $1.00");
+        expect(result.exitCode).toBe(0);
       },
-    });
-
-    expect(stripAnsi(result.output)).toContain("1.9k tok");
-  });
+    );
+  }
 
   it("marks a partial aggregate even when the local cost is zero", async () => {
     const result = await render({
@@ -317,11 +462,21 @@ describe("Claude statusline", () => {
         inputTokens: 0,
         outputTokens: 0,
         cachedTokens: 0,
+        totalTokens: 0,
         costUsd: 0.42,
         sessionCount: 1,
         activeSessionCount: 0,
         costComplete: false,
         sessionsWithoutCost: 1,
+        orchestrator: {
+          costUsd: 0,
+          costComplete: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          totalTokens: 0,
+          sources: [],
+        },
       },
     });
 
@@ -368,6 +523,7 @@ describe("Claude statusline", () => {
         inputTokens: 0,
         outputTokens: 0,
         cachedTokens: 0,
+        totalTokens: 120,
         costUsd: 0.4,
         sessionCount: 1,
         activeSessionCount: 0,
@@ -379,11 +535,13 @@ describe("Claude statusline", () => {
           inputTokens: 0,
           outputTokens: 0,
           cachedTokens: 0,
+          totalTokens: 90,
           sources: [{ nativeId: sessionId, costUsd: "invalid" }],
         },
       },
     });
 
+    expect(stripAnsi(result.output)).toContain("210 tok");
     expect(stripAnsi(result.output)).toContain("run $0.65");
     expect(stripAnsi(result.output)).not.toContain("run $0.65?");
   });
