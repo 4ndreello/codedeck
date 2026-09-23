@@ -210,9 +210,10 @@ export class IpcClient {
     });
     child.unref();
 
-    // Wait for socket to appear
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 200));
+    // Poll the socket until the daemon is ready or the startup budget expires.
+    const deadline = Date.now() + 6000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, Math.min(25, deadline - Date.now())));
       if (await isDaemonRunning()) return;
     }
     throw new Error("Failed to start daemon");
