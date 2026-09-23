@@ -1467,6 +1467,37 @@ class Daemon {
     if (!this.shuttingDown) void this.tryDispatch(sessionId);
   }
 
+  private previousUsageProcessOrdinal(
+    sessionId: string,
+    currentSequence: number,
+    eventSequence?: number,
+  ): number | undefined {
+    const previousUsageEvent = this.db.getHandle().prepare(`
+      SELECT sequence FROM events
+      WHERE session_id = ? AND type = 'usage.updated' AND sequence <= ?
+        AND (? IS NULL OR sequence <> ?)
+        AND (
+          json_extract(normalized_payload, '$.usage.cost') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.inputTokens') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.outputTokens') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.cachedTokens') IS NOT NULL
+        )
+      ORDER BY sequence DESC
+      LIMIT 1
+    `).get(
+      sessionId,
+      currentSequence,
+      eventSequence ?? null,
+      eventSequence ?? null,
+    ) as { sequence: number } | undefined;
+    if (!previousUsageEvent) return;
+
+    return (this.db.getHandle().prepare(`
+      SELECT COUNT(*) AS count FROM events
+      WHERE session_id = ? AND type = 'session.started' AND sequence <= ?
+    `).get(sessionId, previousUsageEvent.sequence) as { count: number }).count;
+  }
+
   private updateSessionFromEvent(sessionId: string, ev: AgentEvent, sequence?: number): void {
     try {
       const current = this.sessions.get(sessionId);
@@ -1500,7 +1531,9 @@ class Daemon {
           `).get(sessionId, currentSequence) as { count: number };
           const sourceKey = workerSourceKey(sess, processOrdinal.count);
           if (sourceKey && !ev.incremental) {
-            this.usageLedger.observe(sessionId, sourceKey, next);
+            const seedIntoIncoming = !sourceKey.startsWith("claude:") ||
+              this.previousUsageProcessOrdinal(sessionId, currentSequence, sequence) === processOrdinal.count;
+            this.usageLedger.observe(sessionId, sourceKey, next, seedIntoIncoming);
             if (next.model) this.sessions.update(sessionId, { model: next.model });
           } else if (ev.incremental) {
             const cur = sess.usage || {};

@@ -126,6 +126,49 @@ describe("orchestrator usage daemon methods", () => {
     ]);
   });
 
+  it("keeps legacy Claude usage when the next process reports its own cost", () => {
+    const sessionId = "legacy-claude-row";
+    const nativeId = "native-legacy";
+    seed(daemon!, sessionId, "working", {
+      agent: "claude",
+      nativeSessionId: nativeId,
+      usage: { cost: 0.4661592 },
+    });
+    const events = seam(daemon!).events;
+    const timestamp = new Date().toISOString();
+    events.append(sessionId, {
+      type: "session.started",
+      sessionId,
+      timestamp,
+      agent: "claude",
+      nativeSessionId: nativeId,
+    });
+    events.append(sessionId, {
+      type: "usage.updated",
+      sessionId,
+      timestamp,
+      usage: { cost: 0.4661592 },
+    });
+    events.append(sessionId, {
+      type: "session.started",
+      sessionId,
+      timestamp,
+      agent: "claude",
+      nativeSessionId: nativeId,
+    });
+    const nextUsage = {
+      type: "usage.updated" as const,
+      sessionId,
+      timestamp,
+      usage: { cost: 0.1616463 },
+    };
+    const sequence = events.append(sessionId, nextUsage);
+
+    (daemon as any).updateSessionFromEvent(sessionId, nextUsage, sequence);
+
+    expect(seam(daemon!).sessions.get(sessionId)?.usage?.cost).toBeCloseTo(0.6278055, 8);
+  });
+
   it.each([-0.01, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects invalid observed cost %s",
     async (costUsd) => {

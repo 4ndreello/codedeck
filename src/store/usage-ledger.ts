@@ -53,7 +53,12 @@ const fields = [
 export class UsageLedger {
   constructor(private db: DatabaseSync) {}
 
-  observe(sessionId: string, sourceKey: string, obs: UsageObservation): boolean {
+  observe(
+    sessionId: string,
+    sourceKey: string,
+    obs: UsageObservation,
+    seedIntoIncoming = true,
+  ): boolean {
     const session = this.db.prepare(`
       SELECT model, usage_input_tokens, usage_output_tokens,
         usage_cached_tokens, usage_cost
@@ -61,7 +66,7 @@ export class UsageLedger {
     `).get(sessionId) as SessionUsageRow | undefined;
     if (!session) throw new Error(`Session ${sessionId} not found`);
 
-    this.seedSessionUsage(sessionId, sourceKey, session);
+    this.seedSessionUsage(sessionId, sourceKey, session, seedIntoIncoming);
 
     const now = new Date().toISOString();
     this.db.prepare(`
@@ -136,6 +141,7 @@ export class UsageLedger {
     sessionId: string,
     sourceKey: string,
     session: SessionUsageRow,
+    seedIntoIncoming: boolean,
   ): void {
     const hasUsage = session.usage_input_tokens !== null ||
       session.usage_output_tokens !== null ||
@@ -154,7 +160,9 @@ export class UsageLedger {
     const sourceHasMark = existingSource !== undefined && fields.some(
       (field) => existingSource[field.source] !== null,
     );
-    const attributionSourceKey = sourceHasMark ? `seed:${sessionId}` : sourceKey;
+    const attributionSourceKey = seedIntoIncoming && !sourceHasMark
+      ? sourceKey
+      : `seed:${sessionId}`;
     const now = new Date().toISOString();
     this.db.prepare(`
       INSERT INTO usage_sources (source_key, cost, input_tokens, output_tokens, cached_tokens, updated_at)

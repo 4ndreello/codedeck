@@ -372,6 +372,31 @@ describe("UsageLedger", () => {
     });
   });
 
+  it("seeds legacy usage separately when the incoming Claude process is different", () => {
+    withLedger((db, ledger, sessions) => {
+      sessions.create(makeSession("legacy-claude", "/tmp", { cost: 0.4661592 }));
+      const ledgerWithSeedHint = ledger as unknown as {
+        observe(
+          sessionId: string,
+          sourceKey: string,
+          obs: { cost: number },
+          seedIntoIncoming: boolean,
+        ): boolean;
+      };
+
+      expect(ledgerWithSeedHint.observe(
+        "legacy-claude",
+        "claude:native-legacy#2",
+        { cost: 0.1616463 },
+        false,
+      )).toBe(true);
+
+      expect(sourceFor(db, "seed:legacy-claude").cost).toBe(0.4661592);
+      expect(sourceFor(db, "claude:native-legacy#2").cost).toBe(0.1616463);
+      expect(usageFor(db, "legacy-claude").usage_cost).toBeCloseTo(0.6278055, 8);
+    });
+  });
+
   it("seeds the incoming source mark before applying higher or lower cost", () => {
     withLedger((db, ledger, sessions) => {
       sessions.create(makeSession("upgrade-higher", "/tmp", { cost: 0.4 }));
