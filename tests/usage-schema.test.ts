@@ -29,11 +29,26 @@ describe("usage database schema", () => {
           "usage_sources",
           "usage_attributions",
           "session_native_links",
+          "usage_legacy",
         ]));
         const indexes = (db.getHandle().prepare(
           `PRAGMA index_list(usage_attributions)`,
         ).all() as Array<{ name: string }>).map((row) => row.name);
         expect(indexes).toContain("idx_usage_attributions_source_key");
+        const legacyColumns = (db.getHandle().prepare(
+          `PRAGMA table_info(usage_legacy)`,
+        ).all() as Array<{ name: string }>).map((row) => row.name);
+        expect(legacyColumns).toEqual(expect.arrayContaining([
+          "native_id",
+          "ended_at",
+          "cwd",
+          "repository",
+          "model",
+          "cost",
+          "input_tokens",
+          "output_tokens",
+          "cached_tokens",
+        ]));
       } finally {
         db.close();
       }
@@ -47,6 +62,7 @@ describe("usage database schema", () => {
         DROP TABLE session_native_links;
         DROP TABLE usage_attributions;
         DROP TABLE usage_sources;
+        DROP TABLE usage_legacy;
       `);
       original.close();
 
@@ -56,6 +72,7 @@ describe("usage database schema", () => {
           "usage_sources",
           "usage_attributions",
           "session_native_links",
+          "usage_legacy",
         ]));
       } finally {
         migrated.close();
@@ -66,6 +83,7 @@ describe("usage database schema", () => {
         "usage_sources",
         "usage_attributions",
         "session_native_links",
+        "usage_legacy",
       ]));
       reopened.close();
     });

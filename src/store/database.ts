@@ -125,6 +125,18 @@ export class Database {
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS usage_legacy (
+        native_id TEXT PRIMARY KEY,
+        ended_at TEXT NOT NULL,
+        cwd TEXT,
+        repository TEXT,
+        model TEXT,
+        cost REAL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_tokens INTEGER NOT NULL DEFAULT 0
+      );
+
       CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);

@@ -124,6 +124,65 @@ describe("SessionStore.queryUsage", () => {
     expect(worker).toMatchObject({ sessionCount: 2, costUsd: 1.25 });
   });
 
+  it("merges in-range legacy usage into analytics without listing it as a session", () => {
+    const endedAt = new Date(2026, 8, 7, 12).toISOString();
+    const outsideRange = new Date(2026, 7, 31, 12).toISOString();
+    const insertLegacy = db.getHandle().prepare(`
+      INSERT INTO usage_legacy (
+        native_id, ended_at, cwd, repository, model, cost,
+        input_tokens, output_tokens, cached_tokens
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertLegacy.run(
+      "native-in-range",
+      endedAt,
+      "/srv/legacy-repo/project",
+      "/srv/legacy-repo",
+      "claude-sonnet-4-6",
+      1.25,
+      120,
+      30,
+      15,
+    );
+    insertLegacy.run(
+      "native-out-of-range",
+      outsideRange,
+      "/srv/old-repo/project",
+      "/srv/old-repo",
+      "claude-sonnet-4-6",
+      99,
+      900,
+      90,
+      9,
+    );
+
+    const result = store.queryUsage({
+      since: new Date(2026, 8, 1).toISOString(),
+      until: new Date(2026, 8, 30, 23, 59, 59, 999).toISOString(),
+    });
+    const localDay = `${new Date(endedAt).getFullYear()}-${String(new Date(endedAt).getMonth() + 1).padStart(2, "0")}-${String(new Date(endedAt).getDate()).padStart(2, "0")}`;
+
+    expect(result.totals).toMatchObject({
+      sessionCount: 1,
+      inputTokens: 120,
+      outputTokens: 30,
+      cachedTokens: 15,
+      totalTokens: 165,
+      costUsd: 1.25,
+      costComplete: true,
+      sessionsWithoutCost: 0,
+    });
+    expect(result.byDay[0]).toMatchObject({ key: localDay, sessionCount: 1, costUsd: 1.25 });
+    expect(result.byRepository[0]).toMatchObject({ key: "legacy-repo", costUsd: 1.25 });
+    expect(result.byModel[0]).toMatchObject({ key: "claude-sonnet-4-6", costUsd: 1.25 });
+    expect(result.byAgent[0]).toMatchObject({ key: "claude", costUsd: 1.25 });
+    expect(result.byOrigin).toMatchObject([
+      { key: "orchestrator", sessionCount: 1, costUsd: 1.25 },
+    ]);
+    expect(result.byRun).toEqual([]);
+    expect(store.list(50, true)).toEqual([]);
+  });
+
   it("marks costComplete as false when encountering unpriced models without reported cost", () => {
     store.create(
       makeSession("s-unknown", {
