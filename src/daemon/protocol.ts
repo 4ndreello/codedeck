@@ -163,6 +163,7 @@ export interface GetUsageRequest {
   params: {
     runId: string;
     observe?: { nativeId: string; costUsd: number };
+    transcript?: { nativeId: string; path: string };
   };
 }
 
