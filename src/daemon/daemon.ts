@@ -1495,7 +1495,7 @@ class Daemon {
             SELECT COUNT(*) AS count FROM events
             WHERE session_id = ? AND type = 'session.started' AND sequence <= ?
           `).get(sessionId, currentSequence) as { count: number };
-          const sourceKey = workerSourceKey(sess, Math.max(1, processOrdinal.count));
+          const sourceKey = workerSourceKey(sess, processOrdinal.count);
           if (sourceKey && !ev.incremental) {
             this.usageLedger.observe(sessionId, sourceKey, next);
             if (next.model) this.sessions.update(sessionId, { model: next.model });
