@@ -131,7 +131,7 @@ Flows:
 - **Mapping**:
   - `cost-state` found: cost = `totalCostUSD`. Tokens are summed over `modelUsage`: input = `inputTokens`, output = `outputTokens`, cached = `cacheReadInputTokens + cacheCreationInputTokens`, the same cached rule as `src/drivers/claude/parser.ts:117`. Model = the `modelUsage` key with the highest `costUSD`.
   - No `cost-state`: tokens from the deduped assistant sum. Cost = `computeSessionCost` per model when every model has a price (ORCH-09), otherwise no cost field and state `no-price` (ORCH-10).
-  - No file: state `missing` (ORCH-11).
+  - No file: state `missing` (ORCH-11), only when the link has no state yet or is already `missing`. A link read before (`cost-state`, `tokens`, `no-price`) keeps its state, so a transcript removed by Claude Code cleanup does not erase a known cost. Growth written after the last read and before the file vanished is not recovered.
 
 ### Reconciler (daemon)
 

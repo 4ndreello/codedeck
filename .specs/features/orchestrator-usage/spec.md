@@ -122,7 +122,7 @@ Worked example for one native id `X` observed by two `open` rows, used by ORCH-1
 8. ORCH-08: IF a linked transcript has no `cost-state` line THEN the system SHALL record as token observation the sum of `message.usage` over `assistant` lines deduplicated by `message.id` + `requestId`.
 9. ORCH-09: WHEN ORCH-08 produced the token observation and the model has a price in the static table THEN the system SHALL record the priced tokens as the cost observation.
 10. ORCH-10: IF ORCH-08 produced the token observation and the model has no price THEN the system SHALL count the row as without cost in `sessionsWithoutCost`.
-11. ORCH-11: IF no transcript file exists for a linked native id THEN the system SHALL count the row as without cost.
+11. ORCH-11: IF no transcript file exists for a linked native id that was never read successfully THEN the system SHALL count the row as without cost. A link already read with a known state keeps that state when its file later disappears.
 12. ORCH-12: IF no transcript file exists for a linked native id THEN `session.release` SHALL still set the row to the status the caller requested (`completed` or `failed`).
 13. ORCH-13: WHEN an observation is lower than or equal to the source's high-water mark THEN the system SHALL leave every row's attributed usage unchanged.
 14. ORCH-14: WHEN a row observes a value above the source's high-water mark THEN the system SHALL add the difference to that row's attributed usage.
