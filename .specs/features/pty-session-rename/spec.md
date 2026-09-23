@@ -66,21 +66,15 @@ to own the terminal.
 - A `\r` inside a bracketed paste (between `ESC[200~` and `ESC[201~`) SHALL
   NOT count as a submit. A `\r` immediately preceded by `\` (Claude Code's
   line continuation) or `ESC` (Alt/Option+Enter) SHALL NOT count as a submit.
-- WHEN Enter (`\r`) arrives while the current token (characters typed since
-  the last space, tab, newline, or submit) starts with `@`, THEN the gate SHALL
-  keep the box dirty and SHALL NOT release a held rename. The gate SHALL clear
-  the tracked token so a following Enter can submit the remaining prompt.
-- IF a tab arrives while the current token starts with `@`, THEN the gate SHALL
-  retain the mention guard because Tab may accept an autocomplete suggestion.
-- IF a backspace arrives after a token separator, or an unrecognised editing
-  control or escape sequence arrives, THEN the gate SHALL hold the next Enter
-  conservatively because the edit may have changed text before the cursor.
-- WHEN a backspace (`0x7f` or `0x08`) arrives, THEN the gate SHALL remove the
-  last character from the current token, so `@x` followed by two backspaces
-  and then `ok` + Enter counts as a submit.
-- WHEN Enter arrives and the current token does not start with `@`, THEN
-  existing submit rules SHALL apply unchanged (paste, `\` continuation,
-  ESC/Alt+Enter).
+- A chunk consisting only of terminal replies (DCS, OSC, CSI replies with a
+  `?` or `>` prefix) SHALL NOT mark the box dirty and SHALL NOT guard the next
+  Enter.
+- IF an unrecognised escape sequence (for example an arrow key) arrives, THEN
+  the next Enter SHALL NOT count as a submit, because arrow navigation plus
+  Enter accepts an autocomplete suggestion without submitting.
+- IF an unknown editing control such as Ctrl+U or Ctrl+W arrives, THEN the
+  next Enter SHALL NOT count as a submit because the control may have changed
+  text before the cursor.
 - Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
   mark the box dirty.
 - The rename SHALL be typed at most once per session, and a held name SHALL be

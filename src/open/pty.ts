@@ -35,7 +35,7 @@ const FALLBACK_COLUMNS = 80;
 const QUIET_MS = 300;
 const BRACKETED_PASTE_START = "\u001b[200~";
 const BRACKETED_PASTE_END = "\u001b[201~";
-const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const TERMINAL_REPLY = /^(?:(?:\u001bP[\s\S]*?\u001b\\)|(?:\u001b\][\s\S]*?(?:\u0007|\u001b\\))|(?:\u001b\[[?>][0-?]*[ -/]*(?:c|\$y|u|R|n)))+$/;
 
 export interface InputGateOptions {
   inject: (keystrokes: string) => void;
@@ -60,8 +60,6 @@ export function createInputGate(options: InputGateOptions) {
   let disposed = false;
   let inPaste = false;
   let escapeCandidate = "";
-  let currentToken = "";
-  let pendingTokenBytes: number[] = [];
   let guardNextEnter = false;
   let previousByte: number | undefined;
   let lastActivity = now();
@@ -93,51 +91,11 @@ export function createInputGate(options: InputGateOptions) {
   };
 
   const isSubmit = (byte: number, previousByte: number | undefined, inPaste: boolean): boolean =>
-    byte === 0x0d &&
-    !inPaste &&
-    previousByte !== 0x5c &&
-    previousByte !== 0x1b;
-
-  const clearToken = (): void => {
-    currentToken = "";
-    pendingTokenBytes = [];
-  };
+    byte === 0x0d && !inPaste && previousByte !== 0x5c && previousByte !== 0x1b;
 
   const observeEnter = (): void => {
-    dirty = guardNextEnter || currentToken.startsWith("@");
+    dirty = guardNextEnter;
     guardNextEnter = false;
-    clearToken();
-  };
-
-  const observeTokenByte = (byte: number): void => {
-    if (byte === 0x08 || byte === 0x7f) {
-      if (pendingTokenBytes.length > 0) pendingTokenBytes = [];
-      else if (currentToken === "") guardNextEnter = true;
-      else currentToken = Array.from(GRAPHEME_SEGMENTER.segment(currentToken))
-        .slice(0, -1)
-        .map(({ segment }) => segment)
-        .join("");
-    } else if (byte === 0x20 || byte === 0x09 || byte === 0x0a) {
-      pendingTokenBytes = [];
-      if (byte !== 0x09 || !currentToken.startsWith("@")) currentToken = "";
-    } else if (byte < 0x20) {
-      // Unknown editing controls may rewrite the line, so guard the next Enter.
-      guardNextEnter = true;
-      pendingTokenBytes = [];
-    } else if (byte >= 0x80) {
-      pendingTokenBytes.push(byte);
-      const first = pendingTokenBytes[0]!;
-      const length = first >= 0xf0 ? 4 : first >= 0xe0 ? 3 : first >= 0xc2 ? 2 : 1;
-      if (pendingTokenBytes.length >= length) {
-        currentToken += Buffer.from(pendingTokenBytes.splice(0, length)).toString("utf8");
-      }
-    } else {
-      if (pendingTokenBytes.length > 0) {
-        currentToken += Buffer.from(pendingTokenBytes).toString("utf8");
-        pendingTokenBytes = [];
-      }
-      currentToken += String.fromCharCode(byte);
-    }
   };
 
   const observeByte = (byte: number): void => {
@@ -157,16 +115,12 @@ export function createInputGate(options: InputGateOptions) {
       } else if (!isStart && !isEnd) {
         // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
         if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
-        pendingTokenBytes = [];
         const candidate = Buffer.from(escapeCandidate);
         const retryEscape = byte === 0x1b;
         const flush = retryEscape ? candidate.subarray(0, -1) : candidate;
         for (const candidateByte of flush) {
           if (isSubmit(candidateByte, previousByte, inPaste)) observeEnter();
-          else {
-            markDirty();
-            if (candidateByte === 0x0d) clearToken();
-          }
+          else markDirty();
           previousByte = candidateByte;
         }
         escapeCandidate = retryEscape ? char : "";
@@ -184,15 +138,22 @@ export function createInputGate(options: InputGateOptions) {
       observeEnter();
     } else {
       markDirty();
-      if (byte === 0x0d) clearToken();
-      else observeTokenByte(byte);
+      if (byte < 0x20 && byte !== 0x08 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
+        // Editing controls such as Ctrl+U and Ctrl+W can change text before the cursor.
+        guardNextEnter = true;
+      }
     }
     previousByte = byte;
   };
 
   return {
     observe(chunk: Buffer): void {
-      if (disposed || chunk.equals(Buffer.from("\u001b[I")) || chunk.equals(Buffer.from("\u001b[O"))) return;
+      if (
+        disposed ||
+        chunk.equals(Buffer.from("\u001b[I")) ||
+        chunk.equals(Buffer.from("\u001b[O")) ||
+        TERMINAL_REPLY.test(chunk.toString("latin1"))
+      ) return;
       lastActivity = now();
       for (const byte of chunk) observeByte(byte);
       scheduleQuiet();
