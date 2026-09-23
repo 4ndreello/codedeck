@@ -252,8 +252,8 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-05 | P1: Shared local server and home page | P1 | Implemented | T3 |
 | WEB-06 | P1: Shared local server and home page | P1 | Implemented | T3 |
 | WEB-07 | P1: Shared local server and home page | P1 | Implemented | T3 |
-| WEB-08 | P1: Shared local server and home page | P1 | In Tasks | T2, T4, T5, T13, T18 |
-| WEB-09 | P2: Local request security | P2 | In Tasks | T7, T12, T17 |
+| WEB-08 | P1: Shared local server and home page | P1 | Implemented | T2, T4, T5, T13, T18 |
+| WEB-09 | P2: Local request security | P2 | Implemented | T7, T12, T17 |
 | WEB-10 | P2: Local request security | P2 | Implemented | T6, T7 |
 | WEB-11 | P2: Local request security | P2 | Implemented | T6 |
 | WEB-12 | P2: Local request security | P2 | Implemented | T6, T7 |
@@ -264,80 +264,80 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-17 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-18 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-19 | P3: Shared setup planning | P3 | Implemented | T8 |
-| WEB-20 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-21 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-20 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-21 | P4: Browser setup | P4 | Implemented | T11 |
 | WEB-22 | P3: Shared setup planning | P3 | Implemented | T9 |
-| WEB-23 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-24 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-25 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-26 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-27 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-28 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-29 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-30 | P4: Browser setup | P4 | In Tasks | T8, T11 |
-| WEB-31 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-32 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-33 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-34 | P4: Browser setup | P4 | In Tasks | T12 |
-| WEB-35 | P4: Browser setup | P4 | In Tasks | T12 |
-| WEB-36 | P4: Browser setup | P4 | In Tasks | T9, T12 |
-| WEB-37 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-38 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-39 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-40 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-41 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-42 | P4: Browser setup | P4 | In Tasks | T12, T13 |
-| WEB-43 | P5: Browser usage analytics | P5 | In Tasks | T16, T18 |
-| WEB-44 | P5: Browser usage analytics | P5 | In Tasks | T14, T15 |
-| WEB-45 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-46 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-47 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-48 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-49 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-50 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-51 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-52 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-53 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-54 | P5: Browser usage analytics | P5 | In Tasks | T17 |
-| WEB-55 | P5: Browser usage analytics | P5 | In Tasks | T17 |
-| WEB-56 | P5: Browser usage analytics | P5 | In Tasks | T17 |
+| WEB-23 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-24 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-25 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-26 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-27 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-28 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-29 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-30 | P4: Browser setup | P4 | Implemented | T8, T11 |
+| WEB-31 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-32 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-33 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-34 | P4: Browser setup | P4 | Implemented | T12 |
+| WEB-35 | P4: Browser setup | P4 | Implemented | T12 |
+| WEB-36 | P4: Browser setup | P4 | Implemented | T9, T12 |
+| WEB-37 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-38 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-39 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-40 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-41 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-42 | P4: Browser setup | P4 | Implemented | T12, T13 |
+| WEB-43 | P5: Browser usage analytics | P5 | Implemented | T16, T18 |
+| WEB-44 | P5: Browser usage analytics | P5 | Implemented | T14, T15 |
+| WEB-45 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-46 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-47 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-48 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-49 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-50 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-51 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-52 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-53 | P5: Browser usage analytics | P5 | Implemented | T16 |
+| WEB-54 | P5: Browser usage analytics | P5 | Implemented | T17 |
+| WEB-55 | P5: Browser usage analytics | P5 | Implemented | T17 |
+| WEB-56 | P5: Browser usage analytics | P5 | Implemented | T17 |
 | WEB-57 | P1: Shared local server and home page | P1 | Implemented | T1 |
-| WEB-59 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-60 | P5: Browser usage analytics | P5 | In Tasks | T16 |
+| WEB-59 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-60 | P5: Browser usage analytics | P5 | Implemented | T16 |
 | WEB-61 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-62 | P3: Shared setup planning | P3 | Implemented | T8 |
-| WEB-63 | P4: Browser setup | P4 | In Tasks | T10, T11 |
-| WEB-64 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-65 | P4: Browser setup | P4 | In Tasks | T10, T11 |
-| WEB-66 | P4: Browser setup | P4 | In Tasks | T8, T10, T11 |
-| WEB-67 | P4: Browser setup | P4 | In Tasks | T10 |
-| WEB-68 | P4: Browser setup | P4 | In Tasks | T8, T10 |
-| WEB-69 | P4: Browser setup | P4 | In Tasks | T12 |
-| WEB-70 | P4: Browser setup | P4 | In Tasks | T12 |
+| WEB-63 | P4: Browser setup | P4 | Implemented | T10, T11 |
+| WEB-64 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-65 | P4: Browser setup | P4 | Implemented | T10, T11 |
+| WEB-66 | P4: Browser setup | P4 | Implemented | T8, T10, T11 |
+| WEB-67 | P4: Browser setup | P4 | Implemented | T10 |
+| WEB-68 | P4: Browser setup | P4 | Implemented | T8, T10 |
+| WEB-69 | P4: Browser setup | P4 | Implemented | T12 |
+| WEB-70 | P4: Browser setup | P4 | Implemented | T12 |
 | WEB-71 | P2: Local request security | P2 | Implemented | T6, T7 |
 | WEB-72 | P2: Local request security | P2 | Implemented | T6, T7 |
-| WEB-73 | P2: Local request security | P2 | In Tasks | T10 |
+| WEB-73 | P2: Local request security | P2 | Implemented | T10 |
 | WEB-74 | P2: Local request security | P2 | Implemented | T6, T7 |
 | WEB-75 | P1: Shared local server and home page | P1 | Implemented | T1, T7 |
-| WEB-76 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-77 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-78 | P5: Browser usage analytics | P5 | In Tasks | T15, T16 |
-| WEB-80 | P5: Browser usage analytics | P5 | In Tasks | T16, T17 |
-| WEB-81 | P5: Browser usage analytics | P5 | In Tasks | T16, T17 |
-| WEB-82 | P4: Browser setup | P4 | In Tasks | T19 |
-| WEB-83 | P5: Browser usage analytics | P5 | In Tasks | T17 |
-| WEB-84 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-85 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-76 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-77 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-78 | P5: Browser usage analytics | P5 | Implemented | T15, T16 |
+| WEB-80 | P5: Browser usage analytics | P5 | Implemented | T16, T17 |
+| WEB-81 | P5: Browser usage analytics | P5 | Implemented | T16, T17 |
+| WEB-82 | P4: Browser setup | P4 | Implemented | T19 |
+| WEB-83 | P5: Browser usage analytics | P5 | Implemented | T17 |
+| WEB-84 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-85 | P4: Browser setup | P4 | Implemented | T11 |
 | WEB-86 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-87 | P3: Shared setup planning | P3 | Implemented | T8 |
-| WEB-88 | P4: Browser setup | P4 | In Tasks | T10, T11 |
-| WEB-89 | P4: Browser setup | P4 | In Tasks | T10, T11 |
-| WEB-90 | P4: Browser setup | P4 | In Tasks | T10, T11 |
-| WEB-91 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-92 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-93 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-94 | P4: Browser setup | P4 | In Tasks | T12 |
-| WEB-95 | P5: Browser usage analytics | P5 | In Tasks | T17 |
+| WEB-88 | P4: Browser setup | P4 | Implemented | T10, T11 |
+| WEB-89 | P4: Browser setup | P4 | Implemented | T10, T11 |
+| WEB-90 | P4: Browser setup | P4 | Implemented | T10, T11 |
+| WEB-91 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-92 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-93 | P4: Browser setup | P4 | Implemented | T11 |
+| WEB-94 | P4: Browser setup | P4 | Implemented | T12 |
+| WEB-95 | P5: Browser usage analytics | P5 | Implemented | T17 |
 
 **Coverage**: 93 total requirements, 93 mapped to tasks, 0 unmapped.
 ## External Dependencies
