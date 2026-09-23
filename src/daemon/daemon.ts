@@ -11,7 +11,7 @@ import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse, UsageQueryParams } from "./protocol.js";
 import { getRegistry } from "../drivers/registry.js";
-import { isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
+import { isActiveStatus, isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
 import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
@@ -27,7 +27,13 @@ import { aggregateRunUsage } from "../core/run-usage.js";
 import { UsageLedger } from "../store/usage-ledger.js";
 import { openSourceKey, workerSourceKey } from "../core/usage-source.js";
 import { NativeLinkStore } from "../store/native-links.js";
-import { findTranscript, readTranscriptUsage } from "../core/claude-transcript.js";
+import {
+  consumeTranscriptChunk,
+  findTranscript,
+  readTranscriptUsage,
+  TRANSCRIPT_CHUNK_LIMIT_BYTES,
+  type IncrementalTranscriptState,
+} from "../core/claude-transcript.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -59,6 +65,12 @@ function withLiveStatus(s: Session): Session {
 
 // Send-queue cap: bytes, matching MAX_SEND_BODY_BYTES on the web route.
 const MAX_SEND_MESSAGE_BYTES = 64 * 1024;
+
+interface LiveTranscriptCursor extends IncrementalTranscriptState {
+  byteOffset: number;
+  device: number;
+  inode: number;
+}
 
 function validateSendMessage(raw: unknown): { message: string } | { code: string; error: string } {
   if (typeof raw !== "string") return { code: "INVALID", error: "message required" };
@@ -104,6 +116,152 @@ class Daemon {
   private inhibitChild: ChildProcess | null = null;
   private inhibitExitHookInstalled = false;
   private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
+  private liveTranscriptCursors = new Map<string, LiveTranscriptCursor>();
+  private liveTranscriptQueues = new Map<string, Promise<void>>();
+
+  private async withLiveTranscriptLock<T>(nativeId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.liveTranscriptQueues.get(nativeId) ?? Promise.resolve();
+    let unlock!: () => void;
+    const current = new Promise<void>((resolve) => { unlock = resolve; });
+    this.liveTranscriptQueues.set(nativeId, current);
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      unlock();
+      if (this.liveTranscriptQueues.get(nativeId) === current) {
+        this.liveTranscriptQueues.delete(nativeId);
+      }
+    }
+  }
+
+  private async ingestLiveTranscript(
+    sessionId: string,
+    nativeId: string,
+    suppliedPath: string,
+  ): Promise<string[]> {
+    return this.withLiveTranscriptLock(nativeId, async () => {
+      const isActiveClaudeOpenRow = () => {
+        const session = this.sessions.get(sessionId);
+        return session?.origin === "open" && session.agent === "claude" && isActiveStatus(session.status);
+      };
+      if (!isActiveClaudeOpenRow()) return [];
+
+      let resolvedPath: string;
+      let stat: fs.Stats;
+      try {
+        const projectsRoot = await fs.promises.realpath(path.join(os.homedir(), ".claude", "projects"));
+        resolvedPath = await fs.promises.realpath(suppliedPath);
+        const relativePath = path.relative(projectsRoot, resolvedPath);
+        if (
+          relativePath === "" ||
+          relativePath === ".." ||
+          relativePath.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(relativePath) ||
+          path.basename(resolvedPath) !== `${nativeId}.jsonl`
+        ) return [];
+
+        stat = await fs.promises.stat(resolvedPath);
+        if (!stat.isFile()) return [];
+      } catch {
+        return [];
+      }
+
+      let file: fs.promises.FileHandle;
+      try {
+        file = await fs.promises.open(resolvedPath, "r");
+      } catch {
+        return [];
+      }
+
+      try {
+        if (!isActiveClaudeOpenRow()) return [];
+
+        let previous: string[] = [];
+        try {
+          previous = this.nativeLinks.link(sessionId, nativeId).previous;
+
+          const saved = this.liveTranscriptCursors.get(nativeId);
+          const reset = saved !== undefined &&
+            (saved.device !== stat.dev || saved.inode !== stat.ino || stat.size < saved.byteOffset);
+          const state: IncrementalTranscriptState = {
+            pendingLine: reset ? new Uint8Array() : saved?.pendingLine ?? new Uint8Array(),
+            discardUntilNewline: reset ? false : saved?.discardUntilNewline ?? false,
+            inputTokens: saved?.inputTokens ?? 0,
+            outputTokens: saved?.outputTokens ?? 0,
+            cachedTokens: saved?.cachedTokens ?? 0,
+            seenMessageKeys: saved?.seenMessageKeys ?? new Set<string>(),
+          };
+          const byteOffset = reset ? 0 : saved?.byteOffset ?? 0;
+          const bytesToRead = Math.min(TRANSCRIPT_CHUNK_LIMIT_BYTES, Math.max(0, stat.size - byteOffset));
+          const buffer = Buffer.alloc(bytesToRead);
+          const { bytesRead } = bytesToRead === 0
+            ? { bytesRead: 0 }
+            : await file.read(buffer, 0, bytesToRead, byteOffset);
+          const nextState = consumeTranscriptChunk(state, buffer.subarray(0, bytesRead));
+          if (!isActiveClaudeOpenRow()) return previous;
+
+          const db = this.db.getHandle();
+          db.exec("BEGIN");
+          try {
+            this.usageLedger.observe(sessionId, openSourceKey(nativeId), {
+              inputTokens: nextState.inputTokens,
+              outputTokens: nextState.outputTokens,
+              cachedTokens: nextState.cachedTokens,
+            });
+            db.exec("COMMIT");
+          } catch {
+            try { db.exec("ROLLBACK"); } catch {}
+            return previous;
+          }
+          this.liveTranscriptCursors.set(nativeId, {
+            ...nextState,
+            byteOffset: byteOffset + bytesRead,
+            device: stat.dev,
+            inode: stat.ino,
+          });
+          return previous;
+        } catch { return previous; }
+      } finally {
+        await file.close().catch(() => {});
+      }
+    });
+  }
+
+  private queueOpenUsageReconciliation(sessionId: string, nativeIds: readonly string[]): void {
+    const uniqueIds = [...new Set(nativeIds)];
+    if (uniqueIds.length === 0) return;
+    queueMicrotask(() => {
+      void this.reconcileOpenUsageSafely(sessionId, uniqueIds);
+    });
+  }
+
+  private async cleanupReleasedTranscriptCursors(sessionId: string): Promise<void> {
+    const nativeIds = new Set(this.nativeLinks.linksFor([sessionId]).map((link) => link.nativeId));
+    await Promise.all([...nativeIds].map((nativeId) => this.withLiveTranscriptLock(nativeId, async () => {
+      const activeClaudeOpenIds = this.sessions.listActive()
+        .filter((session) => session.origin === "open" && session.agent === "claude")
+        .map((session) => session.id);
+      const stillActive = this.nativeLinks.linksFor(activeClaudeOpenIds)
+        .some((link) => link.nativeId === nativeId);
+      if (!stillActive) this.liveTranscriptCursors.delete(nativeId);
+    })));
+  }
+
+  private queueReleasedTranscriptCursorCleanup(sessionId: string): void {
+    queueMicrotask(() => {
+      void this.cleanupReleasedTranscriptCursors(sessionId).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        try {
+          fs.appendFileSync(
+            getPaths().daemonLog,
+            `[${new Date().toISOString()}] usage cursor cleanup failed session=${sessionId}: ${detail}\n`,
+          );
+        } catch {}
+      });
+    });
+  }
 
   private async fetchModels(agent?: AgentId, refresh?: boolean): Promise<HarnessModels[]> {
     const key = `${agent || "all"}:${Boolean(refresh)}`;
@@ -378,9 +536,10 @@ class Daemon {
     }
   }
 
-  private async reconcileOpenUsageSafely(sessionId: string, nativeIds?: readonly string[]): Promise<void> {
+  private async reconcileOpenUsageSafely(sessionId: string, nativeIds?: readonly string[]): Promise<boolean> {
     try {
       await this.reconcileOpenUsage(sessionId, nativeIds);
+      return true;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       try {
@@ -389,6 +548,7 @@ class Daemon {
           `[${new Date().toISOString()}] usage reconcile failed session=${sessionId}: ${detail}\n`,
         );
       } catch {}
+      return false;
     }
   }
 
@@ -679,7 +839,8 @@ class Daemon {
           if (typeof p.nativeSessionId === "string" && p.nativeSessionId.length > 0) {
             this.nativeLinks.link(s.id, p.nativeSessionId);
           }
-          await this.reconcileOpenUsageSafely(s.id);
+          const reconciled = await this.reconcileOpenUsageSafely(s.id);
+          if (reconciled) this.queueReleasedTranscriptCursorCleanup(s.id);
         }
 
         const ev: AgentEvent = targetStatus === "failed"
@@ -1085,14 +1246,23 @@ class Daemon {
       case "usage.get": {
         const p = (params || {}) as {
           runId?: unknown;
-          observe?: { nativeId?: unknown; costUsd?: unknown };
+          observe?: unknown;
+          transcript?: unknown;
         };
         if (typeof p.runId !== "string" || p.runId.length === 0) {
           send({ error: { code: "INVALID", message: "runId required" } });
           return;
         }
+
+        let observation: { nativeId: string; costUsd: number } | undefined;
         if (p.observe !== undefined) {
-          const { nativeId, costUsd } = p.observe;
+          const raw = p.observe;
+          const nativeId = typeof raw === "object" && raw !== null && !Array.isArray(raw)
+            ? (raw as { nativeId?: unknown }).nativeId
+            : undefined;
+          const costUsd = typeof raw === "object" && raw !== null && !Array.isArray(raw)
+            ? (raw as { costUsd?: unknown }).costUsd
+            : undefined;
           if (
             typeof nativeId !== "string" ||
             nativeId.length === 0 ||
@@ -1103,28 +1273,53 @@ class Daemon {
             send({ error: { code: "INVALID", message: "observe requires nativeId and a finite non-negative costUsd" } });
             return;
           }
-          const session = this.sessions.getByRunId(p.runId)
-            .find((candidate) => candidate.id === p.runId && candidate.origin === "open");
-          if (session) {
-            const db = this.db.getHandle();
-            db.exec("BEGIN");
-            let previous: string[] = [];
-            try {
-              previous = this.nativeLinks.link(session.id, nativeId).previous;
-              this.usageLedger.observe(session.id, openSourceKey(nativeId), { cost: costUsd });
-              db.exec("COMMIT");
-            } catch (error) {
-              try { db.exec("ROLLBACK"); } catch {}
-              throw error;
-            }
-            if (previous.length > 0) await this.reconcileOpenUsageSafely(session.id, previous);
+          observation = { nativeId, costUsd };
+        }
+
+        const session = this.sessions.getByRunId(p.runId)
+          .find((candidate) => candidate.id === p.runId && candidate.origin === "open");
+        const earlierNativeIds = new Set<string>();
+        if (session && observation) {
+          const db = this.db.getHandle();
+          db.exec("BEGIN");
+          try {
+            const { previous } = this.nativeLinks.link(session.id, observation.nativeId);
+            previous.forEach((nativeId) => earlierNativeIds.add(nativeId));
+            this.usageLedger.observe(session.id, openSourceKey(observation.nativeId), { cost: observation.costUsd });
+            db.exec("COMMIT");
+          } catch (error) {
+            try { db.exec("ROLLBACK"); } catch {}
+            throw error;
           }
         }
+
+        const rawTranscript = p.transcript;
+        const transcript = typeof rawTranscript === "object" && rawTranscript !== null && !Array.isArray(rawTranscript)
+          ? rawTranscript as { nativeId?: unknown; path?: unknown }
+          : undefined;
+        if (
+          session &&
+          session.agent === "claude" &&
+          isActiveStatus(session.status) &&
+          transcript &&
+          typeof transcript.nativeId === "string" &&
+          transcript.nativeId.length > 0 &&
+          typeof transcript.path === "string" &&
+          transcript.path.length > 0 &&
+          (!observation || observation.nativeId === transcript.nativeId)
+        ) {
+          const previous = await this.ingestLiveTranscript(session.id, transcript.nativeId, transcript.path);
+          previous.forEach((nativeId) => earlierNativeIds.add(nativeId));
+        }
+
         const sessions = this.sessions.getByRunId(p.runId);
         const sessionIds = sessions.map((session) => session.id);
         const attributions = this.usageLedger.attributionsFor(sessionIds);
         const linkStates = this.nativeLinks.linksFor(sessionIds).map(({ sessionId, state }) => ({ sessionId, state }));
         send({ result: aggregateRunUsage(p.runId, sessions, attributions, linkStates) });
+        if (session && earlierNativeIds.size > 0) {
+          this.queueOpenUsageReconciliation(session.id, [...earlierNativeIds]);
+        }
         break;
       }
 
