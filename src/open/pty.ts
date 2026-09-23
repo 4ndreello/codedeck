@@ -35,7 +35,8 @@ const FALLBACK_COLUMNS = 80;
 const QUIET_MS = 300;
 const BRACKETED_PASTE_START = "\u001b[200~";
 const BRACKETED_PASTE_END = "\u001b[201~";
-const TERMINAL_REPLY = /^(?:(?:\u001bP[\s\S]*?\u001b\\)|(?:\u001b\][\s\S]*?(?:\u0007|\u001b\\))|(?:\u001b\[[?>][0-?]*[ -/]*(?:c|\$y|u|R|n)))+$/;
+// Matching terminal replies needs ESC and BEL in the pattern.
+const TERMINAL_REPLY = /^(?:(?:\u001bP[^\u001b]*\u001b\\)|(?:\u001b\][^\u001b\u0007]*(?:\u0007|\u001b\\))|(?:\u001b\[[?>][0-?]*[ -/]*(?:c|\$y|u|R|n)))+$/; // NOSONAR
 
 export interface InputGateOptions {
   inject: (keystrokes: string) => void;
@@ -139,7 +140,7 @@ export function createInputGate(options: InputGateOptions) {
     } else {
       markDirty();
       if (byte < 0x20 && byte !== 0x08 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
-        // Editing controls such as Ctrl+U and Ctrl+W can change text before the cursor.
+        // An unknown control may drive a suggestion menu, so treat it like an unknown escape.
         guardNextEnter = true;
       }
     }

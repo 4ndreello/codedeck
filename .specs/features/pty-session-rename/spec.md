@@ -72,9 +72,10 @@ to own the terminal.
 - IF an unrecognised escape sequence (for example an arrow key) arrives, THEN
   the next Enter SHALL NOT count as a submit, because arrow navigation plus
   Enter accepts an autocomplete suggestion without submitting.
-- IF an unknown editing control such as Ctrl+U or Ctrl+W arrives, THEN the
-  next Enter SHALL NOT count as a submit because the control may have changed
-  text before the cursor.
+- IF an unknown control byte (below `0x20`, other than backspace, tab, LF, and
+  CR) arrives, THEN the next Enter SHALL NOT count as a submit. This is
+  conservative: a control may drive a suggestion menu, and the cost of a wrong
+  guess is a rename that lands one prompt later.
 - Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
   mark the box dirty.
 - The rename SHALL be typed at most once per session, and a held name SHALL be

@@ -350,6 +350,17 @@ describe("pty input gate", () => {
   });
 
   it.each([
+    { name: "a DCS reply followed by typed text", chunk: "\u001bP>|tmux\u001b\\ hello \u001b\\" },
+    { name: "an OSC reply followed by typed text", chunk: "\u001b]0;title\u0007hello" },
+  ])("marks the box dirty for $name", ({ chunk }) => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+    vi.advanceTimersByTime(quietMs - 1);
+    gate.observe(Buffer.from(chunk));
+    expectHeldAfterQuiet(inject);
+  });
+
+  it.each([
     {
       name: "pasted Enter and line continuation",
       input: "oi",
