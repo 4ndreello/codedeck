@@ -734,7 +734,7 @@ export function registerOpenCommand(program: Command): void {
                 fs.writeFileSync(sessionFile, id);
               } catch {}
             }
-            await flushLinkWatcher();
+            if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
             const nativeSessionId = finishOpenSession(role, sessionFile);
             try {
               if (patchPromise) await patchPromise;
@@ -835,7 +835,7 @@ export function registerOpenCommand(program: Command): void {
                 fs.writeFileSync(sessionFile, id);
               } catch {}
             }
-            await flushLinkWatcher();
+            if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
             const nativeSessionId = finishOpenSession(role, sessionFile);
             try {
               if (patchPromise) await patchPromise;
@@ -908,7 +908,7 @@ export function registerOpenCommand(program: Command): void {
               fs.writeFileSync(sessionFile, opts.resume);
             } catch {}
           }
-          await flushLinkWatcher();
+          if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
           const nativeSessionId = finishOpenSession(role, sessionFile);
           try {
             if (patchPromise) await patchPromise;
@@ -942,7 +942,7 @@ export function registerOpenCommand(program: Command): void {
           },
         );
       } catch (err: unknown) {
-        await flushLinkWatcher();
+        if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
         try {
           await client.request("session.release", {
             id: runId,
