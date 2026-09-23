@@ -61,6 +61,25 @@ describe("usage web routes", () => {
     expect(await response.text()).toContain("/api/usage");
   });
 
+  it("passes the accepted page filters and breakdown from the URL into the page", async () => {
+    const handle = await startWebServer({
+      routes: createUsageRoutes({ fetchUsageQuery: vi.fn(async () => usageResult), cwd, now: () => now,
+        pages: [{ label: "Home", path: "/" }, { label: "Usage", path: "/usage" }] }),
+      port: 0, initialPath: "/usage", open: false, log: vi.fn(), signalTarget: new EventEmitter(), exit: vi.fn(),
+    });
+    handles.push(handle);
+    const response = await fetch(`${handle.baseUrl}/usage?period=7d&repo=work&model=m1&agent=codex&since=2026-09-01&until=2026-09-22&by=repo`);
+    const html = await response.text();
+    expect(html).toContain('"period":"7d"');
+    expect(html).toContain('"repo":"work"');
+    expect(html).toContain('"model":"m1"');
+    expect(html).toContain('"agent":"codex"');
+    expect(html).toContain('"since":"2026-09-01"');
+    expect(html).toContain('"until":"2026-09-22"');
+    expect(html).toContain('"by":"repo"');
+    expect(html).toContain('aria-current="page" class="active">Usage</a>');
+  });
+
   it.each([
     ["default today", "", { period: "today" }],
     ["all period", "?period=all", { period: "all" }],

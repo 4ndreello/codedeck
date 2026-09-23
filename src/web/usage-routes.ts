@@ -3,12 +3,14 @@ import { buildUsageQueryParams, type UsageQueryOptions } from "../core/usage-que
 import type { UsageQueryParams, UsageQueryResult } from "../daemon/protocol.js";
 import type { WebRoute } from "./server.js";
 import { renderUsagePage, type UsagePageOptions } from "./usage-page.js";
+import type { WebPageLink } from "./brand.js";
 
 export interface UsageRoutesOptions {
   fetchUsageQuery: (params: UsageQueryParams) => Promise<UsageQueryResult>;
   cwd?: string;
   now?: () => Date;
   page?: UsagePageOptions;
+  pages?: WebPageLink[];
 }
 
 export function parseUsageWebQuery(
@@ -40,9 +42,23 @@ export function createUsageRoutes(options: UsageRoutesOptions): WebRoute[] {
     {
       path: "/usage",
       kind: "page",
-      handler: (_request, response) => {
+      handler: (request, response) => {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(renderUsagePage(options.page));
+        const search = new URL(request.url ?? "/usage", "http://127.0.0.1").searchParams;
+        response.end(renderUsagePage({
+          ...options.page,
+          pages: options.pages ?? options.page?.pages,
+          filters: {
+            ...options.page?.filters,
+            period: search.get("period") ?? options.page?.filters?.period,
+            repo: search.get("repo") ?? options.page?.filters?.repo,
+            model: search.get("model") ?? options.page?.filters?.model,
+            agent: search.get("agent") ?? options.page?.filters?.agent,
+            since: search.get("since") ?? options.page?.filters?.since,
+            until: search.get("until") ?? options.page?.filters?.until,
+          },
+          by: (search.get("by") as UsagePageOptions["by"]) ?? options.page?.by,
+        }));
       },
     },
     {
