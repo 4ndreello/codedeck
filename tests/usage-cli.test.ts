@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildUsageQueryParams } from "../src/core/usage-query.js";
 
 const ensureDaemonStarted = vi.fn(async () => {});
 const request = vi.fn();
@@ -79,8 +80,62 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
+});
+
+describe("buildUsageQueryParams", () => {
+  const now = new Date(2026, 8, 22, 12, 0, 0, 0);
+
+  it("applies all, today, then days precedence", () => {
+    expect(buildUsageQueryParams({ all: true, today: true, days: "7" }, "/repo", now).period).toBe("all");
+    expect(buildUsageQueryParams({ today: true, days: "7" }, "/repo", now).period).toBe("today");
+    expect(buildUsageQueryParams({ days: "7" }, "/repo", now).period).toBe("7d");
+  });
+
+  it.each([
+    ["3", "3d"],
+    ["7", "7d"],
+    ["30", "30d"],
+  ])("maps %s days to the %s period", (days, period) => {
+    expect(buildUsageQueryParams({ days }, "/repo", now).period).toBe(period);
+  });
+
+  it("maps other positive day counts to a local-midnight since value", () => {
+    const expectedSince = new Date(2026, 8, 18, 0, 0, 0, 0).toISOString();
+
+    expect(buildUsageQueryParams({ days: "5" }, "/repo", now)).toEqual({
+      period: undefined,
+      since: expectedSince,
+      until: undefined,
+      repository: undefined,
+      model: undefined,
+      agent: undefined,
+    });
+  });
+
+  it("defaults to today when since is absent", () => {
+    expect(buildUsageQueryParams({}, "/repo", now).period).toBe("today");
+  });
+
+  it("passes through explicit filters and lets current override repo", () => {
+    expect(buildUsageQueryParams({
+      since: "2026-09-01T00:00:00.000Z",
+      until: "2026-09-20T23:59:59.999Z",
+      repo: "/selected/repo",
+      current: true,
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    }, "/current/repo", now)).toEqual({
+      period: undefined,
+      since: "2026-09-01T00:00:00.000Z",
+      until: "2026-09-20T23:59:59.999Z",
+      repository: "/current/repo",
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    });
+  });
 });
 
 describe("usage CLI", () => {
@@ -130,5 +185,31 @@ describe("usage CLI", () => {
     expect(logs[0]).toContain("Usage by origin");
     expect(logs[0]).toContain("orchestrator: 1 sessions");
     expect(logs[0]).toContain("cost $0.25");
+  });
+
+  it("sends aggregate filters built with the CLI cwd and current date", async () => {
+    request.mockResolvedValue(usageResult);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 22, 12, 0, 0, 0));
+    vi.spyOn(process, "cwd").mockReturnValue("/current/repo");
+
+    await runProgram([
+      "--days", "5",
+      "--since", "2026-09-01T00:00:00.000Z",
+      "--until", "2026-09-20T23:59:59.999Z",
+      "--repo", "/selected/repo",
+      "--current",
+      "--model", "gpt-5.6-luna",
+      "--agent", "codex",
+    ]);
+
+    expect(request).toHaveBeenCalledWith("usage.query", {
+      period: undefined,
+      since: new Date(2026, 8, 18, 0, 0, 0, 0).toISOString(),
+      until: "2026-09-20T23:59:59.999Z",
+      repository: "/current/repo",
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    });
   });
 });
