@@ -20,12 +20,16 @@ export interface UiCommandDependencies {
 export function createUiRoutes(dependencies: Pick<UiCommandDependencies, "setup" | "usage"> = {}): WebRoute[] {
   const reviewRoutes = createReviewRoutes().filter((route) => route.path !== "/");
   const setupRoutes = createSetupRoutes(dependencies.setup);
-  const usageRoutes = createUsageRoutes(dependencies.usage ?? { fetchUsageQuery }).map((route) =>
+  const usageOptions = dependencies.usage ?? { fetchUsageQuery };
+  const labeledUsageRoutes = createUsageRoutes(usageOptions).map((route) =>
     route.path === "/usage" ? { ...route, label: "Usage" } : route,
   );
-  const routes = [...reviewRoutes, ...setupRoutes, ...usageRoutes];
-  const pages = routes.flatMap((route) =>
+  const routes = [...reviewRoutes, ...setupRoutes];
+  const pages = [...routes, ...labeledUsageRoutes].flatMap((route) =>
     route.kind === "page" && route.label ? [{ label: route.label, path: route.path }] : [],
+  );
+  const usageRoutes = createUsageRoutes({ ...usageOptions, pages }).map((route) =>
+    route.path === "/usage" ? { ...route, label: "Usage" } : route,
   );
   const home: WebRoute = {
     path: "/",
@@ -35,7 +39,7 @@ export function createUiRoutes(dependencies: Pick<UiCommandDependencies, "setup"
       response.end(renderHomePage(pages));
     },
   };
-  return [home, ...routes];
+  return [home, ...routes, ...usageRoutes];
 }
 
 export function registerUiCommand(program: Command, dependencies: UiCommandDependencies = {}): void {
