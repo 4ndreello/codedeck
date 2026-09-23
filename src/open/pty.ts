@@ -88,6 +88,9 @@ export function createInputGate(options: InputGateOptions) {
     dirty = true;
   };
 
+  const isSubmit = (byte: number, previousByte: number | undefined, inPaste: boolean): boolean =>
+    byte === 0x0d && !inPaste && previousByte !== 0x5c && previousByte !== 0x1b;
+
   const observeByte = (byte: number): void => {
     const char = String.fromCharCode(byte);
     if (escapeCandidate !== "") {
@@ -103,12 +106,15 @@ export function createInputGate(options: InputGateOptions) {
         escapeCandidate = "";
         markDirty();
       } else if (!isStart && !isEnd) {
-        for (const candidateByte of Buffer.from(escapeCandidate)) {
-          if (candidateByte === 0x0d && !inPaste && previousByte !== 0x5c) dirty = false;
+        const candidate = Buffer.from(escapeCandidate);
+        const retryEscape = byte === 0x1b;
+        const flush = retryEscape ? candidate.subarray(0, -1) : candidate;
+        for (const candidateByte of flush) {
+          if (isSubmit(candidateByte, previousByte, inPaste)) dirty = false;
           else markDirty();
           previousByte = candidateByte;
         }
-        escapeCandidate = "";
+        escapeCandidate = retryEscape ? char : "";
       }
       previousByte = byte;
       return;
@@ -119,7 +125,7 @@ export function createInputGate(options: InputGateOptions) {
       previousByte = byte;
       return;
     }
-    if (byte === 0x0d && !inPaste && previousByte !== 0x5c) dirty = false;
+    if (isSubmit(byte, previousByte, inPaste)) dirty = false;
     else markDirty();
     previousByte = byte;
   };

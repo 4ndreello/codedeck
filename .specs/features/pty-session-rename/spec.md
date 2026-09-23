@@ -65,7 +65,7 @@ to own the terminal.
   SHALL stay held until the next submit plus QUIET_MS of quiet.
 - A `\r` inside a bracketed paste (between `ESC[200~` and `ESC[201~`) SHALL
   NOT count as a submit. A `\r` immediately preceded by `\` (Claude Code's
-  line continuation) SHALL NOT count as a submit.
+  line continuation) or `ESC` (Alt/Option+Enter) SHALL NOT count as a submit.
 - Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
   mark the box dirty.
 - The rename SHALL be typed at most once per session, and a held name SHALL be

@@ -353,6 +353,28 @@ describe("pty input gate", () => {
     vi.useRealTimers();
   });
 
+  it("does not treat Alt+Enter as submit", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("Bora tamb"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b\r"));
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).not.toHaveBeenCalled();
+    gate.dispose();
+    vi.useRealTimers();
+  });
+
+  it("recognizes bracketed paste after a pending escape", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("\u001b"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b[200~line1\r"));
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).not.toHaveBeenCalled();
+    gate.dispose();
+    vi.useRealTimers();
+  });
+
   it("ignores whole-chunk terminal focus reports", () => {
     const { gate, inject } = setup();
     gate.offer("/rename nome\r");
@@ -375,11 +397,13 @@ describe("pty input gate", () => {
     first.gate.dispose();
 
     const second = setup();
-    second.gate.observe(Buffer.from("dirty"));
     second.gate.offer("/rename held\r");
+    expect(vi.getTimerCount()).toBe(1);
     second.gate.dispose();
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(quietMs * 2);
     expect(second.inject).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
 });
@@ -452,7 +476,7 @@ describe("startPtySession", () => {
     });
     terminal.stdin.emit("data", Buffer.from("oi"));
     fs.writeFileSync(`${sessionFile}.11111111-2222-3333-4444-555555555555.name`, "nome", "utf8");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 350));
     expect(written.join("")).toBe("oi");
 
     terminal.stdin.emit("data", Buffer.from("\r"));
