@@ -185,7 +185,7 @@ Setup and usage analytics currently require the terminal, while review already s
 32. IF model discovery is incomplete or any requested harness returns an error THEN the refresh response SHALL return getBatchModels cache fallback and discoveryError without partial network results. WEB-59
 33. IF codedeck setup runs without batch flags and either stdin or stdout is not a TTY THEN it SHALL exit with code 1, print `${getCliName()} setup needs a terminal on both stdin and stdout.`, and start no server. WEB-69
 34. IF codedeck setup receives both --json and --port THEN it SHALL report a setup usage error and start no server. WEB-70
-35. WHEN setup guidance is updated THEN README.md lines 154 and 186 SHALL describe browser setup as the default, --tui as the picker entry, and --refresh as the catalog refresh option. WEB-82
+35. WHEN setup guidance is updated THEN the README.md setup and usage command sections SHALL describe browser setup as the default, --tui as the picker entry, and --refresh as the catalog refresh option. WEB-82
 36. IF a changed binding's model is absent from the cached catalog THEN web apply SHALL return HTTP 422 with saved=false unless the request includes offCatalogConfirmed[role]=true for that binding's role. WEB-88
 37. IF a changed binding's model is absent from the cached catalog and the request includes offCatalogConfirmed[role]=true THEN web apply SHALL save that binding and return resultado.status=applied with saved=true. WEB-89
 38. IF catalog refresh returns status=unavailable THEN setup page logic SHALL retain the previously loaded catalog and show the response's discoveryError. WEB-90

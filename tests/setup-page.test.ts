@@ -293,8 +293,8 @@ describe("setup page inline behavior", () => {
     const { document } = fakeDocument();
     const calls: string[] = [];
     const context = {
-      fetch: async (path: string) => {
-        calls.push(path);
+      fetch: async (path: string, init?: { method?: string }) => {
+        calls.push(init?.method ? `${init.method} ${path}` : path);
         return path === "/api/setup/state"
           ? response({ target: { kind: "global" }, bindings: {}, efforts: {} })
           : response({ models: [], status: "fresh", source: "cache", ageMs: 10, cacheWriteFailed: false });
@@ -312,5 +312,8 @@ describe("setup page inline behavior", () => {
     expect(calls).toEqual(["/api/setup/state", "/api/setup/catalog"]);
     expect(selected.agents).toEqual({});
     expect(page.state.target?.target.kind).toBe("global");
+
+    await page.refreshCatalog();
+    expect(calls).toEqual(["/api/setup/state", "/api/setup/catalog", "POST /api/setup/catalog/refresh"]);
   });
 });
