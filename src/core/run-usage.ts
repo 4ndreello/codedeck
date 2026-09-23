@@ -1,4 +1,4 @@
-import { cachedInInputFor, computeSessionCost } from "./pricing.js";
+import { cachedInInputFor, computeSessionCost, totalTokensFor } from "./pricing.js";
 import { isActiveStatus, type Session } from "./session.js";
 
 export interface RunAttribution {
@@ -17,6 +17,7 @@ export interface RunUsageSummary {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
+  totalTokens: number;
   costUsd: number;
   sessionCount: number;
   activeSessionCount: number;
@@ -28,6 +29,7 @@ export interface RunUsageSummary {
     inputTokens: number;
     outputTokens: number;
     cachedTokens: number;
+    totalTokens: number;
     sources: Array<{ nativeId: string; costUsd: number }>;
   };
   total: { costUsd: number };
@@ -56,6 +58,7 @@ export function aggregateRunUsage(
     inputTokens: 0,
     outputTokens: 0,
     cachedTokens: 0,
+    totalTokens: 0,
     costUsd: 0,
     sessionCount: 0,
     activeSessionCount: 0,
@@ -67,6 +70,7 @@ export function aggregateRunUsage(
       inputTokens: 0,
       outputTokens: 0,
       cachedTokens: 0,
+      totalTokens: 0,
       sources: [],
     },
     total: { costUsd: 0 },
@@ -79,6 +83,7 @@ export function aggregateRunUsage(
     target.inputTokens += usage?.inputTokens ?? 0;
     target.outputTokens += usage?.outputTokens ?? 0;
     target.cachedTokens += usage?.cachedTokens ?? 0;
+    target.totalTokens += totalTokensFor(session.agent, usage);
 
     const costUsd = computeSessionCost({
       model: session.model,

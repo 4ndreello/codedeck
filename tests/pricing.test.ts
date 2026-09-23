@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cachedInInputFor, computeSessionCost, MODEL_PRICES, resolveModelPrice } from "../src/core/pricing.js";
+import {
+  cachedInInputFor,
+  computeSessionCost,
+  MODEL_PRICES,
+  resolveModelPrice,
+  totalTokensFor,
+} from "../src/core/pricing.js";
 
 describe("computeSessionCost", () => {
   it("uses a valid reported cost, including zero, without recalculating", () => {
@@ -240,5 +246,14 @@ describe("computeSessionCost", () => {
   it("resolves model names case-insensitively", () => {
     expect(resolveModelPrice("Alibaba-Token-Plan/Qwen3.8-Max")).toEqual(MODEL_PRICES["qwen3.8-max"]);
     expect(resolveModelPrice("CLAUDE-SONNET-4-6")).toEqual(MODEL_PRICES["claude-sonnet-4-6"]);
+  });
+});
+
+describe("totalTokensFor", () => {
+  it("counts cached tokens once for Codex and separately for Claude", () => {
+    const usage = { inputTokens: 1_000, outputTokens: 100, cachedTokens: 800 };
+
+    expect(totalTokensFor("codex", usage)).toBe(1_100);
+    expect(totalTokensFor("claude", usage)).toBe(1_900);
   });
 });

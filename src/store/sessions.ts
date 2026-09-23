@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type Session, type SessionStatus, type AgentId, isActiveStatus } from "../core/session.js";
 import type { FailureInfo } from "../core/errors.js";
-import { cachedInInputFor, computeSessionCost } from "../core/pricing.js";
+import { cachedInInputFor, computeSessionCost, totalTokensFor } from "../core/pricing.js";
 import type { UsageQueryParams, UsageQueryResult, UsageMetricBucket, UsageTotals } from "../daemon/protocol.js";
 
 export interface SessionRow {
@@ -443,7 +443,7 @@ export class SessionStore {
       const inputTokens = row.usage_input_tokens ?? 0;
       const outputTokens = row.usage_output_tokens ?? 0;
       const cachedTokens = row.usage_cached_tokens ?? 0;
-      const totalTokens = inputTokens + outputTokens + cachedTokens;
+      const totalTokens = totalTokensFor(row.agent, { inputTokens, outputTokens, cachedTokens });
 
       const calculatedCost = computeSessionCost({
         model: row.model,
@@ -522,7 +522,7 @@ export class SessionStore {
       const inputTokens = row.input_tokens;
       const outputTokens = row.output_tokens;
       const cachedTokens = row.cached_tokens;
-      const totalTokens = inputTokens + outputTokens + cachedTokens;
+      const totalTokens = totalTokensFor("claude", { inputTokens, outputTokens, cachedTokens });
       const cost = row.cost;
 
       totals.sessionCount++;
