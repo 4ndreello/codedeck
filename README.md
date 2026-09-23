@@ -130,7 +130,7 @@ npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 
 ### What the session looks like
 
-`open` hands Claude Code a settings payload built at launch, not a file on disk. It carries five things: the `codedeck-ultra` theme, the fullscreen renderer, a spinner vocabulary of its own, CodeDeck's tips in place of the built-in ones, and a startup line naming the role, the model, the effort and whether permissions are bypassed. The status line under the prompt reads `▌ULTRA <role> · <model> · <branch> · ctx <remaining> · $<cost>`, dropping any field the session cannot answer.
+`open` hands Claude Code a settings payload built at launch, not a file on disk. It carries five things: the `codedeck-ultra` theme, the fullscreen renderer, a spinner vocabulary of its own, CodeDeck's tips in place of the built-in ones, and a startup line naming the role, the model, the effort and whether permissions are bypassed. The status line under the prompt reads `<role> · <project>/<branch> · ctx <remaining> · <tokens> tok · run $<cost>` (or `$<cost>` for local usage), showing only the branch when it matches the project name or `worktree-<project>`, and dropping any field the session cannot answer.
 
 The payload is generated rather than shipped because of `${CLAUDE_PLUGIN_ROOT}`. Claude Code expands it only for hooks declared in a plugin's `hooks/hooks.json`, never for `statusLine.command`, and the failure is silent: no status line, no error, not even under `--debug`. `open` knows the real plugin directory, so it writes the resolved path.
 
