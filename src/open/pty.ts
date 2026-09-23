@@ -32,6 +32,117 @@ const NAME_SUFFIX = ".name";
 const INTERRUPT_KEY = 0x03;
 const FALLBACK_ROWS = 24;
 const FALLBACK_COLUMNS = 80;
+const QUIET_MS = 300;
+const BRACKETED_PASTE_START = "\u001b[200~";
+const BRACKETED_PASTE_END = "\u001b[201~";
+
+export interface InputGateOptions {
+  inject: (keystrokes: string) => void;
+  setTimeout?: typeof globalThis.setTimeout;
+  clearTimeout?: typeof globalThis.clearTimeout;
+  now?: () => number;
+}
+
+/**
+ * Claude Code shares its input line between user keys and `/rename`. The name
+ * can arrive while someone is typing, turning "Bora tamb" into
+ * "Bora tamb/rename XPto xyz" and submitting both as one prompt. Hold the
+ * rename until the input is clean and the user has been quiet for 300 ms.
+ */
+export function createInputGate(options: InputGateOptions) {
+  const schedule = options.setTimeout ?? globalThis.setTimeout;
+  const cancel = options.clearTimeout ?? globalThis.clearTimeout;
+  const now = options.now ?? Date.now;
+  let dirty = false;
+  let pending: string | undefined;
+  let used = false;
+  let disposed = false;
+  let inPaste = false;
+  let escapeCandidate = "";
+  let previousByte: number | undefined;
+  let lastActivity = now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimer = (): void => {
+    if (timer !== undefined) cancel(timer);
+    timer = undefined;
+  };
+
+  const tryInject = (): void => {
+    timer = undefined;
+    if (disposed || used || pending === undefined || dirty) return;
+    used = true;
+    const keystrokes = pending;
+    pending = undefined;
+    options.inject(keystrokes);
+  };
+
+  const scheduleQuiet = (): void => {
+    clearTimer();
+    const remaining = Math.max(0, QUIET_MS - (now() - lastActivity));
+    if (remaining === 0) tryInject();
+    else timer = schedule(tryInject, remaining);
+  };
+
+  const markDirty = (): void => {
+    dirty = true;
+  };
+
+  const observeByte = (byte: number): void => {
+    const char = String.fromCharCode(byte);
+    if (escapeCandidate !== "") {
+      escapeCandidate += char;
+      const isStart = BRACKETED_PASTE_START.startsWith(escapeCandidate);
+      const isEnd = BRACKETED_PASTE_END.startsWith(escapeCandidate);
+      if (escapeCandidate === BRACKETED_PASTE_START) {
+        inPaste = true;
+        escapeCandidate = "";
+        markDirty();
+      } else if (escapeCandidate === BRACKETED_PASTE_END) {
+        inPaste = false;
+        escapeCandidate = "";
+        markDirty();
+      } else if (!isStart && !isEnd) {
+        for (const candidateByte of Buffer.from(escapeCandidate)) {
+          if (candidateByte === 0x0d && !inPaste && previousByte !== 0x5c) dirty = false;
+          else markDirty();
+          previousByte = candidateByte;
+        }
+        escapeCandidate = "";
+      }
+      previousByte = byte;
+      return;
+    }
+    if (byte === 0x1b) {
+      escapeCandidate = char;
+      markDirty();
+      previousByte = byte;
+      return;
+    }
+    if (byte === 0x0d && !inPaste && previousByte !== 0x5c) dirty = false;
+    else markDirty();
+    previousByte = byte;
+  };
+
+  return {
+    observe(chunk: Buffer): void {
+      if (disposed || chunk.equals(Buffer.from("\u001b[I")) || chunk.equals(Buffer.from("\u001b[O"))) return;
+      lastActivity = now();
+      for (const byte of chunk) observeByte(byte);
+      scheduleQuiet();
+    },
+    offer(keystrokes: string): void {
+      if (disposed || used || pending !== undefined) return;
+      pending = keystrokes;
+      scheduleQuiet();
+    },
+    dispose(): void {
+      disposed = true;
+      pending = undefined;
+      clearTimer();
+    },
+  };
+}
 
 export interface PtyTarget {
   bin: string;
@@ -275,7 +386,13 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     child.stdin.write(chunk);
   };
 
+  const inject = (keystrokes: string): void => {
+    write(keystrokes);
+  };
+  const gate = createInputGate({ inject });
+
   const forward = (chunk: Buffer): void => {
+    gate.observe(chunk);
     if (options.onInterrupt && chunk.includes(INTERRUPT_KEY)) options.onInterrupt();
     write(chunk);
   };
@@ -309,20 +426,17 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   };
   connect();
 
-  const inject = (keystrokes: string): void => {
-    write(keystrokes);
-  };
-
   const keystrokesForName = options.launch.keystrokesForName;
   const stopWatching = keystrokesForName
     ? watchNameSidecar(options.launch.sessionFile, (name) => {
         const keystrokes = keystrokesForName(name);
-        if (keystrokes) inject(keystrokes);
+        if (keystrokes) gate.offer(keystrokes);
       })
     : () => {};
 
   const dispose = (): void => {
     connecting = false;
+    gate.dispose();
     stopWatching();
     stdout.off("resize", sendResize);
     stdin.off("data", forward);
