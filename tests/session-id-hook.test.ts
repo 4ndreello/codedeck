@@ -16,6 +16,11 @@ async function runHook(input: string, env: NodeJS.ProcessEnv): Promise<{ exitCod
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     child.once("error", reject);
     child.once("close", resolve);
+    // The hook exits without reading stdin when the session file is unset, so
+    // the write can hit a closed pipe; that is expected, not a failure.
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") reject(error);
+    });
     child.stdin.end(input);
   });
 
