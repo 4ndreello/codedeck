@@ -343,8 +343,11 @@ class Daemon {
     const session = this.sessions.get(sessionId);
     if (!session || session.origin !== "open" || session.agent !== "claude") return;
     const selectedIds = nativeIds === undefined ? undefined : new Set(nativeIds);
+    const links = nativeIds === undefined
+      ? this.nativeLinks.linksFor([sessionId])
+      : this.nativeLinks.unreconciled(sessionId);
 
-    for (const link of this.nativeLinks.unreconciled(sessionId)) {
+    for (const link of links) {
       if (selectedIds && !selectedIds.has(link.nativeId)) continue;
       const transcript = findTranscript(link.nativeId);
       if (!transcript) {

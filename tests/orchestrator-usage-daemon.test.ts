@@ -209,6 +209,51 @@ describe("orchestrator usage daemon methods", () => {
       .toBe(15);
   });
 
+  it("reconciles a previously linked native id after resuming its row", async () => {
+    const nativeId = "native-resumed";
+    seedOpen("row-resumed", { nativeSessionId: nativeId });
+    installTranscript(nativeId, "cost-state-10.jsonl");
+
+    await request("session.linkNative", { id: "row-resumed", nativeId });
+    await request("session.release", { id: "row-resumed" });
+    expect(seam(daemon!).sessions.get("row-resumed")?.usage?.cost).toBe(10);
+
+    const adopted = await request("session.adopt", {
+      agent: "claude",
+      cwd: "/tmp",
+      resume: nativeId,
+    });
+    expect(adopted.result.session.id).toBe("row-resumed");
+    await request("session.linkNative", { id: "row-resumed", nativeId });
+    installTranscript(nativeId, "cost-state-15.jsonl");
+    await request("session.release", { id: "row-resumed" });
+
+    expect(seam(daemon!).sessions.get("row-resumed")?.usage?.cost).toBe(15);
+    await (daemon as any).reconcileOpenUsage("row-resumed");
+    expect(seam(daemon!).sessions.get("row-resumed")?.usage?.cost).toBe(15);
+    expect((daemon as any).usageLedger.attributionsFor(["row-resumed"])).toMatchObject([
+      { sourceKey: "claude-open:native-resumed", cost: 15 },
+    ]);
+  });
+
+  it("re-reads reconciled links on release and keeps each source total once", async () => {
+    seedOpen("row-multiple-links");
+    installTranscript("native-x", "cost-state-10.jsonl");
+    await request("session.linkNative", { id: "row-multiple-links", nativeId: "native-x" });
+    await request("session.linkNative", { id: "row-multiple-links", nativeId: "native-y" });
+    expect(seam(daemon!).sessions.get("row-multiple-links")?.usage?.cost).toBe(10);
+
+    installTranscript("native-x", "cost-state-15.jsonl");
+    installTranscript("native-y", "cost-state-3.jsonl");
+    await request("session.release", { id: "row-multiple-links" });
+
+    expect(seam(daemon!).sessions.get("row-multiple-links")?.usage?.cost).toBe(18);
+    expect((daemon as any).usageLedger.attributionsFor(["row-multiple-links"])).toMatchObject([
+      { sourceKey: "claude-open:native-x", cost: 15 },
+      { sourceKey: "claude-open:native-y", cost: 3 },
+    ]);
+  });
+
   it("reconciles an earlier linked id when another id is added", async () => {
     seedOpen("row-relink");
     installTranscript("native-x", "cost-state-3.jsonl");
