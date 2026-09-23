@@ -26,6 +26,8 @@ describe("IpcClient.ensureDaemonStarted", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.clearAllTimers();
     if (server?.listening) {
       await new Promise<void>((resolve, reject) => {
         server!.close((error) => error ? reject(error) : resolve());
@@ -40,33 +42,48 @@ describe("IpcClient.ensureDaemonStarted", () => {
 
   it("resolves within 50 ms after the socket starts accepting connections", async () => {
     const socketPath = path.join(tempDir, "daemon.sock");
-    let listeningAt = 0;
-    server = net.createServer();
-    const started = new IpcClient().ensureDaemonStarted().then(() => Date.now());
+    const offsets = [5, 30, 55, 80, 105, 130];
 
-    await new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        server!.once("error", reject);
-        server!.listen(socketPath, () => {
-          listeningAt = Date.now();
-          resolve();
-        });
-      }, 75);
-    });
+    for (const [index, offset] of offsets.entries()) {
+      server = net.createServer();
+      const attemptServer = server;
+      let listeningAt = 0;
+      const started = new IpcClient().ensureDaemonStarted().then(() => Date.now());
+      const listening = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          attemptServer.once("error", reject);
+          attemptServer.listen(socketPath, () => {
+            listeningAt = Date.now();
+            resolve();
+          });
+        }, offset);
+      });
 
-    const resolvedAt = await started;
-    expect(resolvedAt - listeningAt).toBeLessThanOrEqual(50);
-    expect(spawn).toHaveBeenCalledTimes(1);
+      const [resolvedAt] = await Promise.all([started, listening.then(() => undefined)]);
+      expect(resolvedAt - listeningAt).toBeLessThanOrEqual(50);
+      expect(spawn).toHaveBeenCalledTimes(index + 1);
+
+      await new Promise<void>((resolve, reject) => {
+        attemptServer.close((error) => error ? reject(error) : resolve());
+      });
+      fs.rmSync(socketPath, { force: true });
+      server = undefined;
+    }
   });
 
   it("rejects after the six second startup budget when the socket never accepts", async () => {
-    const startedAt = Date.now();
+    vi.useFakeTimers();
+    let settled = false;
+    const started = new IpcClient().ensureDaemonStarted();
+    started.finally(() => { settled = true; }).catch(() => {});
 
-    await expect(new IpcClient().ensureDaemonStarted()).rejects.toThrow("Failed to start daemon");
+    await vi.advanceTimersByTimeAsync(5999);
+    expect(settled).toBe(false);
 
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(6000);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(started).rejects.toThrow("Failed to start daemon");
     expect(spawn).toHaveBeenCalledTimes(1);
-  }, 8000);
+  });
 
   it("does not spawn when the daemon already accepts on the socket", async () => {
     const socketPath = path.join(tempDir, "daemon.sock");
