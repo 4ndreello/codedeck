@@ -108,8 +108,8 @@ describe("buildSetupPlan", () => {
   });
 
   it("preserves unknown legacy setup values while updating top-level fields", () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const savedSets = { x: { agents: { reviewer: { harness: "omp", model: "legacy" } } } };
     const current = {
       agents: { reviewer: { harness: "claude", model: "current" } },

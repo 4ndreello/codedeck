@@ -91,8 +91,8 @@ describe("doctor roles section", () => {
   it("uses top-level bindings and omits legacy setup keys from doctor output", async () => {
     const configDir = mkdtempSync(path.join(tmpdir(), "codedeck-doctor-config-"));
     process.env.RUN_AGENT_CONFIG_DIR = configDir;
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
       agents: { reviewer: { harness: "codex", model: "top-level" } },
       [pointerKey]: "x",
@@ -131,6 +131,6 @@ describe("doctor roles section", () => {
     const text = output.mock.calls.map((call) => String(call[0])).join("\n");
 
     expect(text).toContain("Roles");
-    expect(text).not.toContain(["Pro", "file"].join(""));
+    expect(text).not.toContain("Profile");
   });
 });

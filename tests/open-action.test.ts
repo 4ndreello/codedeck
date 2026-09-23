@@ -70,8 +70,8 @@ describe("opencode dispatch", () => {
   });
 
   it("uses the top-level role binding when legacy setup data disagrees", async () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     writeConfig({
       agents: { reviewer: { harness: "opencode", model: "prov/top-level" } },
       [pointerKey]: "x",

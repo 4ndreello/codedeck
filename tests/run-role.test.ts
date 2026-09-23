@@ -172,8 +172,8 @@ describe("the harness and model a role is bound to", () => {
   });
 
   it("uses the top-level binding when legacy setup data disagrees", async () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     writeConfig({
       ...bound,
       [pointerKey]: "x",

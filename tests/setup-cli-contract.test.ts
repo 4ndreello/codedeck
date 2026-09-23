@@ -208,7 +208,7 @@ describe("setup batch parser", () => {
 
   it("does not register the removed command or option", async () => {
     const program = createCliProgram();
-    const removedCommand = ["pro", "file"].join("");
+    const removedCommand = "profile";
     const removedOption = `--${removedCommand}`;
 
     expect(program.commands.map((command) => command.name())).not.toContain(removedCommand);
@@ -233,7 +233,7 @@ describe("setup batch parser", () => {
   });
 
   it("reports the removed command and rejects its launch flags", async () => {
-    const removedCommand = ["pro", "file"].join("");
+    const removedCommand = "profile";
     const removedOption = `--${removedCommand}`;
     const program = createCliProgram();
     program.exitOverride();
@@ -286,8 +286,8 @@ describe("setup batch execution", () => {
   it("preserves unknown legacy setup values while saving top-level bindings", async () => {
     const now = Date.now();
     const file = getPaths().configFile;
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const savedSets = { x: { agents: { reviewer: { harness: "omp", model: "old" } } } };
     const before = {
       defaultAgent: "claude",
@@ -764,8 +764,8 @@ describe("setup web command", () => {
 
   it("passes refresh behavior to the setup page route", async () => {
     const configFile = getPaths().configFile;
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     fs.mkdirSync(path.dirname(configFile), { recursive: true, mode: 0o700 });
     fs.writeFileSync(configFile, serializeConfig({
       ...DEFAULT_CONFIG,

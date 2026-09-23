@@ -161,8 +161,8 @@ describe("runModelSetupWizard", () => {
   });
 
   it("uses top-level role bindings when legacy setup data disagrees", async () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const config = {
       ...base().config,
       agents: { general: { harness: "claude", model: "top-level" } },
@@ -178,8 +178,8 @@ describe("runModelSetupWizard", () => {
   it("preserves unknown legacy setup data when the wizard saves", async () => {
     const { input, output } = io();
     const save = vi.fn();
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const savedSets = { x: { agents: { general: { harness: "omp", model: "legacy" } } } };
     const config = {
       ...base().config,

@@ -115,8 +115,8 @@ afterEach(async () => {
 
 describe("setup page and state route", () => {
   it("serves the setup page and resolves top-level values with legacy data present", async () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const legacySets = {
       staging: {
         agents: { reviewer: { harness: "codex", model: "gpt-known", effort: "high" } },
@@ -148,7 +148,7 @@ describe("setup page and state route", () => {
     expect(payload.orchestrator).toEqual({ investigate: "none", selfWork: "none", tools: "dispatch" });
     expect(payload.sandbox).toBe("workspace-write");
     expect(payload.autocompact).toEqual({ enabled: false });
-    expect(page.body).not.toContain(["Pro", "file:"].join(""));
+    expect(page.body).not.toContain("Profile:");
   });
 
   it("identifies the top-level configuration as the setup target", async () => {
@@ -161,8 +161,8 @@ describe("setup page and state route", () => {
   });
 
   it("saves web setup fields at top level and preserves legacy values", async () => {
-    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
-    const savedSetsKey = ["pro", "files"].join("");
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
     const legacySets = { x: { agents: { reviewer: { harness: "omp", model: "old" } } } };
     const config = {
       [pointerKey]: "x",
