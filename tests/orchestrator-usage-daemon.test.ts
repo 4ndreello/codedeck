@@ -4,6 +4,7 @@ import path from "node:path";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { RequestMethod } from "../src/daemon/protocol.js";
 import type { Session } from "../src/core/session.js";
+import { processStartTime } from "../src/utils/process.js";
 import { fakeSocket, makeTempDir, removeTempDir, seed, seam } from "./helpers/daemon-seam.js";
 
 let runAgentDir: string;
@@ -11,7 +12,30 @@ let homeDir: string;
 let daemon: Daemon | undefined;
 const originalRunAgentDir = process.env.RUN_AGENT_DIR;
 const originalHome = process.env.HOME;
+let signalListenerSnapshot = new Map<string, Function[]>();
 let requestNumber = 0;
+
+const shutdownSignals = ["SIGTERM", "SIGINT", "SIGHUP"];
+
+async function closeStartedDaemon(instance: Daemon): Promise<void> {
+  const daemonAny = instance as any;
+  if (daemonAny.server?.listening) {
+    await new Promise<void>((resolve) => daemonAny.server.close(() => resolve()));
+  }
+  for (const name of ["daemon.sock", "daemon.pid"]) {
+    try { fs.unlinkSync(path.join(runAgentDir, name)); } catch {}
+  }
+  try { daemonAny.db.close(); } catch {}
+}
+
+function removeAddedSignalListeners(): void {
+  for (const signal of shutdownSignals) {
+    const previous = signalListenerSnapshot.get(signal) ?? [];
+    for (const listener of process.listeners(signal as NodeJS.Signals)) {
+      if (!previous.includes(listener)) process.removeListener(signal as NodeJS.Signals, listener as (...args: any[]) => void);
+    }
+  }
+}
 
 beforeEach(() => {
   runAgentDir = makeTempDir("orchestrator-usage-daemon-");
@@ -19,12 +43,17 @@ beforeEach(() => {
   process.env.RUN_AGENT_DIR = runAgentDir;
   process.env.HOME = homeDir;
   requestNumber = 0;
+  signalListenerSnapshot = new Map(
+    shutdownSignals.map((signal) => [signal, process.listeners(signal as NodeJS.Signals)]),
+  );
   daemon = new Daemon();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  if (daemon) await closeStartedDaemon(daemon);
   try { daemon && seam(daemon).db.close(); } catch {}
   daemon = undefined;
+  removeAddedSignalListeners();
   if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
   else process.env.RUN_AGENT_DIR = originalRunAgentDir;
   if (originalHome === undefined) delete process.env.HOME;
@@ -222,5 +251,57 @@ describe("orchestrator usage daemon methods", () => {
     expect(fs.readFileSync(path.join(runAgentDir, "daemon.log"), "utf-8"))
       .toContain("usage reconcile failed session=row-reader-error");
     expect((daemon as any).nativeLinks.unreconciled("row-reader-error")).toHaveLength(1);
+  });
+
+  it("reconciles stale open rows after startup without reading a live row", async () => {
+    seed(daemon!, "startup-interrupted", "interrupted", {
+      runId: "startup-interrupted",
+      origin: "open",
+      agent: "claude",
+    });
+    seed(daemon!, "startup-dead", "working", {
+      runId: "startup-dead",
+      origin: "open",
+      agent: "claude",
+      pid: 999_999_999,
+      pidStartTime: "dead-process",
+    });
+    seed(daemon!, "startup-live", "working", {
+      runId: "startup-live",
+      origin: "open",
+      agent: "claude",
+      pid: process.pid,
+      pidStartTime: processStartTime(process.pid),
+    });
+    installTranscript("native-startup-interrupted", "cost-state-3.jsonl");
+    installTranscript("native-startup-dead", "cost-state-3.jsonl");
+    installTranscript("native-startup-live", "cost-state-3.jsonl");
+    await request("session.linkNative", { id: "startup-interrupted", nativeId: "native-startup-interrupted" });
+    await request("session.linkNative", { id: "startup-dead", nativeId: "native-startup-dead" });
+    await request("session.linkNative", { id: "startup-live", nativeId: "native-startup-live" });
+    (daemon as any).maybeSpawnInhibit = () => {};
+
+    const firstDaemon = daemon!;
+    await firstDaemon.start();
+    await (firstDaemon as any).startupReconcilePromise;
+
+    expect(seam(firstDaemon).sessions.get("startup-interrupted")?.usage?.cost).toBe(3);
+    expect(seam(firstDaemon).sessions.get("startup-dead")?.usage?.cost).toBe(3);
+    expect(seam(firstDaemon).sessions.get("startup-live")?.usage).toBeUndefined();
+    expect((firstDaemon as any).nativeLinks.unreconciled("startup-live")).toHaveLength(1);
+    const firstTotal = (await request("usage.query", { period: "all" })).result.byOrigin
+      .find((bucket: { key: string }) => bucket.key === "orchestrator").costUsd;
+
+    await closeStartedDaemon(firstDaemon);
+    removeAddedSignalListeners();
+    daemon = new Daemon();
+    (daemon as any).maybeSpawnInhibit = () => {};
+    await daemon.start();
+    await (daemon as any).startupReconcilePromise;
+
+    const secondTotal = (await request("usage.query", { period: "all" })).result.byOrigin
+      .find((bucket: { key: string }) => bucket.key === "orchestrator").costUsd;
+    expect(secondTotal).toBe(firstTotal);
+    expect(secondTotal).toBe(6);
   });
 });
