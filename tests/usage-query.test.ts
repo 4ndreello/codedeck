@@ -125,6 +125,40 @@ describe("SessionStore.queryUsage", () => {
     expect(worker).toMatchObject({ sessionCount: 2, costUsd: 1.25 });
   });
 
+  it("uses harness-aware totals in every usage bucket", () => {
+    store.create(
+      makeSession("codex", {
+        agent: "codex",
+        model: "gpt-5.6-luna",
+        repository: "/dev/codedeck",
+        origin: null,
+        usage: { inputTokens: 1_000, outputTokens: 100, cachedTokens: 800 },
+      }),
+    );
+    store.create(
+      makeSession("claude", {
+        agent: "claude",
+        model: "claude-sonnet-4-6",
+        repository: "/dev/codedeck",
+        origin: "open",
+        usage: { inputTokens: 1_000, outputTokens: 100, cachedTokens: 800 },
+      }),
+    );
+
+    const result = store.queryUsage({ period: "all" });
+
+    expect(result.totals.totalTokens).toBe(3_000);
+    expect(result.byDay[0]?.totalTokens).toBe(3_000);
+    expect(result.byRepository.find((bucket) => bucket.key === "codedeck")?.totalTokens).toBe(3_000);
+    expect(result.byModel.find((bucket) => bucket.key === "gpt-5.6-luna")?.totalTokens).toBe(1_100);
+    expect(result.byModel.find((bucket) => bucket.key === "claude-sonnet-4-6")?.totalTokens).toBe(1_900);
+    expect(result.byAgent.find((bucket) => bucket.key === "codex")?.totalTokens).toBe(1_100);
+    expect(result.byAgent.find((bucket) => bucket.key === "claude")?.totalTokens).toBe(1_900);
+    expect(result.byRun.find((bucket) => bucket.key === "run-1")?.totalTokens).toBe(3_000);
+    expect(result.byOrigin.find((bucket) => bucket.key === "worker")?.totalTokens).toBe(1_100);
+    expect(result.byOrigin.find((bucket) => bucket.key === "orchestrator")?.totalTokens).toBe(1_900);
+  });
+
   it("merges in-range legacy usage into analytics without listing it as a session", () => {
     const endedAt = new Date(2026, 8, 7, 12).toISOString();
     const outsideRange = new Date(2026, 7, 31, 12).toISOString();
