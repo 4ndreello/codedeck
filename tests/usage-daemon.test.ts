@@ -117,6 +117,33 @@ describe("usage daemon methods", () => {
     expect(seam(daemon!).sessions.get(created.id)?.runId).toBeUndefined();
   });
 
+  it("passes the stored run id to the driver start options", async () => {
+    delete (daemon as any).startDriverForSession;
+    const originalDriver = (daemon as any).registry.get("codex");
+    const startOptions: Array<{ runId?: string }> = [];
+    try {
+      seam(daemon!).registry.register({
+        id: "codex",
+        start: async (options: { sessionId: string; cwd: string; runId?: string }) => {
+          startOptions.push(options);
+          return { id: options.sessionId, nativeSessionId: "thread-id", cwd: options.cwd };
+        },
+        async *events() {},
+      });
+      seed(daemon!, "daemon-run-session", "working", {
+        runId: "run-parent",
+        agent: "codex",
+        cwd: runAgentDir,
+      });
+
+      await (daemon as any).startDriverForSession("daemon-run-session", "task");
+
+      expect(startOptions).toMatchObject([{ runId: "run-parent" }]);
+    } finally {
+      seam(daemon!).registry.register(originalDriver);
+    }
+  });
+
   it.each([
     ["empty", { runId: "" }],
     ["missing", {}],

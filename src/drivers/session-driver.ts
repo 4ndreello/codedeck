@@ -101,6 +101,7 @@ export abstract class SessionDriver implements AgentDriver {
 
     return {
       id: options.sessionId,
+      runId: options.runId,
       nativeSessionId: runtime.nativeSessionId,
       pid: runtime.pid,
       cwd: options.cwd,
@@ -135,6 +136,7 @@ export abstract class SessionDriver implements AgentDriver {
       sessionId: session.id,
       prompt: message,
       cwd: session.cwd,
+      runId: session.runId,
       model: session.model,
       effort: session.effort,
       fast: session.fast,

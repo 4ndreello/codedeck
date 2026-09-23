@@ -1180,6 +1180,7 @@ class Daemon {
       sessionId,
       prompt,
       cwd: session.worktree || session.cwd,
+      runId: session.runId ?? undefined,
       model: model || session.model,
       // Read back from the session rather than the request so a follow-up turn
       // from send() runs with the same effort/tier the session was started with.
@@ -1256,6 +1257,7 @@ class Daemon {
     this.broadcast(s.id, turnEvent);
     const drvSession: DriverSession = {
       id: s.id,
+      runId: s.runId ?? undefined,
       nativeSessionId: s.nativeSessionId,
       cwd: s.worktree || s.cwd,
       model: s.model,
