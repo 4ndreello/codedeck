@@ -18,7 +18,6 @@ import { registerDiffCommand } from "./commands/diff.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerModelsCommand } from "./commands/models.js";
 import { registerOpenCommand } from "./commands/open.js";
-import { registerProfileCommand } from "./commands/profile.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerReviewCommand } from "./commands/review.js";
@@ -94,7 +93,6 @@ Docs: https://github.com/4ndreello/run-agent
   registerDoctorCommand(program);
   registerModelsCommand(program);
   registerOpenCommand(program);
-  registerProfileCommand(program);
   registerSetupCommand(program);
   registerUsageCommand(program);
   registerReviewCommand(program);

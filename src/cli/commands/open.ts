@@ -8,7 +8,6 @@ import { IpcClient } from "../../daemon/ipc.js";
 import type { SessionAdoptResult } from "../../daemon/protocol.js";
 import {
   loadConfig,
-  resolveEffectiveConfig,
   resolveRoleBinding,
   resolveOrchestratorMode,
   type RoleBinding,
@@ -579,7 +578,6 @@ export function registerOpenCommand(program: Command): void {
     .option("--resume <session>", "resume an interactive session")
     .option("--worktree", "open the session in an isolated git worktree")
     .option("--no-worktree", "open in the current directory without asking")
-    .option("--profile <name>", "use a saved setup profile instead of the active one (see profile list)")
     .option("--no-bypass", "do not skip Claude Code permission prompts")
     .option("--no-theme", "keep only the CodeDeck status line, without the theme or the renderer")
     .option("--no-pty", "do not run the session under a pty, which also drops the automatic rename")
@@ -587,11 +585,9 @@ export function registerOpenCommand(program: Command): void {
     .action(async (roleArg: string | undefined, opts: OpenFlags, command: Command) => {
       const invocation = getInvocation(command, roleArg);
       const autocompact = parseAutocompact(opts.autocompact);
-      // Launching never opens the wizard. Asking a model per harness was the
-      // wrong question to greet someone with, and `codedeck setup` is the place
-      // to answer it deliberately. The profile resolves once here, so every
-      // binding, model and effort below comes from the same setup.
-      const config = resolveEffectiveConfig(loadConfig(), opts.profile);
+      // Launching does not open the wizard. `codedeck setup` is where users
+      // choose models. Bindings, models and effort come from top-level setup.
+      const config = loadConfig();
       const orchestratorMode = resolveOrchestratorMode(config);
 
       // The print-flag check is harness-specific (-p is --profile on codex),

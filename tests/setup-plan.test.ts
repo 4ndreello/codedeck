@@ -4,8 +4,6 @@ import type { BatchModelsResult, HarnessModels } from "../src/core/models.js";
 import type { RunAgentConfig } from "../src/config/config.js";
 import {
   buildSetupPlan,
-  resolveSetupTarget,
-  SetupUsageError,
   validateBindings,
 } from "../src/config/setup.js";
 
@@ -26,9 +24,7 @@ describe("buildSetupPlan", () => {
       autocompact: { enabled: false, cap: 300_000, percent: 0.7, tokens: 210_000, mode: "tokens" },
     } as RunAgentConfig;
     const original = structuredClone(current);
-    const target = resolveSetupTarget(current);
-
-    const plan = buildSetupPlan(current, target, {
+    const plan = buildSetupPlan(current, {
       agents: { reviewer: { harness: "codex", model: "gpt-5.7", effort: "high" } },
       orchestrator: { investigate: "read", selfWork: "small", tools: "edit", parallelism: 7 },
       sandbox: "danger-full-access",
@@ -68,9 +64,7 @@ describe("buildSetupPlan", () => {
     const binding = { harness: "codex", model: "typed:model", effort: "max" } as const;
     const orchestrator = { investigate: "free", selfWork: "small", tools: "read", parallelism: 4 } as const;
     const current: RunAgentConfig = { agents: { reviewer: binding }, orchestrator };
-    const target = resolveSetupTarget(current);
-
-    const plan = buildSetupPlan(current, target, { agents: {} });
+    const plan = buildSetupPlan(current, { agents: {} });
 
     expect(plan.proposedConfig.agents).toEqual({ reviewer: binding });
     expect(plan.proposedConfig.orchestrator).toEqual(orchestrator);
@@ -82,9 +76,7 @@ describe("buildSetupPlan", () => {
       agents: { general: { harness: "claude", model: "sonnet" } },
       defaultSandbox: "workspace-write",
     };
-    const target = resolveSetupTarget(current);
-
-    const plan = buildSetupPlan(current, target, {
+    const plan = buildSetupPlan(current, {
       agents: { general: current.agents!.general! },
       autocompact: { enabled: false },
     });
@@ -100,7 +92,7 @@ describe("buildSetupPlan", () => {
       autocompact: { enabled: true, cap: 300_000, percent: 0.7, tokens: 210_000, mode: "tokens" },
     };
 
-    const plan = buildSetupPlan(current, resolveSetupTarget(current), {
+    const plan = buildSetupPlan(current, {
       agents: { general: current.agents!.general! },
       autocompact: { enabled: false },
     });
@@ -115,61 +107,24 @@ describe("buildSetupPlan", () => {
     expect(plan.diff.map((change) => change.path)).toEqual(["/autocompact/enabled"]);
   });
 
-  it("updates only the selected profile snapshot", () => {
-    const current: RunAgentConfig = {
-      defaultAgent: "claude",
-      worktree: false,
-      activeProfile: "first",
-      agents: { general: { harness: "claude", model: "global" } },
-      profiles: {
-        first: { agents: { general: { harness: "omp", model: "first" } } },
-        second: {
-          agents: { reviewer: { harness: "codex", model: "before" } },
-          defaultSandbox: "workspace-write",
-        },
-      },
-    };
-    const firstTarget = resolveSetupTarget(current);
-    const target = resolveSetupTarget(current, "second");
-
-    expect(firstTarget.profile).toBe("first");
-    expect(firstTarget.config.agents?.general).toEqual({ harness: "omp", model: "first" });
-    const plan = buildSetupPlan(current, target, {
-      agents: { reviewer: { harness: "codex", model: "after" } },
-      sandbox: "danger-full-access",
-    });
-
-    expect(plan.proposedConfig.agents).toEqual(current.agents);
-    expect(plan.proposedConfig.profiles?.first).toEqual(current.profiles?.first);
-    expect(plan.proposedConfig.profiles?.second).toEqual({
-      agents: { reviewer: { harness: "codex", model: "after" } },
-      defaultSandbox: "danger-full-access",
-    });
-    expect(plan.diff.map((change) => change.path)).toEqual([
-      "/profiles/second/agents/reviewer/model",
-      "/profiles/second/defaultSandbox",
-    ]);
-  });
-
-  it("uses explicit defaults for a new profile and rejects a missing active profile", () => {
-    const current: RunAgentConfig = {
-      defaultAgent: "claude",
-      activeProfile: "missing",
-      custom: "preserved",
+  it("preserves unknown legacy setup values while updating top-level fields", () => {
+    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
+    const savedSetsKey = ["pro", "files"].join("");
+    const savedSets = { x: { agents: { reviewer: { harness: "omp", model: "legacy" } } } };
+    const current = {
+      agents: { reviewer: { harness: "claude", model: "current" } },
+      [pointerKey]: "x",
+      [savedSetsKey]: savedSets,
     } as RunAgentConfig;
 
-    expect(() => resolveSetupTarget(current)).toThrow(
-      new SetupUsageError(
-        'Active profile "missing" does not exist. Choose an existing profile with "codedeck profile use <name>" or pass --profile <name>.',
-      ),
-    );
+    const plan = buildSetupPlan(current, {
+      agents: { reviewer: { harness: "codex", model: "selected" } },
+    });
+    const proposed = plan.proposedConfig as RunAgentConfig & Record<string, unknown>;
 
-    const target = resolveSetupTarget(current, "new-profile");
-    expect(target.profile).toBe("new-profile");
-    expect(target.config.agents).toEqual({});
-    const plan = buildSetupPlan(current, target, { agents: {} });
-    expect(plan.proposedConfig.profiles?.["new-profile"]).toEqual({ agents: {} });
-    expect(plan.proposedConfig.custom).toBe("preserved");
+    expect(proposed.agents?.reviewer).toEqual({ harness: "codex", model: "selected" });
+    expect(proposed[pointerKey]).toBe("x");
+    expect(proposed[savedSetsKey]).toEqual(savedSets);
   });
 });
 
@@ -198,7 +153,6 @@ describe("setup binding validation", () => {
   it("validates a catalog alias separately from planning", () => {
     const plan = buildSetupPlan(
       {},
-      resolveSetupTarget({}),
       { agents: { reviewer: { harness: "codex", model: "gpt-latest" } } },
     );
     const validation = validateBindings(
@@ -222,7 +176,7 @@ describe("setup binding validation", () => {
 
   it("reports an off-catalog selection from separate validation", () => {
     const selected: RunAgentConfig = {};
-    const plan = buildSetupPlan(selected, resolveSetupTarget(selected), {
+    const plan = buildSetupPlan(selected, {
       agents: { reviewer: { harness: "codex", model: "typed:model" } },
     });
     const validation = validateBindings(

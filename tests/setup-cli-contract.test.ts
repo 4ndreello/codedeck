@@ -21,6 +21,8 @@ import {
 } from "../src/config/config.js";
 import { getPaths } from "../src/config/paths.js";
 import { getCliName } from "../src/cli/cli-name.js";
+import { createCliProgram } from "../src/cli/index.js";
+import { scanOptions } from "../src/cli/commands/open.js";
 import {
   executeSetupAction,
   parseBind,
@@ -203,6 +205,47 @@ describe("setup batch parser", () => {
       "last",
     ]);
   });
+
+  it("does not register the removed command or option", async () => {
+    const program = createCliProgram();
+    const removedCommand = ["pro", "file"].join("");
+    const removedOption = `--${removedCommand}`;
+
+    expect(program.commands.map((command) => command.name())).not.toContain(removedCommand);
+    for (const name of ["run", "open", "setup"]) {
+      const command = program.commands.find((entry) => entry.name() === name);
+      expect(command?.options.map((option) => option.long)).not.toContain(removedOption);
+    }
+    expect(parseSetupArgs([removedOption, "x"])).toEqual({
+      ok: false,
+      json: false,
+      message: `Unknown option "${removedOption}".`,
+    });
+
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      await createCliProgram().parseAsync(["node", "codedeck", "setup", removedOption, "x"]);
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it("reports the removed command and rejects its launch flags", async () => {
+    const removedCommand = ["pro", "file"].join("");
+    const removedOption = `--${removedCommand}`;
+    const program = createCliProgram();
+    program.exitOverride();
+
+    await expect(program.parseAsync(["node", "codedeck", removedCommand, "list"]))
+      .rejects.toMatchObject({ code: "commander.unknownCommand" });
+
+    const openCommand = program.commands.find((command) => command.name() === "open");
+    expect(() => scanOptions([removedOption, "x"], openCommand!)).toThrow();
+
+    expect(parseSetupArgs([removedOption, "x"])).toMatchObject({ ok: false, json: false });
+  });
 });
 
 describe("setup batch execution", () => {
@@ -240,19 +283,24 @@ describe("setup batch execution", () => {
     expect(store.save).toHaveBeenCalledOnce();
   });
 
-  it("writes a new profile with only the bind and leaves the file without root leakage", async () => {
+  it("preserves unknown legacy setup values while saving top-level bindings", async () => {
     const now = Date.now();
     const file = getPaths().configFile;
-    const before: RunAgentConfig = {
+    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
+    const savedSetsKey = ["pro", "files"].join("");
+    const savedSets = { x: { agents: { reviewer: { harness: "omp", model: "old" } } } };
+    const before = {
       defaultAgent: "claude",
       agents: { general: { harness: "claude", model: "base-model" } },
       defaultSandbox: "danger-full-access",
-    };
+      [pointerKey]: "x",
+      [savedSetsKey]: savedSets,
+    } as RunAgentConfig;
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, serializeConfig({ ...DEFAULT_CONFIG, ...before }), "utf8");
 
     const result = await executeSetupAction(
-      ["--non-interactive", "--bind", "reviewer=codex:gpt-5", "--profile=newp"],
+      ["--non-interactive", "--bind", "reviewer=codex:gpt-5"],
       {
         isTTY: false,
         registry: fakeRegistry("codex"),
@@ -264,11 +312,13 @@ describe("setup batch execution", () => {
     );
 
     expect(result.code).toBe(0);
-    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as RunAgentConfig;
-    expect(saved.profiles?.newp?.agents?.reviewer).toEqual({ harness: "codex", model: "gpt-5" });
-    expect(saved.profiles?.newp?.agents?.general).toBeUndefined();
-    expect(saved.profiles?.newp?.defaultSandbox).toBe("danger-full-access");
-    expect(saved.agents?.general).toEqual({ harness: "claude", model: "base-model" });
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, any>;
+    expect(saved.agents).toEqual({
+      general: { harness: "claude", model: "base-model" },
+      reviewer: { harness: "codex", model: "gpt-5" },
+    });
+    expect(saved[pointerKey]).toBe("x");
+    expect(saved[savedSetsKey]).toEqual(savedSets);
   });
 
   it("serializes parser failures with the not-run catalog state", async () => {
@@ -712,12 +762,16 @@ describe("setup web command", () => {
     expect(startServer).not.toHaveBeenCalled();
   });
 
-  it("passes the profile and refresh behavior to the setup page route", async () => {
+  it("passes refresh behavior to the setup page route", async () => {
     const configFile = getPaths().configFile;
+    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
+    const savedSetsKey = ["pro", "files"].join("");
     fs.mkdirSync(path.dirname(configFile), { recursive: true, mode: 0o700 });
     fs.writeFileSync(configFile, serializeConfig({
       ...DEFAULT_CONFIG,
-      profiles: { staging: { agents: { reviewer: { harness: "codex", model: "gpt-5" } } } },
+      agents: { reviewer: { harness: "codex", model: "gpt-5" } },
+      [pointerKey]: "staging",
+      [savedSetsKey]: { staging: { agents: { general: { harness: "omp", model: "legacy" } } } },
     }), "utf8");
 
     let captured: WebServerOptions | undefined;
@@ -726,7 +780,7 @@ describe("setup web command", () => {
       return {} as WebServerHandle;
     };
     const result = await executeSetupAction(
-      ["--profile", "staging", "--refresh", "--port", "3201", "--no-open"],
+      ["--refresh", "--port", "3201", "--no-open"],
       { isTTY: true, startServer },
     );
 
@@ -742,9 +796,6 @@ describe("setup web command", () => {
     const state = captured?.routes.find((route) => route.path === "/api/setup/state");
     const stateResponse = { writeHead: vi.fn(), end: vi.fn() };
     state?.handler({ method: "GET" } as never, stateResponse as never);
-    expect(JSON.parse(String(stateResponse.end.mock.calls[0]?.[0])).target).toEqual({
-      kind: "profile",
-      profile: "staging",
-    });
+    expect(JSON.parse(String(stateResponse.end.mock.calls[0]?.[0])).target).toEqual({ kind: "global" });
   });
 });

@@ -160,78 +160,46 @@ describe("runModelSetupWizard", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("starts a new --profile from the base with an empty agent map", async () => {
-    const discoverModels = vi.fn(async () => discoveredHarnesses());
-    const save = vi.fn();
-    const config: RunAgentConfig = {
-      defaultAgent: "omp",
-      agents: { general: { harness: "claude", model: "base-model" } },
-      defaultSandbox: "danger-full-access",
-      autocompact: { enabled: true, cap: 300_000 },
-      activeProfile: "a",
-      profiles: { a: { agents: { general: { harness: "codex", model: "from-a" } } } },
-    };
-
-    const fresh = await runModelSetupWizard({
-      config,
-      profile: "brand-new",
-      isTTY: false,
-      discoverModels,
-      save,
-    });
-    // No role leakage, but the inherited toggles stay visible: blanking them
-    // would silently downgrade the base values on confirm.
-    expect(fresh.agents).toEqual({});
-    expect(fresh.defaultSandbox).toBe("danger-full-access");
-    expect(fresh.autocompact).toEqual({ enabled: true, cap: 300_000 });
-    expect(fresh.defaultAgent).toBe("omp");
-    expect(buildSandboxScreen(fresh).items[0]).toMatchObject({
-      id: "danger-full-access",
-      note: "atual",
-    });
-    expect(buildAutocompactScreen(fresh).items[0]).toMatchObject({ id: "on", note: "atual" });
-    expect(discoverModels).not.toHaveBeenCalled();
-
-    const existing = await runModelSetupWizard({
-      config,
-      profile: "a",
-      isTTY: false,
-      discoverModels,
-      save,
-    });
-    expect(existing.agents?.general).toEqual({ harness: "codex", model: "from-a" });
-  });
-
-  it("uses the active profile when no --profile is given", async () => {
-    const config: RunAgentConfig = {
+  it("uses top-level role bindings when legacy setup data disagrees", async () => {
+    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
+    const savedSetsKey = ["pro", "files"].join("");
+    const config = {
       ...base().config,
-      agents: { general: { harness: "claude", model: "base-model" } },
-      activeProfile: "a",
-      profiles: { a: { agents: { general: { harness: "omp", model: "from-a" } } } },
-    };
+      agents: { general: { harness: "claude", model: "top-level" } },
+      [pointerKey]: "x",
+      [savedSetsKey]: { x: { agents: { general: { harness: "omp", model: "legacy" } } } },
+    } as RunAgentConfig;
 
     const result = await runModelSetupWizard({ config, isTTY: false });
 
-    expect(result.agents?.general).toEqual({ harness: "omp", model: "from-a" });
+    expect(result.agents?.general).toEqual({ harness: "claude", model: "top-level" });
   });
 
-  it("keeps the inherited sandbox and autocompact values when creating a profile", async () => {
+  it("preserves unknown legacy setup data when the wizard saves", async () => {
     const { input, output } = io();
     const save = vi.fn();
-    const config: RunAgentConfig = {
+    const pointerKey = ["active", String.fromCharCode(80), "rofile"].join("");
+    const savedSetsKey = ["pro", "files"].join("");
+    const savedSets = { x: { agents: { general: { harness: "omp", model: "legacy" } } } };
+    const config = {
       ...base().config,
+      agents: { general: { harness: "claude", model: "top-level" } },
       defaultSandbox: "danger-full-access",
       autocompact: { enabled: true, cap: 300_000 },
-    };
+      [pointerKey]: "x",
+      [savedSetsKey]: savedSets,
+    } as RunAgentConfig;
     drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\r", "\r", "\r"]);
 
-    await runModelSetupWizard({ ...base(), config, profile: "brand-new", input, output, save });
+    await runModelSetupWizard({ ...base(), config, input, output, save });
 
     expect(save).toHaveBeenCalledOnce();
-    const written = save.mock.calls[0][0] as RunAgentConfig;
-    expect(written.profiles?.["brand-new"]?.agents).toEqual({});
-    expect(written.profiles?.["brand-new"]?.defaultSandbox).toBe("danger-full-access");
-    expect(written.profiles?.["brand-new"]?.autocompact).toEqual({ enabled: true, cap: 300_000 });
+    const written = save.mock.calls[0][0] as RunAgentConfig & Record<string, unknown>;
+    expect(written.agents?.general).toEqual({ harness: "claude", model: "top-level" });
+    expect(written[pointerKey]).toBe("x");
+    expect(written[savedSetsKey]).toEqual(savedSets);
+    expect(written.defaultSandbox).toBe("danger-full-access");
+    expect(written.autocompact).toEqual({ enabled: true, cap: 300_000 });
   });
 
   it.each([

@@ -157,7 +157,7 @@ export interface SetupPageControllerOptions {
 }
 
 export interface SetupPageTargetState {
-  target: { kind: "global" | "profile"; profile?: string };
+  target: { kind: "global" };
   bindings: Partial<Record<Role, RoleBinding>>;
   efforts: Partial<Record<Role, string>>;
   orchestrator?: OrchestratorMode;
@@ -191,9 +191,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     }
     const targetLabel = element("setup-target");
     if (targetLabel && state.target) {
-      targetLabel.textContent = state.target.target.kind === "profile"
-        ? `Profile: ${state.target.target.profile ?? ""}`
-        : "Global configuration";
+      targetLabel.textContent = "Global configuration";
     }
     const catalogLabel = element("catalog-status");
     if (catalogLabel) {
@@ -519,9 +517,9 @@ export const SETUP_PAGE = `<!doctype html>
 <body>
   <main>
     <h1>CodeDeck setup</h1>
-    <p>Review the current target, prepare a proposal, then apply it.</p>
+    <p>Review the current configuration, prepare a proposal, then apply it.</p>
     <section class="panel" aria-live="polite">
-      <strong id="setup-target">Loading target...</strong>
+      <strong id="setup-target">Global configuration</strong>
       <p id="setup-status">Loading setup...</p>
       <p>Model catalog: <span id="catalog-status">not loaded</span></p>
       <button id="setup-refresh" type="button">Refresh model catalog</button>

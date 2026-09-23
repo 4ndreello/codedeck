@@ -22,7 +22,6 @@ import { getPaths } from "../../config/paths.js";
 import {
   buildSetupPlan,
   diffConfig,
-  resolveSetupTarget,
   SetupUsageError,
   validateBindings,
   type BindingValidation,
@@ -41,8 +40,6 @@ import {
   isOrchestratorMode,
   loadConfig,
   orchestratorModeLabel,
-  parseProfileName,
-  resolveEffectiveConfig,
   resolveOrchestratorMode,
   saveConfig,
   serializeConfig,
@@ -424,7 +421,6 @@ export function collectOrchestratorSelection(
 
 export interface ModelWizardOptions {
   config?: RunAgentConfig;
-  profile?: string;
   registry?: DriverRegistry;
   input?: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode?(value: boolean): void };
   output?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
@@ -455,14 +451,8 @@ export function needsModelSetup(
   if (!isTTY) return false;
   // `agents` is what setup writes now. A config carrying only the older
   // per-harness `models` has never answered the per-role question, so it still
-  // counts as unset. The active profile answers too: its agents are the ones
-  // a launch would use.
-  if (config == null) return true;
-  try {
-    return resolveEffectiveConfig(config).agents == null;
-  } catch {
-    return config.agents == null;
-  }
+  // counts as unset.
+  return config?.agents == null;
 }
 
 /**
@@ -638,7 +628,7 @@ function watchResize(listener: () => void): () => void {
 
 export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
   const loaded = options.config ?? loadConfig();
-  const { profile, config } = resolveSetupTarget(loaded, options.profile);
+  const config = loaded;
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
   const output = options.output ?? process.stdout;
@@ -784,11 +774,10 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
       agents[target] = { ...agents[target]!, effort: result.id as ReasoningEffort };
     }
   }
-  const { proposedConfig: toSave } = buildSetupPlan(loaded, { profile, config }, selections);
-  const updatedConfig = profile === undefined ? toSave : resolveSetupTarget(toSave, profile).config;
+  const { proposedConfig: updatedConfig } = buildSetupPlan(loaded, selections);
   let saved = false;
   try {
-    (options.save ?? saveConfig)(toSave);
+    (options.save ?? saveConfig)(updatedConfig);
     saved = true;
   } catch (error) {
     console.error(`Warning: Could not save config: ${error instanceof Error ? error.message : String(error)}`);
@@ -822,7 +811,6 @@ export interface SetupCliOptions {
   port?: string;
   binds: ParsedSetupBinding[];
   batch: boolean;
-  profile?: string;
 }
 
 function invalidBindMessage(value: string): string {
@@ -884,7 +872,6 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
   let tui = false;
   let noOpen = false;
   let port: string | undefined;
-  let profile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -911,27 +898,6 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
     }
     if (arg.startsWith("--port=")) {
       port = arg.slice("--port=".length);
-      continue;
-    }
-    if (arg === "--profile") {
-      const value = args[index + 1];
-      if (value === undefined || isSetupFlag(value)) {
-        return parseError('Option "--profile" expects a name.', json);
-      }
-      index += 1;
-      try {
-        profile = parseProfileName(value);
-      } catch (error) {
-        return parseError(error instanceof Error ? error.message : String(error), json);
-      }
-      continue;
-    }
-    if (arg.startsWith("--profile=")) {
-      try {
-        profile = parseProfileName(arg.slice("--profile=".length));
-      } catch (error) {
-        return parseError(error instanceof Error ? error.message : String(error), json);
-      }
       continue;
     }
     if (arg === "--non-interactive") {
@@ -989,7 +955,6 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
       ...(port === undefined ? {} : { port }),
       binds,
       batch,
-      ...(profile === undefined ? {} : { profile }),
     },
   };
 }
@@ -1112,18 +1077,9 @@ export async function runSetupBatch(
   }
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
-  let target: ReturnType<typeof resolveSetupTarget>;
-  try {
-    target = resolveSetupTarget(current, options.profile);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeLine(stderr, message);
-    return errorResult(read, null, notNeededCatalog(), [], [], 14, message);
-  }
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
-  const profile = target.profile;
   let proposed: RunAgentConfig;
   let changes: SetupEnvelope["mudancas"];
   if (winning.length === 0) {
@@ -1132,7 +1088,7 @@ export async function runSetupBatch(
   } else {
     const agents: Partial<Record<Role, RoleBinding>> = {};
     for (const { role, binding } of winning) agents[role] = binding;
-    const plan = buildSetupPlan(current, target, { agents });
+    const plan = buildSetupPlan(current, { agents });
     proposed = plan.proposedConfig;
     changes = plan.diff;
   }
@@ -1236,9 +1192,8 @@ export async function runSetupBatch(
   }
 
   const message = "Configuration saved.";
-  const summarized = profile === undefined ? proposed : (proposed.profiles?.[profile] ?? proposed);
   if (!options.json) {
-    writeLine(stderr, profile === undefined ? `saved: ${configSummary(summarized)}` : `saved profile "${profile}": ${configSummary(summarized)}`);
+    writeLine(stderr, `saved: ${configSummary(proposed)}`);
   }
   return {
     code: 0,
@@ -1265,7 +1220,6 @@ function commandTokens(opts: Record<string, unknown>, command: Command): string[
   if (opts.nonInteractive) tokens.push("--non-interactive");
   if (opts.json) tokens.push("--json");
   if (opts.dryRun) tokens.push("--dry-run");
-  if (typeof opts.profile === "string") tokens.push("--profile", opts.profile);
   const binds = Array.isArray(opts.bind) ? opts.bind : opts.bind === undefined ? [] : [opts.bind];
   for (const bind of binds) {
     tokens.push("--bind");
@@ -1280,7 +1234,7 @@ export interface SetupActionResult {
 }
 
 function createSetupCommandRoutes(options: SetupCliOptions): WebRoute[] {
-  const routes = createSetupRoutes({ profile: options.profile });
+  const routes = createSetupRoutes();
   if (!options.refresh) return routes;
 
   return routes.map((route) => route.path === "/setup"
@@ -1329,7 +1283,6 @@ export async function executeSetupAction(
           discoverModels: dependencies.wizardDiscoverModels,
           save: dependencies.saveConfig,
           isTTY: tty,
-          ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
         });
       } catch (error) {
         writeError(error instanceof Error ? error.message : String(error));
@@ -1378,7 +1331,6 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")
     .option("--dry-run", "show the proposed config without writing it")
-    .option("--profile <name>", "edit a saved profile instead of the active setup")
     .option(
       "--bind [binding]",
       "bind a role to a harness and model",
