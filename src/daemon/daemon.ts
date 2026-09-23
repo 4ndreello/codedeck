@@ -351,7 +351,10 @@ class Daemon {
       if (selectedIds && !selectedIds.has(link.nativeId)) continue;
       const transcript = findTranscript(link.nativeId);
       if (!transcript) {
-        this.nativeLinks.markReconciled(sessionId, link.nativeId, "missing");
+        // A transcript that vanished after a successful read keeps its known state.
+        if (link.state === null || link.state === "missing") {
+          this.nativeLinks.markReconciled(sessionId, link.nativeId, "missing");
+        }
         continue;
       }
 
@@ -1534,8 +1537,10 @@ class Daemon {
           `).get(sessionId, currentSequence) as { count: number };
           const sourceKey = workerSourceKey(sess, processOrdinal.count);
           if (sourceKey && !ev.incremental) {
-            const seedIntoIncoming = !sourceKey.startsWith("claude:") ||
-              this.previousUsageProcessOrdinal(sessionId, currentSequence, sequence) === processOrdinal.count;
+            const previousOrdinal = sourceKey.startsWith("claude:")
+              ? this.previousUsageProcessOrdinal(sessionId, currentSequence, sequence)
+              : undefined;
+            const seedIntoIncoming = previousOrdinal === undefined || previousOrdinal === processOrdinal.count;
             this.usageLedger.observe(sessionId, sourceKey, next, seedIntoIncoming);
             if (next.model) this.sessions.update(sessionId, { model: next.model });
           } else if (ev.incremental) {

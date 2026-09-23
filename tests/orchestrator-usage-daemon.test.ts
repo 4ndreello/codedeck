@@ -126,6 +126,36 @@ describe("orchestrator usage daemon methods", () => {
     ]);
   });
 
+  it("seeds legacy Claude usage into the incoming source when no prior usage event exists", () => {
+    const sessionId = "legacy-claude-no-prior";
+    const nativeId = "native-no-prior";
+    seed(daemon!, sessionId, "working", {
+      agent: "claude",
+      nativeSessionId: nativeId,
+      usage: { cost: 0.4 },
+    });
+    const events = seam(daemon!).events;
+    const timestamp = new Date().toISOString();
+    events.append(sessionId, {
+      type: "session.started",
+      sessionId,
+      timestamp,
+      agent: "claude",
+      nativeSessionId: nativeId,
+    });
+    const nextUsage = {
+      type: "usage.updated" as const,
+      sessionId,
+      timestamp,
+      usage: { cost: 0.5 },
+    };
+    const sequence = events.append(sessionId, nextUsage);
+
+    (daemon as any).updateSessionFromEvent(sessionId, nextUsage, sequence);
+
+    expect(seam(daemon!).sessions.get(sessionId)?.usage?.cost).toBeCloseTo(0.5, 8);
+  });
+
   it("keeps legacy Claude usage when the next process reports its own cost", () => {
     const sessionId = "legacy-claude-row";
     const nativeId = "native-legacy";
@@ -277,6 +307,24 @@ describe("orchestrator usage daemon methods", () => {
     expect((daemon as any).usageLedger.attributionsFor(["row-resumed"])).toMatchObject([
       { sourceKey: "claude-open:native-resumed", cost: 15 },
     ]);
+  });
+
+  it("keeps the known state of a reconciled link whose transcript later disappears", async () => {
+    seedOpen("row-vanished");
+    installTranscript("native-gone", "cost-state-10.jsonl");
+    await request("session.linkNative", { id: "row-vanished", nativeId: "native-gone" });
+    await request("session.release", { id: "row-vanished" });
+    expect((daemon as any).nativeLinks.linksFor(["row-vanished"])).toMatchObject([
+      { nativeId: "native-gone", state: "cost-state" },
+    ]);
+
+    fs.rmSync(transcriptFile("native-gone"));
+    await (daemon as any).reconcileOpenUsage("row-vanished");
+
+    expect((daemon as any).nativeLinks.linksFor(["row-vanished"])).toMatchObject([
+      { nativeId: "native-gone", state: "cost-state" },
+    ]);
+    expect(seam(daemon!).sessions.get("row-vanished")?.usage?.cost).toBe(10);
   });
 
   it("re-reads reconciled links on release and keeps each source total once", async () => {
