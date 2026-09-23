@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SessionRuntime, readSessionProcessMetadata, type RuntimeHooks } from "../src/drivers/session-runtime.js";
+import { finishOpenSession } from "../src/open/runtime.js";
 import { processAlive, processStartTime, sleep } from "../src/utils/process.js";
 import type { AgentEvent } from "../src/core/events.js";
 
@@ -24,6 +25,22 @@ async function waitFor(cond: () => boolean, what: string, timeoutMs = 5000): Pro
     await sleep(25);
   }
 }
+
+describe("finishOpenSession", () => {
+  it("returns the last valid native id from the session sidecar", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-id-"));
+    const sessionFile = path.join(dir, "session");
+    const firstId = "11111111-1111-4111-8111-111111111111";
+    const lastId = "22222222-2222-4222-8222-222222222222";
+    fs.writeFileSync(sessionFile, `${firstId}\ninvalid\n${lastId}\n`);
+
+    try {
+      expect(finishOpenSession("reviewer", sessionFile, () => {}, false)).toBe(lastId);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 interface Harness {
   runtime: SessionRuntime;

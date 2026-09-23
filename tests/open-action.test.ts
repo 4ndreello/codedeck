@@ -403,6 +403,51 @@ describe("opencode effort", () => {
 });
 
 describe("claude dispatch", () => {
+  it("flushes native ids before finishing and releasing a Claude session", async () => {
+    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claude-close-"));
+    process.env.RUN_AGENT_DIR = runAgentDir;
+    vi.useFakeTimers();
+
+    try {
+      writeConfig({
+        agents: { general: { harness: "claude", model: "m", effort: "high" } },
+      });
+      mockClaudeLaunch();
+
+      await runOpen(["general", "--no-theme"]);
+
+      const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+      const nativeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      fs.writeFileSync(opts.sessionFile, `${nativeId}\n`);
+      await opts.onClose();
+
+      const request = vi.mocked(IpcClient.prototype.request);
+      const linkIndex = request.mock.calls.findIndex(
+        ([method, params]) =>
+          method === "session.linkNative" &&
+          (params as { nativeId?: string }).nativeId === nativeId,
+      );
+      const releaseIndex = request.mock.calls.findIndex(
+        ([method]) => method === "session.release",
+      );
+      expect(linkIndex).toBeGreaterThanOrEqual(0);
+      expect(releaseIndex).toBeGreaterThanOrEqual(0);
+      expect(runtime.finishOpenSession).toHaveBeenCalledTimes(1);
+
+      const linkOrder = request.mock.invocationCallOrder[linkIndex]!;
+      const finishOrder = vi.mocked(runtime.finishOpenSession).mock.invocationCallOrder[0]!;
+      const releaseOrder = request.mock.invocationCallOrder[releaseIndex]!;
+      expect(linkOrder).toBeLessThan(finishOrder);
+      expect(finishOrder).toBeLessThan(releaseOrder);
+    } finally {
+      vi.useRealTimers();
+      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
+      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      fs.rmSync(runAgentDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits --remote-control when config disables it", async () => {
     const configDir = process.env.RUN_AGENT_CONFIG_DIR;
     if (!configDir) throw new Error("test config directory is missing");
