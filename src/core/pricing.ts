@@ -69,6 +69,7 @@ export interface ComputeSessionCostInput {
   model?: string | null;
   usage?: SessionCostUsage;
   reportedCost?: number | null;
+  cachedInInput?: boolean;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -138,7 +139,20 @@ export function computeSessionCost({
   model,
   usage,
   reportedCost,
+  cachedInInput = false,
 }: ComputeSessionCostInput): number | null {
+  const inputTokens = usage?.inputTokens ?? 0;
+  const outputTokens = usage?.outputTokens ?? 0;
+  const cachedTokens = usage?.cachedTokens ?? 0;
+  if (
+    cachedInInput &&
+    isFiniteNumber(inputTokens) &&
+    isFiniteNumber(cachedTokens) &&
+    cachedTokens > inputTokens
+  ) {
+    return null;
+  }
+
   if (isFiniteNumber(reportedCost) && reportedCost < 0) return null;
   // Zero is a valid reported cost and must win over every table entry.
   if (isFiniteNumber(reportedCost) && reportedCost >= 0) return reportedCost;
@@ -146,9 +160,6 @@ export function computeSessionCost({
   const price = resolveModelPrice(model);
   if (!price || !isUsablePrice(price)) return null;
 
-  const inputTokens = usage?.inputTokens ?? 0;
-  const outputTokens = usage?.outputTokens ?? 0;
-  const cachedTokens = usage?.cachedTokens ?? 0;
   if (
     !isValidTokenCount(inputTokens) ||
     !isValidTokenCount(outputTokens) ||
@@ -159,8 +170,12 @@ export function computeSessionCost({
 
   const cachedPrice = price.cached ?? price.input;
   return (
-    inputTokens * price.input +
+    (cachedInInput ? inputTokens - cachedTokens : inputTokens) * price.input +
     outputTokens * price.output +
     cachedTokens * cachedPrice
   ) / 1_000_000;
+}
+
+export function cachedInInputFor(agent: string | undefined | null): boolean {
+  return agent === "codex";
 }

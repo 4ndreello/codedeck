@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSessionCost, MODEL_PRICES, resolveModelPrice } from "../src/core/pricing.js";
+import { cachedInInputFor, computeSessionCost, MODEL_PRICES, resolveModelPrice } from "../src/core/pricing.js";
 
 describe("computeSessionCost", () => {
   it("uses a valid reported cost, including zero, without recalculating", () => {
@@ -30,6 +30,44 @@ describe("computeSessionCost", () => {
         usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 1_000_000 },
       }),
     ).toBe(price.input);
+  });
+
+  it("prices Codex cached tokens once when they are included in input", () => {
+    expect(
+      computeSessionCost({
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 900_000 },
+        cachedInInput: true,
+      }),
+    ).toBe(1);
+  });
+
+  it("uses input price for included cached tokens when the model has no cached price", () => {
+    expect(
+      computeSessionCost({
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 1_000_000 },
+        cachedInInput: true,
+      }),
+    ).toBe(MODEL_PRICES["gpt-5.6-luna"].input);
+  });
+
+  it("rejects cached tokens above input when cached tokens are included in input", () => {
+    expect(
+      computeSessionCost({
+        model: "gpt-5.6-luna",
+        usage: { inputTokens: 1, cachedTokens: 2 },
+        reportedCost: 0.1,
+        cachedInInput: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("identifies only Codex as reporting cached tokens inside input", () => {
+    expect(cachedInInputFor("codex")).toBe(true);
+    for (const agent of ["claude", "antigravity", "omp", "opencode", undefined, null]) {
+      expect(cachedInInputFor(agent)).toBe(false);
+    }
   });
 
   it("uses an explicit cached price when the table provides one", () => {

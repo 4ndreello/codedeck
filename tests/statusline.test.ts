@@ -117,6 +117,77 @@ describe("Claude statusline", () => {
     expect(result.output).not.toContain("claude-sonnet-4");
   });
 
+  it("reports the local orchestrator cost without counting its live source twice", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const otherSourceId = "3f1f93b8-c484-43aa-8a11-32a486109e22";
+    const result = await render({
+      payload: { ...payload(1), session_id: sessionId },
+      sessionId,
+      runId: "run-example",
+      usage: {
+        runId: "run-example",
+        inputTokens: 1200,
+        outputTokens: 800,
+        cachedTokens: 300,
+        costUsd: 0.5,
+        sessionCount: 2,
+        activeSessionCount: 2,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 3.8,
+          costComplete: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          sources: [
+            { nativeId: otherSourceId, costUsd: 3 },
+            { nativeId: sessionId, costUsd: 0.8 },
+          ],
+        },
+        total: { costUsd: 4.3 },
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("run $4.50");
+    expect(result.args).toEqual([
+      "usage",
+      "run-example",
+      "--json",
+      "--observe",
+      `${sessionId}=1`,
+    ]);
+  });
+
+  it("observes zero cost but skips invalid session ids and negative costs", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const zero = await render({
+      payload: { ...payload(0), session_id: sessionId },
+      sessionId,
+      runId: "run-example",
+    });
+    const invalidId = await render({
+      payload: { ...payload(1), session_id: "ses_invalid" },
+      sessionId: "ses_invalid",
+      runId: "run-example",
+    });
+    const negativeCost = await render({
+      payload: { ...payload(-1), session_id: sessionId },
+      sessionId,
+      runId: "run-example",
+    });
+
+    expect(zero.args).toEqual([
+      "usage",
+      "run-example",
+      "--json",
+      "--observe",
+      `${sessionId}=0`,
+    ]);
+    expect(invalidId.args).toEqual(["usage", "run-example", "--json"]);
+    expect(negativeCost.args).toEqual(["usage", "run-example", "--json"]);
+  });
+
   it("renders the task name from its sidecar before the role", async () => {
     const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
     const result = await render({
@@ -156,12 +227,12 @@ describe("Claude statusline", () => {
 
   it("keeps the local token snapshot when the usage CLI fails", async () => {
     const result = await render({
-      payload: payload(0.25, { total_input_tokens: 1_200, total_output_tokens: 800 }),
+      payload: payload(1, { total_input_tokens: 1_200, total_output_tokens: 800 }),
       runId: "run-unavailable",
       shimExitCode: 1,
     });
 
-    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $0.25`);
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · 2k tok · $1.00`);
     expect(stripAnsi(result.output)).not.toContain(" · run ");
     expect(stripAnsi(result.output)).not.toContain("agents");
   });
@@ -212,6 +283,66 @@ describe("Claude statusline", () => {
     });
 
     expect(stripAnsi(result.output)).toContain("0 tok · run $0.42?");
+  });
+
+  it("marks the run incomplete when orchestrator cost is incomplete", async () => {
+    const result = await render({
+      payload: payload(0),
+      runId: "run-partial-orchestrator",
+      usage: {
+        runId: "run-partial-orchestrator",
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        costUsd: 0.42,
+        sessionCount: 0,
+        activeSessionCount: 0,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 0,
+          costComplete: false,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          sources: [],
+        },
+        total: { costUsd: 0.42 },
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("run $0.42?");
+  });
+
+  it("keeps the existing run formula when orchestrator data is invalid", async () => {
+    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
+    const result = await render({
+      payload: { ...payload(0.25), session_id: sessionId },
+      sessionId,
+      runId: "run-invalid-orchestrator",
+      usage: {
+        runId: "run-invalid-orchestrator",
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        costUsd: 0.4,
+        sessionCount: 1,
+        activeSessionCount: 0,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+        orchestrator: {
+          costUsd: 0.8,
+          costComplete: false,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedTokens: 0,
+          sources: [{ nativeId: sessionId, costUsd: "invalid" }],
+        },
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("run $0.65");
+    expect(stripAnsi(result.output)).not.toContain("run $0.65?");
   });
 
   it("does not render a duplicate run session count", async () => {

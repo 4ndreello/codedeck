@@ -1,0 +1,5 @@
+not-json, skip this line
+{"type":"assistant","timestamp":"2026-09-21T10:00:00.000Z","cwd":"/tmp/worker","requestId":"req-1","message":{"id":"msg-1","model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":40,"cache_read_input_tokens":10,"cache_creation_input_tokens":5}}}
+{"type":"assistant","timestamp":"2026-09-21T10:01:00.000Z","requestId":"req-1","message":{"id":"msg-1","model":"claude-sonnet-5","usage":{"input_tokens":100,"output_tokens":40,"cache_read_input_tokens":10,"cache_creation_input_tokens":5}}}
+{"type":"assistant","timestamp":"2026-09-21T10:02:00.000Z","requestId":"req-2","message":{"id":"msg-2","model":"claude-haiku-4-5","usage":{"input_tokens":200,"output_tokens":100,"cache_read_input_tokens":20,"cache_creation_input_tokens":0}}}
+{"type":"system","timestamp":"2026-09-21T10:03:00.000Z","cwd":"/tmp/final"}

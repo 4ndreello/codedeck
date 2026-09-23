@@ -24,6 +24,10 @@ import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
+import { UsageLedger } from "../store/usage-ledger.js";
+import { openSourceKey, workerSourceKey } from "../core/usage-source.js";
+import { NativeLinkStore } from "../store/native-links.js";
+import { findTranscript, readTranscriptUsage } from "../core/claude-transcript.js";
 
 // Daemon's view of power readiness for the doctor IPC result (field names
 // fixed by cross-worker contract; the CLI falls back to local detection
@@ -82,10 +86,13 @@ class Daemon {
   private sessions: SessionStore;
   private events: EventStore;
   private claims: ClaimsStore;
+  private usageLedger: UsageLedger;
+  private nativeLinks: NativeLinkStore;
   private registry = getRegistry();
   private server?: net.Server;
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
   private startTime = Date.now();
+  private startupReconcilePromise: Promise<void> = Promise.resolve();
   private sessionLocks = new Set<string>();
   // Power-shutdown state. `shuttingDown` is set synchronously by the signal
   // handler so concurrent handleRequest calls are refused during the drain.
@@ -118,12 +125,31 @@ class Daemon {
     this.sessions = new SessionStore(handle);
     this.events = new EventStore(handle);
     this.claims = new ClaimsStore(handle);
+    this.usageLedger = new UsageLedger(handle);
+    this.nativeLinks = new NativeLinkStore(handle);
   }
 
   async start(): Promise<void> {
     const paths = getPaths();
+    const isDead = (session: Session) => !livePidIdentity(session);
     // Recover orphaned sessions
     await this.recover();
+    const staleSessionIds = new Set(
+      this.nativeLinks.staleOpenRows(isDead).map((session) => session.id),
+    );
+    const retryableRows = this.db.getHandle().prepare(`
+      SELECT DISTINCT sessions.id
+      FROM sessions
+      INNER JOIN session_native_links ON session_native_links.session_id = sessions.id
+      WHERE sessions.origin = 'open'
+        AND sessions.agent = 'claude'
+        AND sessions.status IN ('completed', 'failed')
+        AND session_native_links.reconciled_at IS NULL
+    `).all() as Array<{ id: string }>;
+    for (const row of retryableRows) staleSessionIds.add(row.id);
+    this.startupReconcilePromise = Promise.all(
+      [...staleSessionIds].map((sessionId) => this.reconcileOpenUsageSafely(sessionId)),
+    ).then(() => {});
 
     this.server = createIpcServer(async (req, socket) => {
       try {
@@ -310,6 +336,59 @@ class Daemon {
       } else {
         this.sessions.setStatus(s.id, "failed");
       }
+    }
+  }
+
+  private async reconcileOpenUsage(sessionId: string, nativeIds?: readonly string[]): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.origin !== "open" || session.agent !== "claude") return;
+    const selectedIds = nativeIds === undefined ? undefined : new Set(nativeIds);
+    const links = nativeIds === undefined
+      ? this.nativeLinks.linksFor([sessionId])
+      : this.nativeLinks.unreconciled(sessionId);
+
+    for (const link of links) {
+      if (selectedIds && !selectedIds.has(link.nativeId)) continue;
+      const transcript = findTranscript(link.nativeId);
+      if (!transcript) {
+        // A transcript that vanished after a successful read keeps its known state.
+        if (link.state === null || link.state === "missing") {
+          this.nativeLinks.markReconciled(sessionId, link.nativeId, "missing");
+        }
+        continue;
+      }
+
+      const usage = await readTranscriptUsage(transcript);
+      const db = this.db.getHandle();
+      db.exec("BEGIN");
+      try {
+        this.usageLedger.observe(sessionId, openSourceKey(link.nativeId), {
+          cost: usage.cost,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedTokens: usage.cachedTokens,
+          model: usage.model,
+        });
+        this.nativeLinks.markReconciled(sessionId, link.nativeId, usage.state);
+        db.exec("COMMIT");
+      } catch (error) {
+        try { db.exec("ROLLBACK"); } catch {}
+        throw error;
+      }
+    }
+  }
+
+  private async reconcileOpenUsageSafely(sessionId: string, nativeIds?: readonly string[]): Promise<void> {
+    try {
+      await this.reconcileOpenUsage(sessionId, nativeIds);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      try {
+        fs.appendFileSync(
+          getPaths().daemonLog,
+          `[${new Date().toISOString()}] usage reconcile failed session=${sessionId}: ${detail}\n`,
+        );
+      } catch {}
     }
   }
 
@@ -540,6 +619,27 @@ class Daemon {
         break;
       }
 
+      case "session.linkNative": {
+        const p = (params || {}) as { id?: unknown; nativeId?: unknown };
+        if (typeof p.id !== "string" || typeof p.nativeId !== "string" || p.nativeId.length === 0) {
+          send({ error: { code: "INVALID", message: "id and nativeId required" } });
+          return;
+        }
+        const session = this.sessions.get(p.id);
+        if (!session) {
+          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
+          return;
+        }
+        if (session.origin !== "open") {
+          send({ result: { created: false } });
+          return;
+        }
+        const { created, previous } = this.nativeLinks.link(session.id, p.nativeId);
+        if (previous.length > 0) await this.reconcileOpenUsageSafely(session.id, previous);
+        send({ result: { created } });
+        break;
+      }
+
       case "session.release": {
         const p = params as any;
         const s = this.sessions.get(p.id);
@@ -575,6 +675,12 @@ class Daemon {
           extra.lastEvent = "released";
         }
         this.sessions.setStatus(s.id, targetStatus, extra);
+        if (s.origin === "open" && s.agent === "claude") {
+          if (typeof p.nativeSessionId === "string" && p.nativeSessionId.length > 0) {
+            this.nativeLinks.link(s.id, p.nativeSessionId);
+          }
+          await this.reconcileOpenUsageSafely(s.id);
+        }
 
         const ev: AgentEvent = targetStatus === "failed"
           ? {
@@ -977,13 +1083,48 @@ class Daemon {
       }
 
       case "usage.get": {
-        const p = (params || {}) as { runId?: unknown };
+        const p = (params || {}) as {
+          runId?: unknown;
+          observe?: { nativeId?: unknown; costUsd?: unknown };
+        };
         if (typeof p.runId !== "string" || p.runId.length === 0) {
           send({ error: { code: "INVALID", message: "runId required" } });
           return;
         }
+        if (p.observe !== undefined) {
+          const { nativeId, costUsd } = p.observe;
+          if (
+            typeof nativeId !== "string" ||
+            nativeId.length === 0 ||
+            typeof costUsd !== "number" ||
+            !Number.isFinite(costUsd) ||
+            costUsd < 0
+          ) {
+            send({ error: { code: "INVALID", message: "observe requires nativeId and a finite non-negative costUsd" } });
+            return;
+          }
+          const session = this.sessions.getByRunId(p.runId)
+            .find((candidate) => candidate.id === p.runId && candidate.origin === "open");
+          if (session) {
+            const db = this.db.getHandle();
+            db.exec("BEGIN");
+            let previous: string[] = [];
+            try {
+              previous = this.nativeLinks.link(session.id, nativeId).previous;
+              this.usageLedger.observe(session.id, openSourceKey(nativeId), { cost: costUsd });
+              db.exec("COMMIT");
+            } catch (error) {
+              try { db.exec("ROLLBACK"); } catch {}
+              throw error;
+            }
+            if (previous.length > 0) await this.reconcileOpenUsageSafely(session.id, previous);
+          }
+        }
         const sessions = this.sessions.getByRunId(p.runId);
-        send({ result: aggregateRunUsage(p.runId, sessions) });
+        const sessionIds = sessions.map((session) => session.id);
+        const attributions = this.usageLedger.attributionsFor(sessionIds);
+        const linkStates = this.nativeLinks.linksFor(sessionIds).map(({ sessionId, state }) => ({ sessionId, state }));
+        send({ result: aggregateRunUsage(p.runId, sessions, attributions, linkStates) });
         break;
       }
 
@@ -1055,6 +1196,7 @@ class Daemon {
       sessionId,
       prompt,
       cwd: session.worktree || session.cwd,
+      runId: session.runId ?? undefined,
       model: model || session.model,
       // Read back from the session rather than the request so a follow-up turn
       // from send() runs with the same effort/tier the session was started with.
@@ -1131,6 +1273,7 @@ class Daemon {
     this.broadcast(s.id, turnEvent);
     const drvSession: DriverSession = {
       id: s.id,
+      runId: s.runId ?? undefined,
       nativeSessionId: s.nativeSessionId,
       cwd: s.worktree || s.cwd,
       model: s.model,
@@ -1263,7 +1406,7 @@ class Daemon {
           }
           if (inserted !== 0) {
             // Update session status based on event.
-            this.updateSessionFromEvent(sessionId, ev);
+            this.updateSessionFromEvent(sessionId, ev, inserted);
           }
           db.exec("COMMIT");
         } catch (error) {
@@ -1330,7 +1473,38 @@ class Daemon {
     if (!this.shuttingDown) void this.tryDispatch(sessionId);
   }
 
-  private updateSessionFromEvent(sessionId: string, ev: AgentEvent): void {
+  private previousUsageProcessOrdinal(
+    sessionId: string,
+    currentSequence: number,
+    eventSequence?: number,
+  ): number | undefined {
+    const previousUsageEvent = this.db.getHandle().prepare(`
+      SELECT sequence FROM events
+      WHERE session_id = ? AND type = 'usage.updated' AND sequence <= ?
+        AND (? IS NULL OR sequence <> ?)
+        AND (
+          json_extract(normalized_payload, '$.usage.cost') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.inputTokens') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.outputTokens') IS NOT NULL OR
+          json_extract(normalized_payload, '$.usage.cachedTokens') IS NOT NULL
+        )
+      ORDER BY sequence DESC
+      LIMIT 1
+    `).get(
+      sessionId,
+      currentSequence,
+      eventSequence ?? null,
+      eventSequence ?? null,
+    ) as { sequence: number } | undefined;
+    if (!previousUsageEvent) return;
+
+    return (this.db.getHandle().prepare(`
+      SELECT COUNT(*) AS count FROM events
+      WHERE session_id = ? AND type = 'session.started' AND sequence <= ?
+    `).get(sessionId, previousUsageEvent.sequence) as { count: number }).count;
+  }
+
+  private updateSessionFromEvent(sessionId: string, ev: AgentEvent, sequence?: number): void {
     try {
       const current = this.sessions.get(sessionId);
       if (current?.status === "stopped" && (ev.type === "session.completed" || ev.type === "session.failed")) {
@@ -1352,7 +1526,24 @@ class Daemon {
         const sess = this.sessions.get(sessionId);
         if (sess) {
           const next = ev.usage || {};
-          if (ev.incremental) {
+          const currentSequence = sequence ?? (
+            this.db.getHandle().prepare(
+              `SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE session_id = ?`,
+            ).get(sessionId) as { sequence: number }
+          ).sequence;
+          const processOrdinal = this.db.getHandle().prepare(`
+            SELECT COUNT(*) AS count FROM events
+            WHERE session_id = ? AND type = 'session.started' AND sequence <= ?
+          `).get(sessionId, currentSequence) as { count: number };
+          const sourceKey = workerSourceKey(sess, processOrdinal.count);
+          if (sourceKey && !ev.incremental) {
+            const previousOrdinal = sourceKey.startsWith("claude:")
+              ? this.previousUsageProcessOrdinal(sessionId, currentSequence, sequence)
+              : undefined;
+            const seedIntoIncoming = previousOrdinal === undefined || previousOrdinal === processOrdinal.count;
+            this.usageLedger.observe(sessionId, sourceKey, next, seedIntoIncoming);
+            if (next.model) this.sessions.update(sessionId, { model: next.model });
+          } else if (ev.incremental) {
             const cur = sess.usage || {};
             const inputTokens = (cur.inputTokens ?? 0) + (next.inputTokens ?? 0);
             const outputTokens = (cur.outputTokens ?? 0) + (next.outputTokens ?? 0);

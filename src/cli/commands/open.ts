@@ -23,6 +23,7 @@ import { createWorktree } from "../../git/worktree.js";
 import { ptyShimPath, type PtyLaunch } from "../../open/pty.js";
 import { isInteractiveTerminal } from "./setup.js";
 import { sessionsDir } from "../../open/pty.js";
+import { startLinkWatcher } from "../../open/link-watcher.js";
 
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
 import { getCliName } from "../cli-name.js";
@@ -656,6 +657,27 @@ export function registerOpenCommand(program: Command): void {
         ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
       });
       const runId = adoptRes.session.id;
+      let linkWatcher: ReturnType<typeof startLinkWatcher> | undefined;
+      let linkWatcherFlush: Promise<void> | undefined;
+      const flushLinkWatcher = async () => {
+        if (linkWatcherFlush !== undefined) {
+          await linkWatcherFlush;
+          return;
+        }
+        if (linkWatcher === undefined) return;
+
+        const watcher = linkWatcher;
+        linkWatcherFlush = (async () => {
+          try {
+            await watcher.flush();
+          } catch {}
+          try {
+            watcher.stop();
+          } catch {}
+          linkWatcher = undefined;
+        })();
+        await linkWatcherFlush;
+      };
 
       let patchPromise: Promise<unknown> | undefined;
       try {
@@ -712,6 +734,7 @@ export function registerOpenCommand(program: Command): void {
                 fs.writeFileSync(sessionFile, id);
               } catch {}
             }
+            if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
             const nativeSessionId = finishOpenSession(role, sessionFile);
             try {
               if (patchPromise) await patchPromise;
@@ -812,6 +835,7 @@ export function registerOpenCommand(program: Command): void {
                 fs.writeFileSync(sessionFile, id);
               } catch {}
             }
+            if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
             const nativeSessionId = finishOpenSession(role, sessionFile);
             try {
               if (patchPromise) await patchPromise;
@@ -872,12 +896,19 @@ export function registerOpenCommand(program: Command): void {
           await playBoot(role, model, effort);
         }
 
+        linkWatcher = startLinkWatcher({
+          sessionFile,
+          runId,
+          link: (id, nativeId) => client.request("session.linkNative", { id, nativeId }),
+        });
+
         const closeClaude = async () => {
           if (!fs.existsSync(sessionFile) && opts.resume && SESSION_ID_PATTERN.test(opts.resume)) {
             try {
               fs.writeFileSync(sessionFile, opts.resume);
             } catch {}
           }
+          if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
           const nativeSessionId = finishOpenSession(role, sessionFile);
           try {
             if (patchPromise) await patchPromise;
@@ -911,6 +942,7 @@ export function registerOpenCommand(program: Command): void {
           },
         );
       } catch (err: unknown) {
+        if (linkWatcher !== undefined || linkWatcherFlush !== undefined) await flushLinkWatcher();
         try {
           await client.request("session.release", {
             id: runId,

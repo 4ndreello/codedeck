@@ -44,6 +44,7 @@ export interface StartOptions {
   sessionId: string;
   prompt: string;
   cwd: string;
+  runId?: string;
   model?: string;
   effort?: ReasoningEffort;
   // Claude's native compaction setting. Other drivers ignore this field.
@@ -69,6 +70,7 @@ export interface StartOptions {
 
 export interface DriverSession {
   id: string;
+  runId?: string;
   nativeSessionId?: string;
   pid?: number;
   // Linux /proc start tick captured with the PID; prevents killing/reattaching

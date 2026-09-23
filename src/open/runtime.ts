@@ -241,10 +241,13 @@ export function renderExit(role: Role, id: string | undefined): string {
 
 /** Reads what the SessionStart hook left, and takes both sidecars with it. */
 function takeSessionId(file: string): string | undefined {
-  let id: string | undefined;
+  let ids: string[] = [];
   try {
-    id = fs.readFileSync(file, "utf8").trim() || undefined;
-    return id;
+    ids = fs
+      .readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .filter((id) => SESSION_ID_PATTERN.test(id));
+    return ids.at(-1);
   } catch {
     // No file means the hook never ran: an older Claude Code, a session that
     // died before startup, or a plugin the launch could not load. None of those
@@ -253,7 +256,7 @@ function takeSessionId(file: string): string | undefined {
     try {
       fs.rmSync(file, { force: true });
     } catch {}
-    if (id && SESSION_ID_PATTERN.test(id)) {
+    for (const id of ids) {
       try {
         fs.rmSync(`${file}.${id}.name`, { force: true });
       } catch {}

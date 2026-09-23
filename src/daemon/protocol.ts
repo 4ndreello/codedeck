@@ -10,6 +10,7 @@ export type RequestMethod =
   | "session.adopt"
   | "session.patch"
   | "session.release"
+  | "session.linkNative"
   | "session.list"
   | "session.get"
   | "session.rename"
@@ -87,6 +88,11 @@ export interface ReleaseSessionRequest {
   };
 }
 
+export interface LinkNativeSessionRequest {
+  method: "session.linkNative";
+  params: { id: string; nativeId: string };
+}
+
 export interface ListSessionsRequest {
   method: "session.list";
   params: { all?: boolean; json?: boolean };
@@ -154,7 +160,10 @@ export interface ListModelsRequest {
 
 export interface GetUsageRequest {
   method: "usage.get";
-  params: { runId: string };
+  params: {
+    runId: string;
+    observe?: { nativeId: string; costUsd: number };
+  };
 }
 
 export type UsagePeriod = "today" | "3d" | "7d" | "30d" | "all";
@@ -208,6 +217,7 @@ export interface UsageQueryResult {
   byModel: UsageMetricBucket[];
   byAgent: UsageMetricBucket[];
   byRun: UsageMetricBucket[];
+  byOrigin: UsageMetricBucket[];
 }
 
 export interface QueryUsageRequest {
@@ -224,6 +234,7 @@ export type RequestParams =
   | AdoptSessionRequest
   | PatchSessionRequest
   | ReleaseSessionRequest
+  | LinkNativeSessionRequest
   | ListSessionsRequest
   | GetSessionRequest
   | RenameSessionRequest
