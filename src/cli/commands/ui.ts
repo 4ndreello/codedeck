@@ -1,7 +1,10 @@
 import type { Command } from "commander";
 import { createReviewRoutes } from "./review.js";
+import { fetchUsageQuery } from "./usage.js";
 import { renderHomePage } from "../../web/home-page.js";
+import { createSetupRoutes, type SetupRoutesDependencies } from "../../web/setup-routes.js";
 import { DEFAULT_WEB_PORT, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
+import { createUsageRoutes, type UsageRoutesOptions } from "../../web/usage-routes.js";
 
 export interface UiCommandOptions {
   port?: string;
@@ -10,14 +13,20 @@ export interface UiCommandOptions {
 
 export interface UiCommandDependencies {
   startServer?: typeof startWebServer;
+  setup?: SetupRoutesDependencies;
+  usage?: UsageRoutesOptions;
 }
 
-export function createUiRoutes(): WebRoute[] {
-  const reviewRoutes = createReviewRoutes();
-  const pages = reviewRoutes.flatMap((route) =>
+export function createUiRoutes(dependencies: Pick<UiCommandDependencies, "setup" | "usage"> = {}): WebRoute[] {
+  const reviewRoutes = createReviewRoutes().filter((route) => route.path !== "/");
+  const setupRoutes = createSetupRoutes(dependencies.setup);
+  const usageRoutes = createUsageRoutes(dependencies.usage ?? { fetchUsageQuery }).map((route) =>
+    route.path === "/usage" ? { ...route, label: "Usage" } : route,
+  );
+  const routes = [...reviewRoutes, ...setupRoutes, ...usageRoutes];
+  const pages = routes.flatMap((route) =>
     route.kind === "page" && route.label ? [{ label: route.label, path: route.path }] : [],
   );
-  const reviewRouteTable = reviewRoutes.filter((route) => route.path !== "/");
   const home: WebRoute = {
     path: "/",
     kind: "page",
@@ -26,7 +35,7 @@ export function createUiRoutes(): WebRoute[] {
       response.end(renderHomePage(pages));
     },
   };
-  return [home, ...reviewRouteTable];
+  return [home, ...routes];
 }
 
 export function registerUiCommand(program: Command, dependencies: UiCommandDependencies = {}): void {
@@ -47,7 +56,7 @@ export function registerUiCommand(program: Command, dependencies: UiCommandDepen
 
       try {
         await (dependencies.startServer ?? startWebServer)({
-          routes: createUiRoutes(),
+          routes: createUiRoutes(dependencies),
           port,
           initialPath: "/",
           title: "CodeDeck UI",

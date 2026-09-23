@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
-import { checkWebRequest, createWebSecurity, getTokenUrl, isAllowedWebHost, type WebSecurity } from "./security.js";
+import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
 export const DEFAULT_WEB_PORT = 3100;
 
@@ -175,12 +175,6 @@ function dispatchRequest(
   request: http.IncomingMessage,
   response: http.ServerResponse,
 ): void {
-  if (!isAllowedWebHost(request.headers.host, security.port)) {
-    response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-    response.end("forbidden");
-    return;
-  }
-
   let pathname: string;
   try {
     pathname = new URL(request.url || "/", `http://127.0.0.1:${security.port}`).pathname;
