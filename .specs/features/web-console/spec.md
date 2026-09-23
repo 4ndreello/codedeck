@@ -245,28 +245,28 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 
 | Requirement ID | Story | Phase | Status | Task |
 | --- | --- | --- | --- | --- |
-| WEB-01 | P1: Shared local server and home page | P1 | In Tasks | T1 |
-| WEB-02 | P1: Shared local server and home page | P1 | In Tasks | T1, T7 |
-| WEB-03 | P1: Shared local server and home page | P1 | In Tasks | T1 |
-| WEB-04 | P1: Shared local server and home page | P1 | In Tasks | T1 |
-| WEB-05 | P1: Shared local server and home page | P1 | In Tasks | T3 |
-| WEB-06 | P1: Shared local server and home page | P1 | In Tasks | T3 |
-| WEB-07 | P1: Shared local server and home page | P1 | In Tasks | T3 |
+| WEB-01 | P1: Shared local server and home page | P1 | Implemented | T1 |
+| WEB-02 | P1: Shared local server and home page | P1 | Implemented | T1, T7 |
+| WEB-03 | P1: Shared local server and home page | P1 | Implemented | T1 |
+| WEB-04 | P1: Shared local server and home page | P1 | Implemented | T1 |
+| WEB-05 | P1: Shared local server and home page | P1 | Implemented | T3 |
+| WEB-06 | P1: Shared local server and home page | P1 | Implemented | T3 |
+| WEB-07 | P1: Shared local server and home page | P1 | Implemented | T3 |
 | WEB-08 | P1: Shared local server and home page | P1 | In Tasks | T2, T4, T5, T13, T18 |
 | WEB-09 | P2: Local request security | P2 | In Tasks | T7, T12, T17 |
-| WEB-10 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-11 | P2: Local request security | P2 | In Tasks | T6 |
-| WEB-12 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-13 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-14 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-15 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-16 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-17 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-18 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-19 | P3: Shared setup planning | P3 | In Tasks | T8 |
+| WEB-10 | P2: Local request security | P2 | Implemented | T6, T7 |
+| WEB-11 | P2: Local request security | P2 | Implemented | T6 |
+| WEB-12 | P2: Local request security | P2 | Implemented | T6, T7 |
+| WEB-13 | P2: Local request security | P2 | Implemented | T6, T7 |
+| WEB-14 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-15 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-16 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-17 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-18 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-19 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-20 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-21 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-22 | P3: Shared setup planning | P3 | In Tasks | T9 |
+| WEB-22 | P3: Shared setup planning | P3 | Implemented | T9 |
 | WEB-23 | P4: Browser setup | P4 | In Tasks | T10 |
 | WEB-24 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-25 | P4: Browser setup | P4 | In Tasks | T10 |
@@ -301,11 +301,11 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-54 | P5: Browser usage analytics | P5 | In Tasks | T17 |
 | WEB-55 | P5: Browser usage analytics | P5 | In Tasks | T17 |
 | WEB-56 | P5: Browser usage analytics | P5 | In Tasks | T17 |
-| WEB-57 | P1: Shared local server and home page | P1 | In Tasks | T1 |
+| WEB-57 | P1: Shared local server and home page | P1 | Implemented | T1 |
 | WEB-59 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-60 | P5: Browser usage analytics | P5 | In Tasks | T16 |
-| WEB-61 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-62 | P3: Shared setup planning | P3 | In Tasks | T8 |
+| WEB-61 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-62 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-63 | P4: Browser setup | P4 | In Tasks | T10, T11 |
 | WEB-64 | P4: Browser setup | P4 | In Tasks | T10 |
 | WEB-65 | P4: Browser setup | P4 | In Tasks | T10, T11 |
@@ -314,11 +314,11 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-68 | P4: Browser setup | P4 | In Tasks | T8, T10 |
 | WEB-69 | P4: Browser setup | P4 | In Tasks | T12 |
 | WEB-70 | P4: Browser setup | P4 | In Tasks | T12 |
-| WEB-71 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-72 | P2: Local request security | P2 | In Tasks | T6, T7 |
+| WEB-71 | P2: Local request security | P2 | Implemented | T6, T7 |
+| WEB-72 | P2: Local request security | P2 | Implemented | T6, T7 |
 | WEB-73 | P2: Local request security | P2 | In Tasks | T10 |
-| WEB-74 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-75 | P1: Shared local server and home page | P1 | In Tasks | T1, T7 |
+| WEB-74 | P2: Local request security | P2 | Implemented | T6, T7 |
+| WEB-75 | P1: Shared local server and home page | P1 | Implemented | T1, T7 |
 | WEB-76 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-77 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-78 | P5: Browser usage analytics | P5 | In Tasks | T15, T16 |
@@ -328,8 +328,8 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-83 | P5: Browser usage analytics | P5 | In Tasks | T17 |
 | WEB-84 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-85 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-86 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-87 | P3: Shared setup planning | P3 | In Tasks | T8 |
+| WEB-86 | P3: Shared setup planning | P3 | Implemented | T8 |
+| WEB-87 | P3: Shared setup planning | P3 | Implemented | T8 |
 | WEB-88 | P4: Browser setup | P4 | In Tasks | T10, T11 |
 | WEB-89 | P4: Browser setup | P4 | In Tasks | T10, T11 |
 | WEB-90 | P4: Browser setup | P4 | In Tasks | T10, T11 |
