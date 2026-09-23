@@ -6,7 +6,7 @@ Implement these tasks with the tlc-spec-driven skill. Keep tests in the task tha
 
 **Design**: .specs/features/web-console/design.md
 
-**Status**: In progress. Done: T1-T9, T14 (feat/web-console-foundation)
+**Status**: Done. T1-T9, T14 merged in #111 (feat/web-console-foundation); T10-T13, T15-T19 on feat/web-console-pages
 
 ## Test Coverage Matrix
 
@@ -20,7 +20,7 @@ Implement these tasks with the tlc-spec-driven skill. Keep tests in the task tha
 | Setup web handlers | Integration | State prefill and error codes, catalog cache and refresh fallback, dry-run no-write, apply, changed-only validation with per-role off-catalog confirmation, missing profile, malformed body, and save errors | tests/setup-web.test.ts | npx vitest run tests/setup-web.test.ts |
 | Usage query builder | Unit and command contract | Existing CLI filter precedence and mappings, with fixed options, cwd, and clock | tests/usage-cli.test.ts | npx vitest run tests/usage-cli.test.ts |
 | Usage web handler | Integration | Query mapping, every supported filter, CLI versus /api/usage parameter equality, query success, and query error response | tests/usage-web.test.ts | npx vitest run tests/usage-web.test.ts |
-| HTML pages and page behavior | Unit | Direct Node tests of injected page functions plus node:vm execution of extracted SETUP_PAGE and USAGE_PAGE scripts with stubbed browser globals; setup state, free-text input, discovery errors, 403 message, filters, polling, rendering data, optional byOrigin, and retained result on error | tests/web-pages.test.ts | npx vitest run tests/web-pages.test.ts |
+| HTML pages and page behavior | Unit | Direct Node tests of injected page functions plus node:vm execution of extracted SETUP_PAGE and USAGE_PAGE scripts with stubbed browser globals; setup state, free-text input, discovery errors, 403 message, filters, polling, rendering data, optional byOrigin, and retained result on error | tests/web-pages.test.ts, tests/setup-page.test.ts, tests/usage-page.test.ts | npx vitest run tests/web-pages.test.ts tests/setup-page.test.ts tests/usage-page.test.ts |
 | CLI wiring | Command contract | ui, review, setup, and usage routes and flags; setup batch and non-TTY behavior; usage.get with --web --json without server startup | tests/web-cli.test.ts, tests/review-command.test.ts, tests/setup-cli-contract.test.ts, tests/usage-cli.test.ts, tests/usage-statusline-contract.test.ts | npx vitest run tests/web-cli.test.ts tests/review-command.test.ts tests/setup-cli-contract.test.ts tests/usage-cli.test.ts tests/usage-statusline-contract.test.ts |
 | Documentation | none | Text-only README update; no test coverage required | None | git diff --check -- README.md |
 
@@ -32,8 +32,8 @@ Implement these tasks with the tlc-spec-driven skill. Keep tests in the task tha
 | P1 | After shared server and home wiring | npx vitest run tests/web-server.test.ts tests/web-pages.test.ts tests/review.test.ts tests/review-command.test.ts tests/web-cli.test.ts |
 | P2 | After security integration | npx vitest run tests/web-security.test.ts tests/web-server.test.ts tests/web-pages.test.ts |
 | P3 | After setup core extraction | npx vitest run tests/setup-plan.test.ts tests/setup-wizard.test.ts tests/setup-cli-contract.test.ts |
-| P4 | After setup web wiring | npx vitest run tests/setup-web.test.ts tests/web-pages.test.ts tests/web-cli.test.ts tests/setup-cli-contract.test.ts |
-| P5 | After P4 | npx vitest run tests/usage-cli.test.ts tests/usage-web.test.ts tests/web-pages.test.ts tests/web-cli.test.ts tests/usage-statusline-contract.test.ts |
+| P4 | After setup web wiring | npx vitest run tests/setup-web.test.ts tests/setup-page.test.ts tests/web-cli.test.ts tests/setup-cli-contract.test.ts |
+| P5 | After P4 | npx vitest run tests/usage-cli.test.ts tests/usage-web.test.ts tests/usage-page.test.ts tests/web-cli.test.ts tests/usage-statusline-contract.test.ts |
 
 ## Execution Plan
 
@@ -284,8 +284,8 @@ T16 -> T18
 - The HTML injects its exported behavior function source; Node tests call those same functions with fake fetch and state callbacks without a DOM.
 - Tests extract the inline script from SETUP_PAGE, evaluate it in node:vm with an empty context and stubbed fetch, timers, and document, then call the setup page functions from that context.
 
-**Tests**: Unit, tests/web-pages.test.ts
-**Gate**: npx vitest run tests/web-pages.test.ts
+**Tests**: Unit, tests/setup-page.test.ts
+**Gate**: npx vitest run tests/setup-page.test.ts
 
 ### T11: Add setup state, catalog, and mutation routes
 
@@ -428,8 +428,8 @@ T16 -> T18
 - The HTML injects the exported behavior function source; tests directly call that function in Node with fake fetch, timer, and render adapters.
 - Tests extract the inline script from USAGE_PAGE, evaluate it in node:vm with an empty context and stubbed fetch, timers, and document, then call the usage page functions from that context.
 
-**Tests**: Unit, tests/web-pages.test.ts
-**Gate**: npx vitest run tests/web-pages.test.ts
+**Tests**: Unit, tests/usage-page.test.ts
+**Gate**: npx vitest run tests/usage-page.test.ts
 
 ### T17: Add usage --web command wiring
 
@@ -510,13 +510,13 @@ T16 -> T18
 | T7 | Security | Integration | tests/web-security.test.ts, tests/web-server.test.ts | OK |
 | T8 | Setup core | Unit | tests/setup-plan.test.ts | OK |
 | T9 | Setup core | Integration | tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts | OK |
-| T10 | HTML pages and page behavior | Unit | tests/web-pages.test.ts | OK |
+| T10 | HTML pages and page behavior | Unit | tests/setup-page.test.ts | OK |
 | T11 | Setup web handlers | Integration | tests/setup-web.test.ts | OK |
 | T12 | CLI wiring | Command contract | tests/web-cli.test.ts, tests/setup-cli-contract.test.ts | OK |
 | T13 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
 | T14 | Usage query builder | Unit and command contract | tests/usage-cli.test.ts | OK |
 | T15 | Usage web handler | Integration | tests/usage-web.test.ts | OK |
-| T16 | HTML pages and page behavior | Unit | tests/web-pages.test.ts | OK |
+| T16 | HTML pages and page behavior | Unit | tests/usage-page.test.ts | OK |
 | T17 | CLI wiring | Command contract | tests/web-cli.test.ts, tests/usage-cli.test.ts | OK |
 | T18 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
 | T19 | Documentation | none | none | OK |

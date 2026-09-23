@@ -1,6 +1,9 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildUsageQueryParams } from "../src/core/usage-query.js";
+import { normalizeUsageInterval } from "../src/web/usage-page.js";
+import type { WebServerHandle, WebServerOptions } from "../src/web/server.js";
+import type { UsageCommandDependencies } from "../src/cli/commands/usage.js";
 
 const ensureDaemonStarted = vi.fn(async () => {});
 const request = vi.fn();
@@ -66,6 +69,13 @@ function runProgram(argv: string[]): Promise<unknown> {
   const program = new Command();
   program.exitOverride();
   registerUsageCommand(program);
+  return program.parseAsync(["node", "codedeck", "usage", ...argv], { from: "node" });
+}
+
+function runProgramWithDependencies(argv: string[], dependencies: UsageCommandDependencies): Promise<unknown> {
+  const program = new Command();
+  program.exitOverride();
+  registerUsageCommand(program, dependencies);
   return program.parseAsync(["node", "codedeck", "usage", ...argv], { from: "node" });
 }
 
@@ -211,5 +221,41 @@ describe("usage CLI", () => {
       model: "gpt-5.6-luna",
       agent: "codex",
     });
+  });
+});
+
+describe("usage web options", () => {
+  it("runs backfill before web startup", async () => {
+    const backfill = vi.fn(async () => ({ imported: 2, skipped: 1 }));
+    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+
+    await runProgramWithDependencies(["--backfill", "--web"], {
+      backfillUsage: backfill,
+      startServer,
+    });
+
+    expect(backfill).toHaveBeenCalledOnce();
+    expect(startServer).not.toHaveBeenCalled();
+    expect(logs).toEqual(["Usage backfill: imported 2, skipped 1"]);
+  });
+
+  it("forwards the web polling interval and applies its normalization rule", async () => {
+    let captured: WebServerOptions | undefined;
+    const startServer: NonNullable<UsageCommandDependencies["startServer"]> = async (options) => {
+      captured = options;
+      return {} as WebServerHandle;
+    };
+
+    await runProgramWithDependencies(["--web", "--interval", "0"], { startServer });
+
+    const pageRoute = captured?.routes.find((route) => route.path === "/usage");
+    const response = { writeHead: vi.fn(), end: vi.fn() };
+    pageRoute?.handler({} as never, response as never);
+    expect(String(response.end.mock.calls[0]?.[0])).toContain('"interval":"0"');
+    expect(normalizeUsageInterval("0")).toBe(2);
+    expect(normalizeUsageInterval("not-a-number")).toBe(2);
+    expect(normalizeUsageInterval("-0.5")).toBe(1);
+    expect(normalizeUsageInterval("0.5")).toBe(1);
+    expect(normalizeUsageInterval("3")).toBe(3);
   });
 });

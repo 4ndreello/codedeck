@@ -55,6 +55,9 @@ import {
   type RunAgentConfig,
   type SelfWorkMode,
 } from "../../config/config.js";
+import { SETUP_PAGE } from "../../web/setup-page.js";
+import { createSetupRoutes } from "../../web/setup-routes.js";
+import { DEFAULT_WEB_PORT, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
 export { diffConfig, SetupUsageError };
 export type { JsonValue, SetupEnvelope };
 
@@ -814,6 +817,9 @@ export interface SetupCliOptions {
   nonInteractive: boolean;
   json: boolean;
   dryRun: boolean;
+  tui: boolean;
+  noOpen: boolean;
+  port?: string;
   binds: ParsedSetupBinding[];
   batch: boolean;
   profile?: string;
@@ -875,12 +881,36 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
   let refresh = false;
   let nonInteractive = false;
   let dryRun = false;
+  let tui = false;
+  let noOpen = false;
+  let port: string | undefined;
   let profile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--refresh") {
       refresh = true;
+      continue;
+    }
+    if (arg === "--tui") {
+      tui = true;
+      continue;
+    }
+    if (arg === "--no-open") {
+      noOpen = true;
+      continue;
+    }
+    if (arg === "--port") {
+      const value = args[index + 1];
+      if (value === undefined || isSetupFlag(value)) {
+        return parseError('Option "--port" expects a port.', json);
+      }
+      port = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--port=")) {
+      port = arg.slice("--port=".length);
       continue;
     }
     if (arg === "--profile") {
@@ -941,6 +971,12 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
     return parseError(`Unexpected argument "${arg}".`, json);
   }
 
+  const batch = nonInteractive || json || dryRun || binds.length > 0;
+  if (tui && batch) return parseError('Option "--tui" cannot be used with batch setup flags.', json);
+  if (port !== undefined && (json || dryRun || nonInteractive)) {
+    return parseError('Option "--port" cannot be used with --json, --dry-run, or --non-interactive.', json);
+  }
+
   return {
     ok: true,
     options: {
@@ -948,8 +984,11 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
       nonInteractive,
       json,
       dryRun,
+      tui,
+      noOpen,
+      ...(port === undefined ? {} : { port }),
       binds,
-      batch: nonInteractive || json || dryRun || binds.length > 0,
+      batch,
       ...(profile === undefined ? {} : { profile }),
     },
   };
@@ -1212,12 +1251,17 @@ export interface SetupCommandDependencies extends SetupBatchDependencies {
   stdout?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
   isTTY?: boolean;
   wizardDiscoverModels?: ModelWizardOptions["discoverModels"];
+  runWizard?: typeof runModelSetupWizard;
   saveConfig?: (config: RunAgentConfig) => void;
+  startServer?: typeof startWebServer;
 }
 
 function commandTokens(opts: Record<string, unknown>, command: Command): string[] {
   const tokens: string[] = [];
   if (opts.refresh) tokens.push("--refresh");
+  if (opts.tui) tokens.push("--tui");
+  if (opts.open === false) tokens.push("--no-open");
+  if (typeof opts.port === "string") tokens.push("--port", opts.port);
   if (opts.nonInteractive) tokens.push("--non-interactive");
   if (opts.json) tokens.push("--json");
   if (opts.dryRun) tokens.push("--dry-run");
@@ -1233,6 +1277,24 @@ function commandTokens(opts: Record<string, unknown>, command: Command): string[
 export interface SetupActionResult {
   code: SetupEnvelope["resultado"]["code"];
   envelope?: SetupEnvelope;
+}
+
+function createSetupCommandRoutes(options: SetupCliOptions): WebRoute[] {
+  const routes = createSetupRoutes({ profile: options.profile });
+  if (!options.refresh) return routes;
+
+  return routes.map((route) => route.path === "/setup"
+    ? {
+        ...route,
+        handler: (_request, response) => {
+          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          response.end(SETUP_PAGE.replace(
+            "</body>",
+            "<script>globalThis.setupPageReady.then(() => globalThis.setupPage.refreshCatalog());</script>\n</body>",
+          ));
+        },
+      }
+    : route);
 }
 
 export async function executeSetupAction(
@@ -1257,19 +1319,42 @@ export async function executeSetupAction(
       writeError(message);
       return { code: 1 };
     }
+    if (parsed.options.tui) {
+      try {
+        await (dependencies.runWizard ?? runModelSetupWizard)({
+          registry: dependencies.registry,
+          input: dependencies.input,
+          output: dependencies.stdout,
+          refresh: parsed.options.refresh,
+          discoverModels: dependencies.wizardDiscoverModels,
+          save: dependencies.saveConfig,
+          isTTY: tty,
+          ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
+        });
+      } catch (error) {
+        writeError(error instanceof Error ? error.message : String(error));
+        return { code: 1 };
+      }
+      return { code: 0 };
+    }
+
+    let port: number;
     try {
-      await runModelSetupWizard({
-        registry: dependencies.registry,
-        input: dependencies.input,
-        output: dependencies.stdout,
-        refresh: parsed.options.refresh,
-        discoverModels: dependencies.wizardDiscoverModels,
-        save: dependencies.saveConfig,
-        isTTY: tty,
-        ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
-      });
+      port = parseWebPort(parsed.options.port ?? String(DEFAULT_WEB_PORT));
     } catch (error) {
       writeError(error instanceof Error ? error.message : String(error));
+      return { code: 1 };
+    }
+    try {
+      await (dependencies.startServer ?? startWebServer)({
+        routes: createSetupCommandRoutes(parsed.options),
+        port,
+        initialPath: "/setup",
+        title: "CodeDeck setup",
+        open: !parsed.options.noOpen,
+      });
+    } catch (error) {
+      writeError(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
       return { code: 1 };
     }
     return { code: 0 };
@@ -1287,6 +1372,9 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .allowUnknownOption(true)
     .allowExcessArguments(true)
     .option("--refresh", "ignore the cached catalog and rediscover")
+    .option("--tui", "use the frozen terminal setup wizard")
+    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--no-open", "serve setup without opening a browser")
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")
     .option("--dry-run", "show the proposed config without writing it")
