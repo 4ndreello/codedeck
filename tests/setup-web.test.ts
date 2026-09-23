@@ -114,19 +114,25 @@ afterEach(async () => {
 });
 
 describe("setup page and state route", () => {
-  it("serves the self-contained setup page and returns current global or active profile values", async () => {
-    const config: RunAgentConfig = {
-      activeProfile: "staging",
-      agents: { general: { harness: "claude", model: "global" } },
-      profiles: {
-        staging: {
-          agents: { reviewer: { harness: "codex", model: "gpt-known", effort: "high" } },
-          orchestrator: { investigate: "read", selfWork: "small", tools: "edit", parallelism: 4 },
-          defaultSandbox: "danger-full-access",
-          autocompact: { enabled: true, cap: 300_000 },
-        },
+  it("serves the setup page and resolves top-level values with legacy data present", async () => {
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
+    const legacySets = {
+      staging: {
+        agents: { reviewer: { harness: "codex", model: "gpt-known", effort: "high" } },
+        orchestrator: { investigate: "read", selfWork: "small", tools: "edit", parallelism: 4 },
+        defaultSandbox: "danger-full-access",
+        autocompact: { enabled: true, cap: 300_000 },
       },
     };
+    const config = {
+      [pointerKey]: "staging",
+      agents: { general: { harness: "claude", model: "top-level" } },
+      orchestrator: { investigate: "none", selfWork: "none", tools: "dispatch" },
+      defaultSandbox: "workspace-write",
+      autocompact: { enabled: false },
+      [savedSetsKey]: legacySets,
+    } as RunAgentConfig;
     const handle = await makeServer({ readConfig: () => readConfig(config) });
 
     const page = await request(handle, { path: "/setup" });
@@ -136,15 +142,16 @@ describe("setup page and state route", () => {
     expect(page.status).toBe(200);
     expect(page.headers["content-type"]).toBe("text/html; charset=utf-8");
     expect(page.headers["content-security-policy"]).toBe("frame-ancestors 'none'");
-    expect(payload.target).toEqual({ kind: "profile", profile: "staging" });
-    expect(payload.bindings).toEqual({ reviewer: { harness: "codex", model: "gpt-known", effort: "high" } });
-    expect(payload.efforts).toEqual({ reviewer: "high" });
-    expect(payload.orchestrator).toEqual({ investigate: "read", selfWork: "small", tools: "edit", parallelism: 4 });
-    expect(payload.sandbox).toBe("danger-full-access");
-    expect(payload.autocompact).toEqual({ enabled: true, cap: 300_000 });
+    expect(payload.target).toEqual({ kind: "global" });
+    expect(payload.bindings).toEqual({ general: { harness: "claude", model: "top-level" } });
+    expect(payload.efforts).toEqual({});
+    expect(payload.orchestrator).toEqual({ investigate: "none", selfWork: "none", tools: "dispatch" });
+    expect(payload.sandbox).toBe("workspace-write");
+    expect(payload.autocompact).toEqual({ enabled: false });
+    expect(page.body).not.toContain("Profile:");
   });
 
-  it("identifies a global target when no explicit or active profile is selected", async () => {
+  it("identifies the top-level configuration as the setup target", async () => {
     const handle = await makeServer({ readConfig: () => readConfig({ agents: {} }) });
 
     const state = json(await request(handle, { path: "/api/setup/state" }));
@@ -153,30 +160,17 @@ describe("setup page and state route", () => {
     expect(state.bindings).toEqual({});
   });
 
-  it("returns the existing missing active profile error instead of falling back to global", async () => {
-    const config: RunAgentConfig = {
-      activeProfile: "missing",
+  it("saves web setup fields at top level and preserves legacy values", async () => {
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
+    const legacySets = { x: { agents: { reviewer: { harness: "omp", model: "old" } } } };
+    const config = {
+      [pointerKey]: "x",
       agents: { general: { harness: "claude", model: "global" } },
-    };
-    const handle = await makeServer({ readConfig: () => readConfig(config) });
-
-    const response = await request(handle, { path: "/api/setup/state" });
-
-    expect(response.status).toBe(500);
-    expect(json(response)).toEqual({
-      error: 'Active profile "missing" does not exist. Choose an existing profile with "codedeck profile use <name>" or pass --profile <name>.',
-      code: 14,
-    });
-  });
-
-  it("resolves an explicit profile target and applies changes only to that profile", async () => {
-    const config: RunAgentConfig = {
-      agents: { general: { harness: "claude", model: "global" } },
-      profiles: { other: { agents: { reviewer: { harness: "omp", model: "old" } } } },
-    };
+      [savedSetsKey]: legacySets,
+    } as RunAgentConfig;
     const saved: RunAgentConfig[] = [];
     const handle = await makeServer({
-      profile: "new-profile",
       readConfig: () => readConfig(config),
       saveConfig: (value) => { saved.push(value); return true; },
       getBatchModels: async () => codexCatalog(),
@@ -187,13 +181,16 @@ describe("setup page and state route", () => {
       agents: { reviewer: { harness: "codex", model: "gpt-known" } },
     });
 
-    expect(state.target).toEqual({ kind: "profile", profile: "new-profile" });
+    expect(state.target).toEqual({ kind: "global" });
+    expect(state.bindings).toEqual({ general: { harness: "claude", model: "global" } });
     expect(resultOf(applied)).toMatchObject({ status: "applied", saved: true, code: 0 });
-    expect(saved[0].agents).toEqual(config.agents);
-    expect(saved[0].profiles?.other).toEqual(config.profiles?.other);
-    expect(saved[0].profiles?.["new-profile"]).toEqual({
-      agents: { reviewer: { harness: "codex", model: "gpt-known" } },
+    const written = saved[0] as RunAgentConfig & Record<string, unknown>;
+    expect(written.agents).toEqual({
+      general: { harness: "claude", model: "global" },
+      reviewer: { harness: "codex", model: "gpt-known" },
     });
+    expect(written[pointerKey]).toBe("x");
+    expect(written[savedSetsKey]).toEqual(legacySets);
   });
 });
 
@@ -422,7 +419,7 @@ describe("setup dry-run and apply routes", () => {
       body: "x".repeat(64 * 1024 + 1),
       auth: true,
     });
-    const invalidShape = await post(handle, "/api/setup/apply", { profile: "wrong-place", agents: {} });
+    const invalidShape = await post(handle, "/api/setup/apply", { unknown: "wrong-place", agents: {} });
     const exactLimitBody = `${JSON.stringify(emptySelection)}${" ".repeat(64 * 1024 - Buffer.byteLength(JSON.stringify(emptySelection)))}`;
     const exactLimit = await request(handle, {
       path: "/api/setup/dry-run",
@@ -471,19 +468,6 @@ describe("setup dry-run and apply routes", () => {
     expect(resultOf(failedDryRun)).toMatchObject({ code: 15, saved: false });
     expect(resultOf(failedApply)).toMatchObject({ code: 15, saved: false });
     expect(Object.keys(json(invalidDryRun)).sort()).toEqual(["mudancas", "proposta", "resultado", "validacoes"]);
-    expect(saveConfig).not.toHaveBeenCalled();
-  });
-
-  it("returns code 14 without writing when the active profile has no saved snapshot", async () => {
-    const config: RunAgentConfig = { activeProfile: "missing", agents: { general: { harness: "claude", model: "global" } } };
-    const saveConfig = vi.fn(() => true);
-    const handle = await makeServer({ readConfig: () => readConfig(config), saveConfig });
-
-    const response = await post(handle, "/api/setup/apply", { agents: { reviewer: { harness: "codex", model: "gpt-known" } } });
-
-    expect(response.status).toBe(500);
-    expect(resultOf(response)).toMatchObject({ code: 14, saved: false, status: "error" });
-    expect(json(response).proposta).toBeNull();
     expect(saveConfig).not.toHaveBeenCalled();
   });
 

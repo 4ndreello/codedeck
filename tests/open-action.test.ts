@@ -69,6 +69,24 @@ describe("opencode dispatch", () => {
     );
   });
 
+  it("uses the top-level role binding when legacy setup data disagrees", async () => {
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
+    writeConfig({
+      agents: { reviewer: { harness: "opencode", model: "prov/top-level" } },
+      [pointerKey]: "x",
+      [savedSetsKey]: {
+        x: { agents: { reviewer: { harness: "codex", model: "legacy" } } },
+      },
+    });
+
+    await runOpen(["reviewer", "--no-theme"]);
+
+    const [bin, args] = vi.mocked(runtime.spawnHarness).mock.calls[0];
+    expect(bin).toBe("/bin/opencode");
+    expect(args.slice(0, 5)).toEqual(["--agent", "codedeck-reviewer", "--model", "prov/top-level", "--auto"]);
+  });
+
   // OP-13 retires OO-20: --worktree isolates through a CodeDeck-side
   // checkout instead of warning and continuing.
   it("isolates --worktree in a fresh checkout", async () => {

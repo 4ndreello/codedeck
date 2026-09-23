@@ -1,14 +1,7 @@
 import type { BatchModelsResult, HarnessModels } from "../core/models.js";
 import type { AgentId } from "../core/session.js";
 import type { Role } from "../core/roles.js";
-import {
-  baseConfig,
-  extractProfileSnapshot,
-  getProfileSnapshot,
-  parseProfileName,
-  type RoleBinding,
-  type RunAgentConfig,
-} from "./config.js";
+import type { RoleBinding, RunAgentConfig } from "./config.js";
 import type { OrchestratorMode } from "./orchestrator-mode.js";
 
 export class SetupUsageError extends Error {
@@ -16,38 +9,6 @@ export class SetupUsageError extends Error {
     super(message);
     this.name = "SetupUsageError";
   }
-}
-
-export interface SetupTarget {
-  profile?: string;
-  config: RunAgentConfig;
-}
-
-export function resolveSetupTarget(loaded: RunAgentConfig, explicitProfile?: string): SetupTarget {
-  const isExplicit = explicitProfile !== undefined;
-  const profile = isExplicit
-    ? parseProfileName(explicitProfile)
-    : loaded.activeProfile === undefined || loaded.activeProfile.trim() === ""
-      ? undefined
-      : parseProfileName(loaded.activeProfile);
-  const snapshot = profile === undefined ? undefined : getProfileSnapshot(loaded, profile);
-
-  if (!isExplicit && profile !== undefined && snapshot === undefined) {
-    throw new SetupUsageError(
-      'Active profile "' +
-        profile +
-        '" does not exist. Choose an existing profile with "codedeck profile use <name>" or pass --profile <name>.',
-    );
-  }
-
-  return {
-    ...(profile === undefined ? {} : { profile }),
-    config: profile === undefined
-      ? loaded
-      : snapshot === undefined
-        ? { ...baseConfig(loaded), agents: {} }
-        : { ...baseConfig(loaded), ...snapshot },
-  };
 }
 
 export type JsonValue =
@@ -371,14 +332,13 @@ export function validateBindings(
 
 export function buildSetupPlan(
   currentConfig: RunAgentConfig,
-  target: SetupTarget,
   selections: SetupSelection,
 ): SetupPlanResult {
-  const currentAgents = jsonObject(target.config.agents)
-    ? target.config.agents as Partial<Record<Role, RoleBinding>>
+  const currentAgents = jsonObject(currentConfig.agents)
+    ? currentConfig.agents as Partial<Record<Role, RoleBinding>>
     : {};
   const updatedTarget: RunAgentConfig = {
-    ...target.config,
+    ...currentConfig,
     agents: { ...currentAgents, ...selections.agents },
   };
   if (selections.orchestrator !== undefined) {
@@ -393,19 +353,10 @@ export function buildSetupPlan(
   }
   if (selections.sandbox !== undefined) updatedTarget.defaultSandbox = selections.sandbox;
   if (selections.autocompact !== undefined) {
-    if (selections.autocompact.enabled !== false || target.config.autocompact !== undefined) {
-      updatedTarget.autocompact = { ...target.config.autocompact, ...selections.autocompact };
+    if (selections.autocompact.enabled !== false || currentConfig.autocompact !== undefined) {
+      updatedTarget.autocompact = { ...currentConfig.autocompact, ...selections.autocompact };
     }
   }
 
-  const proposedConfig = target.profile === undefined
-    ? updatedTarget
-    : {
-        ...currentConfig,
-        profiles: {
-          ...currentConfig.profiles,
-          [target.profile]: extractProfileSnapshot(updatedTarget),
-        },
-      };
-  return { proposedConfig, diff: diffConfig(currentConfig, proposedConfig) };
+  return { proposedConfig: updatedTarget, diff: diffConfig(currentConfig, updatedTarget) };
 }

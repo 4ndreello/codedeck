@@ -171,6 +171,23 @@ describe("the harness and model a role is bound to", () => {
     });
   });
 
+  it("uses the top-level binding when legacy setup data disagrees", async () => {
+    const pointerKey = "activeProfile";
+    const savedSetsKey = "profiles";
+    writeConfig({
+      ...bound,
+      [pointerKey]: "x",
+      [savedSetsKey]: {
+        x: { agents: { reviewer: { harness: "opencode", model: "legacy" } } },
+      },
+    });
+
+    expect(await created(["do the thing", "--role", "reviewer"])).toEqual({
+      agent: "codex",
+      model: "gpt-5.6-luna",
+    });
+  });
+
   // A worker used to force the run onto its own harness by appending --agent.
   // A bound role now owns the harness, so the flag is ignored with a warning.
   it("ignores --agent for a bound role, keeping the binding", async () => {

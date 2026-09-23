@@ -17,7 +17,6 @@ import { isOrchestratorMode } from "../config/orchestrator-mode.js";
 import {
   buildSetupPlan,
   catalogContains,
-  resolveSetupTarget,
   validateBindings,
   type BindingValidation,
   type SetupBinding,
@@ -33,7 +32,6 @@ const MAX_SETUP_BODY_BYTES = 64 * 1024;
 const MODEL_PATTERN = /^[^\p{White_Space}\p{Cc}\p{Cf}=]+$/u;
 
 export interface SetupRoutesDependencies {
-  profile?: string;
   readConfig?: () => SetupConfigRead;
   saveConfig?: (config: RunAgentConfig) => void | boolean;
   registry?: DriverRegistry;
@@ -44,7 +42,6 @@ export interface SetupRoutesDependencies {
 interface LoadedSetup {
   read: SetupConfigRead;
   current: RunAgentConfig;
-  target: ReturnType<typeof resolveSetupTarget>;
   state: BuiltSetupState;
 }
 
@@ -57,8 +54,7 @@ interface ReadProblem {
 type ReadResult = { loaded: LoadedSetup } | { problem: ReadProblem };
 
 export interface BuiltSetupState {
-  resolvedTarget: ReturnType<typeof resolveSetupTarget>;
-  target: { kind: "global" | "profile"; profile?: string };
+  target: { kind: "global" };
   bindings: Partial<Record<Role, RoleBinding>>;
   efforts: Partial<Record<Role, string>>;
   orchestrator?: RunAgentConfig["orchestrator"];
@@ -129,28 +125,23 @@ function setupReadProblem(
   };
 }
 
-export function buildSetupState(read: SetupConfigRead, profileOption?: string): BuiltSetupState {
+export function buildSetupState(read: SetupConfigRead): BuiltSetupState {
   if (read.status === "invalid") {
     throw new Error(read.message ?? `Config file "${read.path}" could not be read.`);
   }
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
-  const resolvedTarget = resolveSetupTarget(current, profileOption);
-  const bindings = resolvedTarget.config.agents ?? {};
+  const bindings = current.agents ?? {};
   const efforts = Object.fromEntries(ROLES.flatMap((role) => {
     const effort = bindings[role]?.effort;
     return effort === undefined ? [] : [[role, effort]];
   })) as Partial<Record<Role, string>>;
   return {
-    resolvedTarget,
-    target: {
-      kind: resolvedTarget.profile === undefined ? "global" : "profile",
-      ...(resolvedTarget.profile === undefined ? {} : { profile: resolvedTarget.profile }),
-    },
+    target: { kind: "global" },
     bindings,
     efforts,
-    ...(resolvedTarget.config.orchestrator === undefined ? {} : { orchestrator: resolvedTarget.config.orchestrator }),
-    ...(resolvedTarget.config.defaultSandbox === undefined ? {} : { sandbox: resolvedTarget.config.defaultSandbox }),
-    ...(resolvedTarget.config.autocompact === undefined ? {} : { autocompact: resolvedTarget.config.autocompact }),
+    ...(current.orchestrator === undefined ? {} : { orchestrator: current.orchestrator }),
+    ...(current.defaultSandbox === undefined ? {} : { sandbox: current.defaultSandbox }),
+    ...(current.autocompact === undefined ? {} : { autocompact: current.autocompact }),
   };
 }
 
@@ -175,8 +166,8 @@ function readAndResolve(dependencies: SetupRoutesDependencies): ReadResult {
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
   try {
-    const state = buildSetupState(read, dependencies.profile);
-    return { loaded: { read, current, target: state.resolvedTarget, state } };
+    const state = buildSetupState(read);
+    return { loaded: { read, current, state } };
   } catch (error) {
     return {
       problem: {
@@ -460,9 +451,9 @@ export function createSetupRoutes(dependencies: SetupRoutesDependencies = {}): W
       return;
     }
 
-    const { read, current, target } = result.loaded;
-    const plan = buildSetupPlan(current, target, selection);
-    const changed = changedBindings(target.config.agents, selection);
+    const { read, current } = result.loaded;
+    const plan = buildSetupPlan(current, selection);
+    const changed = changedBindings(current.agents, selection);
     let validation: BindingValidationResult;
     try {
       validation = await validateChanged(changed, selection, !dryRun);
