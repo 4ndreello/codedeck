@@ -31,6 +31,7 @@ describe("aggregateRunUsage", () => {
       inputTokens: 1_300,
       outputTokens: 850,
       cachedTokens: 320,
+      totalTokens: 2_150,
       costUsd: 0.5,
       sessionCount: 2,
       activeSessionCount: 0,
@@ -42,6 +43,7 @@ describe("aggregateRunUsage", () => {
         inputTokens: 0,
         outputTokens: 0,
         cachedTokens: 0,
+        totalTokens: 0,
         sources: [],
       },
       total: { costUsd: 0.5 },
@@ -65,6 +67,7 @@ describe("aggregateRunUsage", () => {
       inputTokens: 300,
       outputTokens: 150,
       cachedTokens: 30,
+      totalTokens: 450,
       costUsd: 0.42,
       sessionCount: 2,
       activeSessionCount: 0,
@@ -76,6 +79,7 @@ describe("aggregateRunUsage", () => {
         inputTokens: 0,
         outputTokens: 0,
         cachedTokens: 0,
+        totalTokens: 0,
         sources: [],
       },
       total: { costUsd: 0.42 },
@@ -142,6 +146,7 @@ describe("aggregateRunUsage", () => {
       inputTokens: 0,
       outputTokens: 0,
       cachedTokens: 0,
+      totalTokens: 0,
       costUsd: 0,
       sessionCount: 0,
       activeSessionCount: 0,
@@ -153,6 +158,7 @@ describe("aggregateRunUsage", () => {
         inputTokens: 0,
         outputTokens: 0,
         cachedTokens: 0,
+        totalTokens: 0,
         sources: [],
       },
       total: { costUsd: 0 },
@@ -184,6 +190,7 @@ describe("aggregateRunUsage", () => {
       inputTokens: 0,
       outputTokens: 0,
       cachedTokens: 0,
+      totalTokens: 0,
       costUsd: 0.5,
       sessionCount: 2,
       activeSessionCount: 0,
@@ -195,6 +202,7 @@ describe("aggregateRunUsage", () => {
         inputTokens: 10,
         outputTokens: 20,
         cachedTokens: 3,
+        totalTokens: 33,
         sources: [
           { nativeId: "X", costUsd: 3 },
           { nativeId: "Y", costUsd: 0.8 },
@@ -249,5 +257,22 @@ describe("aggregateRunUsage", () => {
     expect(summary.costUsd).toBe(1);
     expect(summary.total.costUsd).toBe(1);
     expect(summary.costComplete).toBe(true);
+  });
+
+  it("counts cached tokens once for Codex workers and separately for Claude orchestrators", () => {
+    const summary = aggregateRunUsage("run-tokens", [
+      makeSession("codex", {
+        agent: "codex",
+        usage: { inputTokens: 1_000, outputTokens: 100, cachedTokens: 800, cost: 0 },
+      }),
+      makeSession("claude", {
+        agent: "claude",
+        origin: "open",
+        usage: { inputTokens: 1_000, outputTokens: 100, cachedTokens: 800, cost: 0 },
+      }),
+    ]);
+
+    expect(summary.totalTokens).toBe(1_100);
+    expect(summary.orchestrator.totalTokens).toBe(1_900);
   });
 });

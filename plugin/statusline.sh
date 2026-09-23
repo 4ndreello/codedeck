@@ -229,7 +229,8 @@ const local = localCost();
 const runUsage = getRunUsage();
 const orchestratorUsage = runUsage ? getOrchestratorUsage(runUsage) : undefined;
 const workerTokens = runUsage
-  ? runUsage.inputTokens + runUsage.outputTokens + runUsage.cachedTokens
+  ? nonNegativeNumber(runUsage.totalTokens) ??
+    runUsage.inputTokens + runUsage.outputTokens + runUsage.cachedTokens
   : undefined;
 const tokenField = () => {
   const total = workerTokens ?? (runUsage ? undefined : localTokens());

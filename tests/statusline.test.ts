@@ -284,6 +284,49 @@ describe("Claude statusline", () => {
     expect(stripAnsi(small.output)).toContain("980 tok");
   });
 
+  it("uses a valid run totalTokens value for the tok field", async () => {
+    const result = await render({
+      payload: payload(0),
+      runId: "run-cached-tokens",
+      usage: {
+        runId: "run-cached-tokens",
+        inputTokens: 1_000,
+        outputTokens: 100,
+        cachedTokens: 800,
+        totalTokens: 1_100,
+        costUsd: 0,
+        sessionCount: 1,
+        activeSessionCount: 1,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("1.1k tok");
+    expect(stripAnsi(result.output)).not.toContain("1.9k tok");
+  });
+
+  it("falls back to the token sum when totalTokens is invalid", async () => {
+    const result = await render({
+      payload: payload(0),
+      runId: "run-invalid-token-total",
+      usage: {
+        runId: "run-invalid-token-total",
+        inputTokens: 1_000,
+        outputTokens: 100,
+        cachedTokens: 800,
+        totalTokens: -1,
+        costUsd: 0,
+        sessionCount: 1,
+        activeSessionCount: 1,
+        costComplete: true,
+        sessionsWithoutCost: 0,
+      },
+    });
+
+    expect(stripAnsi(result.output)).toContain("1.9k tok");
+  });
+
   it("marks a partial aggregate even when the local cost is zero", async () => {
     const result = await render({
       payload: payload(0),
