@@ -213,9 +213,19 @@ describe("Claude statusline", () => {
   });
 
   it("keeps the project and branch when they differ", async () => {
-    const result = await render({ payload: { ...payload(0.25), worktree: { branch: "feature/statusline" } } });
+    const branches = [
+      "feature/statusline",
+      `worktree-${project}-x`,
+      `${project}-fix`,
+      `fix-${project}`,
+    ];
+    const results = await Promise.all(branches.map((branch) =>
+      render({ payload: { ...payload(0.25), worktree: { branch } } }),
+    ));
 
-    expect(stripAnsi(result.output)).toBe(`builder · ${project}/feature/statusline · ctx 68% · $0.25`);
+    for (const [index, branch] of branches.entries()) {
+      expect(stripAnsi(results[index].output)).toBe(`builder · ${project}/${branch} · ctx 68% · $0.25`);
+    }
   });
 
   it("keeps the local cost when the run id is absent", async () => {
