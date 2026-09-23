@@ -188,7 +188,7 @@ describe("Claude statusline", () => {
     expect(negativeCost.args).toEqual(["usage", "run-example", "--json"]);
   });
 
-  it("renders the task name from its sidecar before the role", async () => {
+  it("omits a present task name sidecar and starts with the role", async () => {
     const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
     const result = await render({
       payload: { ...payload(0.25), session_id: sessionId },
@@ -196,17 +196,26 @@ describe("Claude statusline", () => {
       taskName: "  fix\tapi\nclient   now with more words than allowed  ",
     });
 
-    expect(stripAnsi(result.output)).toBe(`fix api client now with more w · builder · ${project}/main · ctx 68% · $0.25`);
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $0.25`);
+    expect(stripAnsi(result.output)).not.toContain("fix api client");
   });
 
-  it("omits the task name when its sidecar is missing", async () => {
-    const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
-    const result = await render({
-      payload: { ...payload(0.25), session_id: sessionId },
-      sessionId,
-    });
+  it("renders only the branch when it matches the project name", async () => {
+    const result = await render({ payload: { ...payload(0.25), worktree: { branch: project } } });
 
-    expect(stripAnsi(result.output)).toBe(`builder · ${project}/main · ctx 68% · $0.25`);
+    expect(stripAnsi(result.output)).toBe(`builder · ${project} · ctx 68% · $0.25`);
+  });
+
+  it("renders only the branch when it is the project worktree branch", async () => {
+    const result = await render({ payload: { ...payload(0.25), worktree: { branch: `worktree-${project}` } } });
+
+    expect(stripAnsi(result.output)).toBe(`builder · worktree-${project} · ctx 68% · $0.25`);
+  });
+
+  it("keeps the project and branch when they differ", async () => {
+    const result = await render({ payload: { ...payload(0.25), worktree: { branch: "feature/statusline" } } });
+
+    expect(stripAnsi(result.output)).toBe(`builder · ${project}/feature/statusline · ctx 68% · $0.25`);
   });
 
   it("keeps the local cost when the run id is absent", async () => {

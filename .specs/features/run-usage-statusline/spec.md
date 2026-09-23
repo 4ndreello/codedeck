@@ -132,6 +132,12 @@ Quando o agregado não estiver disponível, o layout degradado é:
 
    Teste de aceitação: fornecer um payload nativo com role `builder`, projeto `codedeck`, branch `main`, contexto restante de 68%, janela local de 1.000.000 tokens e custo local de 0.25, junto com um agregado mockado de workers com 1.200 input, 800 output, 300 cached, custo 0.40 e `sessionCount` 2. Verificar exatamente `builder · codedeck/main · ctx 68% · 2.3k tok · run $0.65 · 2 agents`, sem somar a janela nativa.
 
+9.1. A statusline SHALL NOT renderizar o nome da tarefa do sidecar de nome da sessão. O role SHALL ser o primeiro campo, pois o Claude Code já mostra o nome da sessão na borda do campo de entrada.
+
+9.2. WHEN a branch for igual ao basename do projeto, ou igual a `worktree-` seguido pelo basename do projeto, THEN a statusline SHALL renderizar somente a branch no lugar de `projeto/branch`.
+
+9.3. WHEN a branch for diferente dos dois casos anteriores, THEN a statusline SHALL continuar renderizando `projeto/branch`.
+
 10. A statusline SHALL manter a coloração por faixa já existente para contexto e custo.
 
    A formatação SHALL continuar suprimindo valores conhecidos abaixo de $0.01, como já faz `plugin/statusline.sh`. Quando `costComplete` for `false`, a soma parcial SHALL mostrar o marcador de custo desconhecido, por exemplo `run $0.42?`, e esse marcador SHALL continuar visível mesmo quando a parcela numérica for suprimida. O estado de custo desconhecido deve ser diferente de `$0.00` e do campo ausente. Um campo nativo ausente SHALL preservar o comportamento de ausência já existente, sem virar custo zero.
