@@ -280,6 +280,9 @@ export async function resolveBinary(): Promise<string> {
 export async function assertSupport(claudeBin: string, cwd: string): Promise<void> {
   let identity: { realpath: string; record: SupportRecord } | undefined;
   try {
+    // Version-manager shims (mise, asdf, volta) resolve to the wrapper, so changes
+    // to the real binary do not invalidate this record. This is accepted for a
+    // long-standing flag because the real launch still reports any error.
     const realpath = fs.realpathSync(claudeBin);
     const stat = fs.statSync(realpath);
     identity = { realpath, record: { size: stat.size, mtimeMs: stat.mtimeMs } };

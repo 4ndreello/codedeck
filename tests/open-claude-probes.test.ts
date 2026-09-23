@@ -89,6 +89,22 @@ describe("Claude launcher probes", () => {
     expect(runCount()).toBe(1);
   });
 
+  it("probes again when the binary size changes but its mtime does not", async () => {
+    writeClaude();
+    await assertSupport(claudeFile, root);
+    expect(runCount()).toBe(1);
+
+    const original = fs.readFileSync(claudeFile, "utf8");
+    const stat = fs.statSync(claudeFile);
+    fs.writeFileSync(claudeFile, `${original}# changed size\n`, { mode: 0o755 });
+    fs.chmodSync(claudeFile, 0o755);
+    fs.utimesSync(claudeFile, stat.atimeMs / 1000, stat.mtimeMs / 1000);
+    expect(fs.statSync(claudeFile).mtimeMs).toBe(stat.mtimeMs);
+
+    await assertSupport(claudeFile, root);
+    expect(runCount()).toBe(2);
+  });
+
   it("probes again when the binary mtime changes", async () => {
     writeClaude();
     await assertSupport(claudeFile, root);
