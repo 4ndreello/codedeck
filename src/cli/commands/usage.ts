@@ -2,8 +2,8 @@ import fs from "node:fs";
 import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 import type { RunUsageSummary } from "../../core/run-usage.js";
-import type { AgentId } from "../../core/session.js";
-import type { UsagePeriod, UsageQueryParams, UsageQueryResult } from "../../daemon/protocol.js";
+import { buildUsageQueryParams } from "../../core/usage-query.js";
+import type { UsageQueryParams, UsageQueryResult } from "../../daemon/protocol.js";
 import { getPaths } from "../../config/paths.js";
 import { SESSION_ID_PATTERN } from "../../open/runtime.js";
 import { Database } from "../../store/database.js";
@@ -173,42 +173,7 @@ export function registerUsageCommand(program: Command): void {
       }
 
       // 2. Aggregate Analytics Branch
-      let period: UsagePeriod | undefined;
-      let since = opts.since;
-      const until = opts.until;
-
-      if (opts.all) {
-        period = "all";
-      } else if (opts.today) {
-        period = "today";
-      } else if (opts.days) {
-        const d = parseInt(opts.days, 10);
-        if (d === 3) period = "3d";
-        else if (d === 7) period = "7d";
-        else if (d === 30) period = "30d";
-        else if (!isNaN(d) && d > 0) {
-          const now = new Date();
-          const sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (d - 1), 0, 0, 0, 0);
-          since = sinceDate.toISOString();
-        }
-      } else if (!since) {
-        // Default to today if no temporal flags provided
-        period = "today";
-      }
-
-      let repository = opts.repo;
-      if (opts.current) {
-        repository = process.cwd();
-      }
-
-      const queryParams: UsageQueryParams = {
-        period,
-        since,
-        until,
-        repository,
-        model: opts.model,
-        agent: opts.agent as AgentId | undefined,
-      };
+      const queryParams = buildUsageQueryParams(opts, process.cwd(), new Date());
 
       // Interactive TUI Mode
       if (opts.tui) {

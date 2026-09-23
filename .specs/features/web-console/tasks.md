@@ -6,7 +6,7 @@ Implement these tasks with the tlc-spec-driven skill. Keep tests in the task tha
 
 **Design**: .specs/features/web-console/design.md
 
-**Status**: Draft
+**Status**: In progress. Done: T1-T9, T14 (feat/web-console-foundation)
 
 ## Test Coverage Matrix
 
