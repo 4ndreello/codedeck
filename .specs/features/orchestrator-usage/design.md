@@ -96,7 +96,7 @@ Flows:
 - **Behavior**:
   - For each present field `f`: `delta = obs.f - (mark.f ?? 0)`. If `delta > 0`, add it to the attribution `(sessionId, sourceKey)` and set `mark.f = obs.f`. Absent fields change nothing (ORCH-13/14).
   - After any move, rewrite `sessions.usage_*` for that row as `SUM` over its attributions. Cost stays `NULL` when no attribution of the row has a cost.
-  - Seed on first use: if a row has non-null `usage_*` and no attribution yet (a row that was live across the upgrade), store those values as source `seed:<sessionId>` before applying the observation, so materialization does not drop them.
+  - Seed on first use: if a row has non-null `usage_*` and no attribution yet (a row that was live across the upgrade), store those values as an attribution before applying the observation, so materialization does not drop them. The seed goes to the incoming source key (and sets its mark) when that source has no mark yet, so the next cumulative observation adds only its increase. When the incoming source already has a mark from another row, the seed goes to `seed:<sessionId>` instead.
 - **Dependencies**: the `DatabaseSync` handle; callers own the transaction.
 - **Reuses**: `SessionStore.update` for the materialized columns.
 
@@ -117,6 +117,7 @@ Flows:
 - **Interfaces**:
   - `link(sessionId, nativeId): { created: boolean; previous: string[] }`, `previous` lists other unreconciled ids for ORCH-16.
   - `unreconciled(sessionId): NativeLink[]`
+  - `linksFor(sessionIds): NativeLink[]`, all links of the given rows; `usage.get` passes their states to `aggregateRunUsage` for `orchestrator.costComplete`
   - `markReconciled(sessionId, nativeId, state: ReconcileState)`
   - `staleOpenRows(isDead: (s: Session) => boolean): Session[]` for ORCH-07.
 
@@ -176,7 +177,7 @@ Flows:
 
 ### Backfill (P2)
 
-- **Location**: `src/cli/commands/usage-backfill.ts`, registered as `codedeck usage backfill`.
+- **Location**: `src/cli/commands/usage-backfill.ts`, registered as the `codedeck usage --backfill` flag (a `backfill` subcommand would collide with the `[run-id]` argument).
 - **Behavior**: collect ids (BF-01), skip worker native ids (BF-02) and ids with a `claude-open:` mark (BF-03), read the transcript, insert one `usage_legacy` row plus the `claude-open:<id>` mark in the same transaction (BF-04). The mark makes a later resume of that id attribute only the increase, and makes a second backfill a no-op (BF-08).
 - **Why a table, not session rows**: legacy rows in `sessions` would show up in `ps --all`, `show` and `getByRunId`.
 
@@ -287,7 +288,7 @@ interface RunUsageSummary {
 | Concern | Location (file:line) | Impact | Mitigation |
 | --- | --- | --- | --- |
 | `updateSessionFromEvent` swallows every error | `src/daemon/daemon.ts:1350` (`catch {}`) | a ledger bug would silently stop usage updates | ledger unit tests cover the arithmetic; the daemon test asserts materialized columns after each worker fixture |
-| Rows live across the upgrade have usage but no attribution | `src/store/sessions.ts` `usage_*` | first observation would overwrite them with a smaller sum | `seed:<sessionId>` attribution in `UsageLedger` |
+| Rows live across the upgrade have usage but no attribution | `src/store/sessions.ts` `usage_*` | first observation would overwrite them with a smaller sum | seed attribution in `UsageLedger` (incoming source when unmarked, else `seed:<sessionId>`) |
 | Statusline observation on every render writes to SQLite | `plugin/statusline.sh:180` | write amplification | the no-op path only reads the mark; writes happen only when a field moves |
 | Transcript scan cost | `~/.claude/projects` (84 files observed, some above 50 MB) | slow release | `readline` streaming, only unreconciled links, startup reconcile runs off the critical path |
 | Three copies of the `open` spawn path | `src/cli/commands/open.ts:652-860` | watcher started on one path only | start it where `sessionFile` and `runId` are both known; one test per path is not needed if the helper is shared, the task checks the three call sites |
