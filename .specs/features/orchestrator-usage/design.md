@@ -47,7 +47,7 @@ Flows:
 
 1. **Link** (ORCH-01..03). The hook keeps writing the sidecar with `grep` + `printf`, but appends one id per line instead of overwriting. `open` polls the sidecar every second and sends `session.linkNative` for each id it has not sent yet. The hook never talks to the daemon, so ORCH-02 holds by construction.
 2. **Live cost** (ORCH-04, RUN-06). The statusline adds `--observe <session_id>=<cost>` to the `codedeck usage` call it already makes. The daemon links the id (idempotent), applies the observation, then returns the aggregate in the same round trip.
-3. **Reconcile** (ORCH-05..12, ORCH-16). On release of an `open` row, at daemon start for stale rows, and when a second id links, the daemon reads each unreconciled linked transcript and records its `cost-state` (or the token fallback) as an observation.
+3. **Reconcile** (ORCH-05..12, ORCH-16). On release of an `open` row, at daemon start for stale rows, and when a second id links, the daemon reads the linked transcripts and records its `cost-state` (or the token fallback) as an observation.
 4. **Workers** (SRC-01..04). `updateSessionFromEvent` derives the source key from the row's agent and routes non-incremental `usage.updated` through the ledger. opencode deltas keep the current additive path.
 5. **Read** (RUN-01..09). `aggregateRunUsage` splits rows by `origin`. `queryUsage` gains a `byOrigin` bucket and merges legacy entries (P2).
 
@@ -96,7 +96,7 @@ Flows:
 - **Behavior**:
   - For each present field `f`: `delta = obs.f - (mark.f ?? 0)`. If `delta > 0`, add it to the attribution `(sessionId, sourceKey)` and set `mark.f = obs.f`. Absent fields change nothing (ORCH-13/14).
   - After any move, rewrite `sessions.usage_*` for that row as `SUM` over its attributions. Cost stays `NULL` when no attribution of the row has a cost.
-  - Seed on first use: if a row has non-null `usage_*` and no attribution yet (a row that was live across the upgrade), store those values as an attribution before applying the observation, so materialization does not drop them. The seed goes to the incoming source key (and sets its mark) when that source has no mark yet, so the next cumulative observation adds only its increase. When the incoming source already has a mark from another row, the seed goes to `seed:<sessionId>` instead.
+  - Seed on first use: if a row has non-null `usage_*` and no attribution yet (a row that was live across the upgrade), store those values as an attribution before applying the observation, so materialization does not drop them. The seed goes to the incoming source key (and sets its mark) when that source has no mark yet, so the next cumulative observation adds only its increase. When the incoming source already has a mark from another row, the seed goes to `seed:<sessionId>` instead. For `claude:<id>#<n>` keys the daemon also passes `seedIntoIncoming = false` when the row's latest prior usage event came from a different process ordinal, so a new process on a pre-upgrade row does not inherit the old process total as its mark.
 - **Dependencies**: the `DatabaseSync` handle; callers own the transaction.
 - **Reuses**: `SessionStore.update` for the materialized columns.
 
@@ -135,10 +135,10 @@ Flows:
 
 ### Reconciler (daemon)
 
-- **Purpose**: run the transcript reader for unreconciled links and feed the ledger.
+- **Purpose**: run the transcript reader for linked native ids and feed the ledger. Release and startup re-read every link of the row (`linksFor`), because a resumed id on a revived row or a `/clear` then `/resume` inside one `open` grows a transcript that was already reconciled; the source mark makes the re-read idempotent. ORCH-16 on a new link reads only the unreconciled previous ids.
 - **Location**: private methods on `Daemon` in `src/daemon/daemon.ts`, next to `recover()`.
 - **Triggers**:
-  - `session.release` on an `open` row with agent `claude`: after `setStatus` (ORCH-12), await the reconcile, then reply. Other harnesses under `open` are untouched. A reader error is caught and logged, and the status stays.
+  - `session.release` on an `open` row with agent `claude`: after `setStatus` (ORCH-12), link `nativeSessionId` from the request when present (covers a failed final watcher flush), await the reconcile, then reply. Other harnesses under `open` are untouched. A reader error is caught and logged, and the status stays.
   - Daemon start: after `recover()`, reconcile rows from `staleOpenRows` without blocking startup (ORCH-07).
   - `session.linkNative` or `observe` returning `previous` ids: reconcile those ids (ORCH-16).
 - **Writes**: `UsageLedger.observe(rowId, "claude-open:<id>", obs)` in one transaction per link, then `markReconciled`.
@@ -290,7 +290,7 @@ interface RunUsageSummary {
 | `updateSessionFromEvent` swallows every error | `src/daemon/daemon.ts:1350` (`catch {}`) | a ledger bug would silently stop usage updates | ledger unit tests cover the arithmetic; the daemon test asserts materialized columns after each worker fixture |
 | Rows live across the upgrade have usage but no attribution | `src/store/sessions.ts` `usage_*` | first observation would overwrite them with a smaller sum | seed attribution in `UsageLedger` (incoming source when unmarked, else `seed:<sessionId>`) |
 | Statusline observation on every render writes to SQLite | `plugin/statusline.sh:180` | write amplification | the no-op path only reads the mark; writes happen only when a field moves |
-| Transcript scan cost | `~/.claude/projects` (84 files observed, some above 50 MB) | slow release | `readline` streaming, only unreconciled links, startup reconcile runs off the critical path |
+| Transcript scan cost | `~/.claude/projects` (84 files observed, some above 50 MB) | slow release | `readline` streaming (a 33 MB transcript read in 58 ms), reads bounded to the row's own links, startup reconcile runs off the critical path |
 | Three copies of the `open` spawn path | `src/cli/commands/open.ts:652-860` | watcher started on one path only | start it where `sessionFile` and `runId` are both known; one test per path is not needed if the helper is shared, the task checks the three call sites |
 | Plugin copy under `dist/plugin` | `npm run build:plugin` | hook and statusline edits do not reach the running install | the Execute close step runs `npm run build:plugin` |
 | Two live `open` processes on one native id | spec "Usage model" known limit | smaller increases can be missed | accepted in the spec, never double counts |
