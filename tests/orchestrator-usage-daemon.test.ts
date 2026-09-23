@@ -325,6 +325,9 @@ describe("orchestrator usage daemon methods", () => {
       { nativeId: "native-gone", state: "cost-state" },
     ]);
     expect(seam(daemon!).sessions.get("row-vanished")?.usage?.cost).toBe(10);
+    const query = await request("usage.query", { period: "all" });
+    expect(query.result.byOrigin.find((bucket: { key: string }) => bucket.key === "orchestrator"))
+      .toMatchObject({ costUsd: 10, costComplete: true });
   });
 
   it("re-reads reconciled links on release and keeps each source total once", async () => {
