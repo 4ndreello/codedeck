@@ -98,6 +98,76 @@ describe("usage CLI", () => {
     expect(JSON.parse(logs[0]!)).toEqual(runSummary);
   });
 
+  it("forwards a transcript path containing equals alongside a valid cost observation", async () => {
+    request.mockResolvedValue(runSummary);
+
+    await runProgram([
+      "run-1",
+      "--observe",
+      "92d88cce-bdbc-46db-8573-916afd32f6f7=0.125",
+      "--transcript",
+      "92d88cce-bdbc-46db-8573-916afd32f6f7=/tmp/project=archive/session.jsonl",
+      "--json",
+    ]);
+
+    expect(request).toHaveBeenCalledWith("usage.get", {
+      runId: "run-1",
+      observe: { nativeId: "92d88cce-bdbc-46db-8573-916afd32f6f7", costUsd: 0.125 },
+      transcript: {
+        nativeId: "92d88cce-bdbc-46db-8573-916afd32f6f7",
+        path: "/tmp/project=archive/session.jsonl",
+      },
+    });
+    expect(JSON.parse(logs[0]!)).toEqual(runSummary);
+  });
+
+  it("forwards a transcript without a cost observation", async () => {
+    request.mockResolvedValue(runSummary);
+
+    await runProgram([
+      "run-1",
+      "--transcript",
+      "92d88cce-bdbc-46db-8573-916afd32f6f7=/tmp/session.jsonl",
+    ]);
+
+    expect(request).toHaveBeenCalledWith("usage.get", {
+      runId: "run-1",
+      transcript: {
+        nativeId: "92d88cce-bdbc-46db-8573-916afd32f6f7",
+        path: "/tmp/session.jsonl",
+      },
+    });
+    expect(logs).toEqual([
+      "Run run-1: 1 sessions, 100 input / 20 output / 5 cached tokens, cost $0.25",
+    ]);
+  });
+
+  it.each([
+    ["invalid native id", "not-a-session-id=/tmp/session.jsonl"],
+    ["missing equals", "92d88cce-bdbc-46db-8573-916afd32f6f7"],
+    ["empty native id", "=/tmp/session.jsonl"],
+    ["empty path", "92d88cce-bdbc-46db-8573-916afd32f6f7="],
+  ])("ignores a transcript with %s while preserving a valid cost observation and summary", async (_label, transcript) => {
+    request.mockResolvedValue(runSummary);
+
+    await runProgram([
+      "run-1",
+      "--observe",
+      "92d88cce-bdbc-46db-8573-916afd32f6f7=0.125",
+      "--transcript",
+      transcript,
+      "--json",
+    ]);
+
+    expect(request).toHaveBeenCalledWith("usage.get", {
+      runId: "run-1",
+      observe: { nativeId: "92d88cce-bdbc-46db-8573-916afd32f6f7", costUsd: 0.125 },
+    });
+    expect(JSON.parse(logs[0]!)).toEqual(runSummary);
+    expect(errors).toEqual([]);
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it.each([
     ["malformed", "not-a-session-id=0.5"],
     ["negative", "92d88cce-bdbc-46db-8573-916afd32f6f7=-0.01"],

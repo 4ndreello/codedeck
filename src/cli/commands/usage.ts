@@ -30,6 +30,7 @@ export interface UsageCommandOptions {
   watch?: boolean;
   interval?: string;
   observe?: string;
+  transcript?: string;
   backfill?: boolean;
 }
 
@@ -42,6 +43,17 @@ function parseUsageObservation(value: string | undefined): { nativeId: string; c
   const costUsd = Number(value.slice(separator + 1));
   if (!SESSION_ID_PATTERN.test(nativeId) || !Number.isFinite(costUsd) || costUsd < 0) return undefined;
   return { nativeId, costUsd };
+}
+
+function parseTranscriptObservation(value: string | undefined): { nativeId: string; path: string } | undefined {
+  if (value === undefined) return undefined;
+  const separator = value.indexOf("=");
+  if (separator <= 0 || separator === value.length - 1) return undefined;
+
+  const nativeId = value.slice(0, separator);
+  const path = value.slice(separator + 1);
+  if (!SESSION_ID_PATTERN.test(nativeId)) return undefined;
+  return { nativeId, path };
 }
 
 export function formatUsageSummary(summary: RunUsageSummary): string {
@@ -122,6 +134,7 @@ export function registerUsageCommand(program: Command): void {
     .option("-a, --agent <agent>", "filter by agent harness (e.g. codex, claude)")
     .option("--by <dimension>", "group by dimension: day, repo, model, agent, run, origin")
     .option("--observe <nativeId=cost>", "report live orchestrator cost")
+    .option("--transcript <nativeId=path>", "report live orchestrator transcript tokens")
     .option("--backfill", "import historical orchestrator usage")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
@@ -157,9 +170,11 @@ export function registerUsageCommand(program: Command): void {
         let summary: RunUsageSummary;
         try {
           const observe = parseUsageObservation(opts.observe);
+          const transcript = parseTranscriptObservation(opts.transcript);
           summary = await client.request<RunUsageSummary>("usage.get", {
             runId: targetRunId,
             ...(observe ? { observe } : {}),
+            ...(transcript ? { transcript } : {}),
           });
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
