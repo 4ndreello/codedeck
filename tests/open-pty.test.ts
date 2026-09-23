@@ -39,6 +39,7 @@ const preconditions = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const tempDirs: string[] = [];
+const inputGates: Array<{ dispose: () => void }> = [];
 function tempSessionFile(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-pty-test-"));
   tempDirs.push(dir);
@@ -46,6 +47,7 @@ function tempSessionFile(): string {
 }
 
 afterEach(() => {
+  for (const gate of inputGates.splice(0)) gate.dispose();
   vi.useRealTimers();
   vi.restoreAllMocks();
   while (tempDirs.length > 0) {
@@ -278,7 +280,16 @@ describe("pty input gate", () => {
     vi.useFakeTimers();
     const inject = vi.fn();
     const gate = createInputGate({ inject });
+    inputGates.push(gate);
     return { gate, inject };
+  };
+  const expectHeldAfterQuiet = (inject: ReturnType<typeof vi.fn>) => {
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).not.toHaveBeenCalled();
+  };
+  const expectInjectedAfterQuiet = (inject: ReturnType<typeof vi.fn>) => {
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).toHaveBeenCalledOnce();
   };
 
   it("types a name after a clean input has been quiet for 300 ms", () => {
@@ -290,21 +301,16 @@ describe("pty input gate", () => {
     vi.advanceTimersByTime(1);
     expect(inject).toHaveBeenCalledOnce();
     expect(inject).toHaveBeenCalledWith("/rename nome\r");
-    gate.dispose();
-    vi.useRealTimers();
   });
 
   it("holds the name while a typed line is dirty", () => {
     const { gate, inject } = setup();
     gate.observe(Buffer.from("Bora tamb"));
     gate.offer("/rename nome\r");
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).not.toHaveBeenCalled();
-    gate.dispose();
-    vi.useRealTimers();
+    expectHeldAfterQuiet(inject);
   });
 
-  it("types a held name after Enter and 300 ms of quiet", () => {
+  it("types a held name after Enter for a non-mention token", () => {
     const { gate, inject } = setup();
     gate.observe(Buffer.from("oi"));
     gate.offer("/rename nome\r");
@@ -313,8 +319,6 @@ describe("pty input gate", () => {
     expect(inject).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(inject).toHaveBeenCalledOnce();
-    gate.dispose();
-    vi.useRealTimers();
   });
 
   it("keeps a held name when the user types again before quiet expires", () => {
@@ -327,41 +331,43 @@ describe("pty input gate", () => {
     vi.advanceTimersByTime(quietMs);
     expect(inject).not.toHaveBeenCalled();
     gate.observe(Buffer.from("\r"));
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).toHaveBeenCalledOnce();
-    gate.dispose();
-    vi.useRealTimers();
+    expectInjectedAfterQuiet(inject);
   });
 
-  it("does not treat pasted Enter or line continuation as submit", () => {
+  it.each([
+    {
+      name: "pasted Enter and line continuation",
+      input: "oi",
+      chunks: ["\u001b[200~texto", "\r", "\u001b[201~", "\\", "\r"],
+      submitAfter: true,
+    },
+    {
+      name: "Alt+Enter",
+      input: "Bora tamb",
+      chunks: ["\u001b\r"],
+      submitAfter: true,
+    },
+  ])("does not treat $name as submit", ({ input, chunks, submitAfter }) => {
     const { gate, inject } = setup();
-    gate.observe(Buffer.from("oi"));
+    gate.observe(Buffer.from(input));
     gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\u001b[200~texto"));
-    gate.observe(Buffer.from("\r"));
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).not.toHaveBeenCalled();
-    gate.observe(Buffer.from("\u001b[201~"));
-    gate.observe(Buffer.from("\\"));
-    gate.observe(Buffer.from("\r"));
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).not.toHaveBeenCalled();
-    gate.observe(Buffer.from("\r"));
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).toHaveBeenCalledOnce();
-    gate.dispose();
-    vi.useRealTimers();
+    for (const chunk of chunks) {
+      gate.observe(Buffer.from(chunk));
+      if (chunk.includes("\r")) expectHeldAfterQuiet(inject);
+    }
+    if (submitAfter) {
+      gate.observe(Buffer.from("\r"));
+      expectInjectedAfterQuiet(inject);
+    }
   });
 
-  it("does not treat Alt+Enter as submit", () => {
+  it("submits after a normal bracketed paste", () => {
     const { gate, inject } = setup();
-    gate.observe(Buffer.from("Bora tamb"));
+    gate.observe(Buffer.from("see "));
     gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\u001b\r"));
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).not.toHaveBeenCalled();
-    gate.dispose();
-    vi.useRealTimers();
+    gate.observe(Buffer.from("\u001b[200~hello world\u001b[201~"));
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
   });
 
   it("recognizes bracketed paste after a pending escape", () => {
@@ -371,8 +377,137 @@ describe("pty input gate", () => {
     gate.observe(Buffer.from("\u001b[200~line1\r"));
     vi.advanceTimersByTime(quietMs);
     expect(inject).not.toHaveBeenCalled();
-    gate.dispose();
-    vi.useRealTimers();
+  });
+
+  it("keeps a held name after Enter accepts an @ mention", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("explain @src/file.ts"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("explain this\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each([
+    { name: "DEL", byte: 0x7f },
+    { name: "BS", byte: 0x08 },
+  ])("lets Enter submit after two $name backspaces", ({ byte }) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("@x"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from([byte, byte]));
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each(["e\u0301", "👨‍👩‍👧‍👦"])("removes one Unicode grapheme per backspace: %s", (grapheme) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from(`@${grapheme}`));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from([0x7f, 0x7f]));
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each([
+    { name: "space", separator: " " },
+    { name: "tab", separator: "\t" },
+  ])("starts a new token after a $name", ({ separator }) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from(`a${separator}b`));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("keeps the mention guard after Tab may accept a completion", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("@src"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\t\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("keeps the mention guard after backspace removes its separator", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("@src "));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\x7f\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each([
+    { name: "Enter", edit: "" },
+    { name: "backspace", edit: "\x7f" },
+    { name: "space", edit: " " },
+  ])("keeps the guard after a cursor-moving escape and $name", ({ edit }) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("@src/fo hi"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from(`\u001b[D\u001b[D\u001b[D${edit}\r`));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each([
+    { name: "line continuation", separator: "\\\r" },
+    { name: "Alt+Enter", separator: "\u001b\r" },
+  ])("tracks an @ token after $name", ({ separator }) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("foo"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from(`${separator}@src\r`));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("keeps the mention guard when an escape sequence flushes Enter", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("@src"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b[\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("starts a new token after Ctrl+J", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("first\nsecond"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("recognizes a mention after Ctrl+J", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("first\n@src"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it.each([
+    { name: "Ctrl+U", byte: 0x15 },
+    { name: "Ctrl+W", byte: 0x17 },
+  ])("keeps Enter conservative after $name", ({ byte }) => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("abc"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from([byte]));
+    gate.observe(Buffer.from(" \r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
   });
 
   it("ignores whole-chunk terminal focus reports", () => {
@@ -383,8 +518,6 @@ describe("pty input gate", () => {
     gate.observe(Buffer.from("\u001b[O"));
     vi.advanceTimersByTime(1);
     expect(inject).toHaveBeenCalledOnce();
-    gate.dispose();
-    vi.useRealTimers();
   });
 
   it("types at most once and drops a held name on dispose", () => {
@@ -404,7 +537,6 @@ describe("pty input gate", () => {
     vi.advanceTimersByTime(quietMs * 2);
     expect(second.inject).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
   });
 });
 
