@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
+import { getPaths } from "../../config/paths.js";
 import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { autocompactArgs } from "../../core/autocompact.js";
@@ -42,6 +44,62 @@ const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
 export const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
 const execFileAsync = promisify(execFile);
+const SUPPORT_CACHE_FILE = "claude-support.json";
+
+interface SupportRecord {
+  size: number;
+  mtimeMs: number;
+}
+
+function findOnPath(command: string): string | undefined {
+  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
+    const candidate = path.resolve(entry || process.cwd(), command);
+    try {
+      if (fs.statSync(candidate).isFile()) {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      }
+    } catch {}
+  }
+}
+
+function readSupportRecords(): Record<string, SupportRecord> {
+  try {
+    const parsed: unknown = JSON.parse(
+      fs.readFileSync(path.join(getPaths().base, SUPPORT_CACHE_FILE), "utf8"),
+    );
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const records: Record<string, SupportRecord> = {};
+    for (const [binary, value] of Object.entries(parsed)) {
+      if (
+        typeof value === "object" && value !== null &&
+        typeof (value as SupportRecord).size === "number" &&
+        typeof (value as SupportRecord).mtimeMs === "number"
+      ) {
+        records[binary] = value as SupportRecord;
+      }
+    }
+    return records;
+  } catch {
+    return {};
+  }
+}
+
+function writeSupportRecord(realpath: string, record: SupportRecord): void {
+  const cacheFile = path.join(getPaths().base, SUPPORT_CACHE_FILE);
+  const temporaryFile = `${cacheFile}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    const records = readSupportRecords();
+    records[realpath] = record;
+    fs.writeFileSync(temporaryFile, JSON.stringify(records));
+    fs.renameSync(temporaryFile, cacheFile);
+  } catch {
+    try {
+      fs.rmSync(temporaryFile, { force: true });
+    } catch {}
+  }
+}
 
 /**
  * The settings are built here, at launch, rather than shipped as a file, and
@@ -207,8 +265,11 @@ export async function preflightModel(model: string, fromConfig: boolean): Promis
  * hoping it answers the same way.
  */
 export async function resolveBinary(): Promise<string> {
-  // detectBinary reports failure in its result and never rejects, so there is
-  // nothing here to catch.
+  const onPath = findOnPath("claude");
+  if (onPath) return onPath;
+
+  // Keep detectBinary's login-shell fallback for installations that PATH
+  // lookup cannot see in this process.
   const installation = await detectBinary("claude");
   if (!installation.installed || !installation.path) {
     throw new Error(CLAUDE_NOT_FOUND);
@@ -217,6 +278,22 @@ export async function resolveBinary(): Promise<string> {
 }
 
 export async function assertSupport(claudeBin: string, cwd: string): Promise<void> {
+  let identity: { realpath: string; record: SupportRecord } | undefined;
+  try {
+    const realpath = fs.realpathSync(claudeBin);
+    const stat = fs.statSync(realpath);
+    identity = { realpath, record: { size: stat.size, mtimeMs: stat.mtimeMs } };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(CLAUDE_NOT_FOUND);
+    }
+  }
+
+  if (identity) {
+    const cached = readSupportRecords()[identity.realpath];
+    if (cached?.size === identity.record.size && cached.mtimeMs === identity.record.mtimeMs) return;
+  }
+
   try {
     await execFileAsync(claudeBin, ["--append-system-prompt-file"], {
       cwd,
@@ -239,6 +316,9 @@ export async function assertSupport(claudeBin: string, cwd: string): Promise<voi
     // A supported Commander option reports a missing argument for this probe.
     // Other probe failures are left to the real launch, which can provide the
     // harness-specific diagnostic without blocking a valid installation.
+    if (identity && /argument missing|missing required argument|requires an argument/i.test(details.text)) {
+      writeSupportRecord(identity.realpath, identity.record);
+    }
   }
 }
 
