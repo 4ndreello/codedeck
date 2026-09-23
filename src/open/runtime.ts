@@ -425,7 +425,9 @@ export function bootFrame(progress: number, noise: (column: number) => string): 
 }
 
 const BOOT_STEPS = 18;
-const BOOT_STEP_MS = 40;
+const BOOT_BUDGET_MS = 200;
+// Keep all 19 resolving frames within one 200 ms launch budget.
+const BOOT_STEP_MS = Math.floor(BOOT_BUDGET_MS / (BOOT_STEPS + 1));
 const KATAKANA = [
   ...new Set([...SPINNER_VERBS.join("")].filter((glyph) => !/[0-9]/.test(glyph))),
 ];
