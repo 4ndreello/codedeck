@@ -22,10 +22,12 @@ let binDir: string;
 let counterFile: string;
 let claudeFile: string;
 
-function writeClaude(kind: "supported" | "unknown" = "supported"): void {
+function writeClaude(kind: "supported" | "unknown" | "unrelated" = "supported"): void {
   const message = kind === "supported"
     ? "error: option --append-system-prompt-file <file> argument missing"
-    : "error: unknown option --append-system-prompt-file";
+    : kind === "unknown"
+      ? "error: unknown option --append-system-prompt-file"
+      : "fatal: boom";
   fs.writeFileSync(
     claudeFile,
     `#!/bin/sh\nprintf '%s\\n' run >> '${counterFile}'\nprintf '%s\\n' '${message}' >&2\nexit 1\n`,
@@ -98,6 +100,16 @@ describe("Claude launcher probes", () => {
     expect(runCount()).toBe(2);
   });
 
+  it("does not record support for unrelated probe failures", async () => {
+    writeClaude("unrelated");
+
+    await expect(assertSupport(claudeFile, root)).resolves.toBeUndefined();
+    await expect(assertSupport(claudeFile, root)).resolves.toBeUndefined();
+
+    expect(runCount()).toBe(2);
+    expect(fs.existsSync(path.join(process.env.RUN_AGENT_DIR!, "claude-support.json"))).toBe(false);
+  });
+
   it("does not cache unknown-option results or ENOENT failures", async () => {
     writeClaude("unknown");
 
@@ -110,6 +122,9 @@ describe("Claude launcher probes", () => {
     fs.chmodSync(claudeFile, 0o755);
     await expect(assertSupport(claudeFile, root)).rejects.toThrow(CLAUDE_NOT_FOUND);
     expect(runCount()).toBe(2);
+    await expect(assertSupport(claudeFile, root)).rejects.toThrow(CLAUDE_NOT_FOUND);
+    expect(fs.existsSync(path.join(process.env.RUN_AGENT_DIR!, "claude-support.json"))).toBe(false);
+
     writeClaude("supported");
     await assertSupport(claudeFile, root);
     expect(runCount()).toBe(3);
