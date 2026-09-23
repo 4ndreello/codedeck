@@ -4,6 +4,9 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { computeSessionCost, type SessionCostUsage } from "./pricing.js";
 
+export const TRANSCRIPT_CHUNK_LIMIT_BYTES = 1_048_576;
+export const TRANSCRIPT_PENDING_LINE_LIMIT_BYTES = 4_194_304;
+
 export interface TranscriptUsage {
   state: "cost-state" | "tokens" | "no-price";
   cost?: number;
@@ -23,6 +26,15 @@ interface UsageTotals extends SessionCostUsage {
   cachedTokens: number;
 }
 
+export interface IncrementalTranscriptState {
+  pendingLine: Uint8Array;
+  discardUntilNewline: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  seenMessageKeys: Set<string>;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -37,6 +49,96 @@ function finiteNumber(value: unknown): number | undefined {
 
 function emptyUsage(): UsageTotals {
   return { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+}
+
+function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const result = new Uint8Array(left.byteLength + right.byteLength);
+  result.set(left);
+  result.set(right, left.byteLength);
+  return result;
+}
+
+function consumeAssistantLine(line: Uint8Array, state: IncrementalTranscriptState): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(line));
+  } catch {
+    return;
+  }
+  if (!isRecord(parsed) || parsed.type !== "assistant" || !isRecord(parsed.message) || !isRecord(parsed.message.usage)) {
+    return;
+  }
+
+  const usage = parsed.message.usage;
+  const inputTokens = tokenCount(usage.input_tokens);
+  const outputTokens = tokenCount(usage.output_tokens);
+  const cacheReadTokens = tokenCount(usage.cache_read_input_tokens);
+  const cacheCreationTokens = tokenCount(usage.cache_creation_input_tokens);
+  if (inputTokens === 0 && outputTokens === 0 && cacheReadTokens === 0 && cacheCreationTokens === 0) return;
+
+  const messageId = parsed.message.id;
+  const requestId = parsed.requestId;
+  if (messageId != null && requestId != null) {
+    const key = JSON.stringify([messageId, requestId]);
+    if (state.seenMessageKeys.has(key)) return;
+    state.seenMessageKeys.add(key);
+  }
+
+  state.inputTokens += inputTokens;
+  state.outputTokens += outputTokens;
+  state.cachedTokens += cacheReadTokens + cacheCreationTokens;
+}
+
+export function consumeTranscriptChunk(
+  state: IncrementalTranscriptState,
+  bytes: Uint8Array,
+): IncrementalTranscriptState {
+  if (bytes.byteLength > TRANSCRIPT_CHUNK_LIMIT_BYTES) {
+    throw new RangeError(`Transcript chunk exceeds ${TRANSCRIPT_CHUNK_LIMIT_BYTES} bytes`);
+  }
+
+  const nextState: IncrementalTranscriptState = {
+    ...state,
+    pendingLine: state.pendingLine.slice(),
+    seenMessageKeys: new Set(state.seenMessageKeys),
+  };
+  let offset = 0;
+
+  while (offset < bytes.byteLength) {
+    if (nextState.discardUntilNewline) {
+      let newline = offset;
+      while (newline < bytes.byteLength && bytes[newline] !== 0x0a) newline += 1;
+      if (newline === bytes.byteLength) break;
+      nextState.discardUntilNewline = false;
+      offset = newline + 1;
+      continue;
+    }
+
+    let newline = offset;
+    while (newline < bytes.byteLength && bytes[newline] !== 0x0a) newline += 1;
+    const complete = newline < bytes.byteLength;
+    const end = complete ? newline : bytes.byteLength;
+    const fragment = bytes.subarray(offset, end);
+    const lineLength = nextState.pendingLine.byteLength + fragment.byteLength;
+
+    if (lineLength > TRANSCRIPT_PENDING_LINE_LIMIT_BYTES) {
+      nextState.pendingLine = new Uint8Array();
+      if (!complete) nextState.discardUntilNewline = true;
+    } else if (complete) {
+      const line = nextState.pendingLine.byteLength === 0
+        ? fragment
+        : appendBytes(nextState.pendingLine, fragment);
+      consumeAssistantLine(line, nextState);
+      nextState.pendingLine = new Uint8Array();
+    } else {
+      nextState.pendingLine = appendBytes(nextState.pendingLine, fragment);
+    }
+
+    if (!complete) break;
+    offset = newline + 1;
+  }
+
+  return nextState;
 }
 
 function usageFromCostState(value: JsonRecord): TranscriptUsage {

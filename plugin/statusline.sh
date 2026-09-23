@@ -112,9 +112,8 @@ const compactTokens = (value) => {
 
 /**
  * Since Claude Code 2.1.132, these fields describe the latest context window,
- * not cumulative session totals. The aggregate token field therefore stays
- * worker-only instead of adding a repeated local window to the run total.
- * Degraded mode may show this current local snapshot when it is available.
+ * not cumulative session totals. Use the local snapshot only without an active
+ * run summary, which already combines worker and orchestrator token totals.
  */
 const localTokens = () => {
   const context = payload.context_window;
@@ -157,18 +156,20 @@ const localCost = () => {
   return typeof total === "number" && Number.isFinite(total) ? total : undefined;
 };
 
+const runId = text(process.env.CODEDECK_RUN_ID);
+
 const getRunUsage = () => {
-  const runId = text(process.env.CODEDECK_RUN_ID);
   if (!runId) return undefined;
 
   const args = ["usage", runId, "--json"];
   const sessionId = payload.session_id;
+  const validSessionId =
+    typeof sessionId === "string" && /^[0-9a-fA-F-]{8,}$/.test(sessionId);
   const observeCost = nonNegativeNumber(payload.cost?.total_cost_usd);
-  if (
-    typeof sessionId === "string" &&
-    /^[0-9a-fA-F-]{8,}$/.test(sessionId) &&
-    observeCost !== undefined
-  ) args.push("--observe", `${sessionId}=${observeCost}`);
+  if (validSessionId && observeCost !== undefined) args.push("--observe", `${sessionId}=${observeCost}`);
+  if (validSessionId && typeof payload.transcript_path === "string" && payload.transcript_path.length > 0) {
+    args.push("--transcript", `${sessionId}=${payload.transcript_path}`);
+  }
 
   try {
     const output = execFileSync("codedeck", args, {
@@ -228,12 +229,15 @@ const getOrchestratorUsage = (usage) => {
 const local = localCost();
 const runUsage = getRunUsage();
 const orchestratorUsage = runUsage ? getOrchestratorUsage(runUsage) : undefined;
-const workerTokens = runUsage
-  ? nonNegativeNumber(runUsage.totalTokens) ??
-    runUsage.inputTokens + runUsage.outputTokens + runUsage.cachedTokens
+const workerTokens = runUsage ? nonNegativeNumber(runUsage.totalTokens) : undefined;
+const orchestratorTokens = runUsage && isObject(runUsage.orchestrator)
+  ? nonNegativeNumber(runUsage.orchestrator.totalTokens)
+  : undefined;
+const runTokens = workerTokens !== undefined && orchestratorTokens !== undefined
+  ? nonNegativeNumber(workerTokens + orchestratorTokens)
   : undefined;
 const tokenField = () => {
-  const total = workerTokens ?? (runUsage ? undefined : localTokens());
+  const total = runId ? runTokens : localTokens();
   return total === undefined ? undefined : paint(MUTED, compactTokens(total) + " tok");
 };
 

@@ -88,6 +88,39 @@ function installTranscript(nativeId: string, fixture: string): void {
   );
 }
 
+function assistantLine(
+  messageId: string,
+  requestId: string,
+  inputTokens: number,
+  outputTokens: number,
+  cachedTokens = 0,
+  paddingBytes = 0,
+): string {
+  return JSON.stringify({
+    type: "assistant",
+    requestId,
+    message: {
+      id: messageId,
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cache_read_input_tokens: cachedTokens,
+      },
+    },
+    ...(paddingBytes > 0 ? { padding: "x".repeat(paddingBytes) } : {}),
+  });
+}
+
+function liveCursor(nativeId: string): Record<string, any> | undefined {
+  return (daemon as any).liveTranscriptCursors.get(nativeId);
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("orchestrator usage daemon methods", () => {
   it("links multiple native ids to an open row and reports whether each link was created", async () => {
     seedOpen("open-link-row");
@@ -470,5 +503,503 @@ describe("orchestrator usage daemon methods", () => {
       .find((bucket: { key: string }) => bucket.key === "orchestrator").costUsd;
     expect(secondTotal).toBe(firstTotal);
     expect(secondTotal).toBe(6);
+  });
+
+  it("accepts an in-project symlink and rejects an outside-project symlink", async () => {
+    seedOpen("row-path-validation");
+    const insideId = "native-inside-link";
+    const insidePath = transcriptFile(insideId);
+    fs.writeFileSync(insidePath, `${assistantLine("message-inside", "request-inside", 7, 3)}\n`);
+    const aliasPath = path.join(path.dirname(insidePath), "transcript-alias.jsonl");
+    fs.symlinkSync(insidePath, aliasPath);
+
+    const inside = await request("usage.get", {
+      runId: "row-path-validation",
+      transcript: { nativeId: insideId, path: aliasPath },
+    });
+    expect(inside.result.orchestrator).toMatchObject({ inputTokens: 7, outputTokens: 3, totalTokens: 10 });
+    expect(liveCursor(insideId)?.byteOffset).toBeGreaterThan(0);
+
+    const outsideId = "native-outside-link";
+    const outsideDir = path.join(homeDir, "outside-projects");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    const outsidePath = path.join(outsideDir, `${outsideId}.jsonl`);
+    fs.writeFileSync(outsidePath, `${assistantLine("message-outside", "request-outside", 90, 40)}\n`);
+    const outsideAlias = path.join(path.dirname(insidePath), "outside-transcript-alias.jsonl");
+    fs.symlinkSync(outsidePath, outsideAlias);
+    const outside = await request("usage.get", {
+      runId: "row-path-validation",
+      observe: { nativeId: outsideId, costUsd: 1.5 },
+      transcript: { nativeId: outsideId, path: outsideAlias },
+    });
+
+    expect(outside.result.orchestrator.costUsd).toBe(1.5);
+    expect(outside.result.orchestrator.inputTokens).toBe(7);
+    expect(liveCursor(outsideId)).toBeUndefined();
+    expect((daemon as any).usageLedger.attributionsFor(["row-path-validation"]))
+      .toContainEqual(expect.objectContaining({ sourceKey: `claude-open:${outsideId}`, cost: 1.5, inputTokens: 0 }));
+
+    const wrongBasenameId = "native-wrong-basename";
+    const wrongBasenamePath = path.join(path.dirname(insidePath), "wrong-basename.jsonl");
+    fs.writeFileSync(wrongBasenamePath, `${assistantLine("message-wrong-basename", "request-wrong-basename", 60, 20)}\n`);
+    await request("usage.get", {
+      runId: "row-path-validation",
+      transcript: { nativeId: wrongBasenameId, path: wrongBasenamePath },
+    });
+    expect(liveCursor(wrongBasenameId)).toBeUndefined();
+    expect((daemon as any).nativeLinks.linksFor(["row-path-validation"]))
+      .not.toContainEqual(expect.objectContaining({ nativeId: wrongBasenameId }));
+
+    const directoryId = "native-directory-path";
+    const directoryPath = transcriptFile(directoryId);
+    fs.mkdirSync(directoryPath);
+    await request("usage.get", {
+      runId: "row-path-validation",
+      transcript: { nativeId: directoryId, path: directoryPath },
+    });
+    expect(liveCursor(directoryId)).toBeUndefined();
+    expect((daemon as any).nativeLinks.linksFor(["row-path-validation"]))
+      .not.toContainEqual(expect.objectContaining({ nativeId: directoryId }));
+
+    const retryId = "native-open-retry";
+    const retryPath = transcriptFile(retryId);
+    const firstLine = assistantLine("message-open-first", "request-open-first", 4, 2);
+    const secondLine = assistantLine("message-open-second", "request-open-second", 6, 3);
+    fs.writeFileSync(retryPath, `${firstLine}\n`);
+    await request("usage.get", { runId: "row-path-validation", transcript: { nativeId: retryId, path: retryPath } });
+    const oldCursor = { ...liveCursor(retryId) };
+    fs.appendFileSync(retryPath, `${secondLine}\n`);
+
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    fs.promises.open = (async (...args: Parameters<typeof fs.promises.open>) => {
+      if (args[0] === retryPath) throw new Error("injected open failure");
+      return originalOpen(...args);
+    }) as typeof fs.promises.open;
+    try {
+      const failedOpen = await request("usage.get", {
+        runId: "row-path-validation",
+        transcript: { nativeId: retryId, path: retryPath },
+      });
+      expect(failedOpen.result.orchestrator).toMatchObject({ inputTokens: 11, outputTokens: 5 });
+      expect(liveCursor(retryId)).toMatchObject({
+        byteOffset: oldCursor.byteOffset,
+        inputTokens: oldCursor.inputTokens,
+        outputTokens: oldCursor.outputTokens,
+      });
+    } finally {
+      fs.promises.open = originalOpen;
+    }
+    const retriedOpen = await request("usage.get", {
+      runId: "row-path-validation",
+      transcript: { nativeId: retryId, path: retryPath },
+    });
+    expect(retriedOpen.result.orchestrator).toMatchObject({ inputTokens: 17, outputTokens: 8 });
+  });
+
+  it("ignores malformed transcripts, rejects malformed costs first, and rejects mismatched ids", async () => {
+    seedOpen("row-malformed-observations");
+    const malformedTranscriptId = "native-malformed-transcript";
+    const malformedTranscriptPath = transcriptFile(malformedTranscriptId);
+    fs.writeFileSync(malformedTranscriptPath, `${assistantLine("message-malformed", "request-malformed", 8, 4)}\n`);
+
+    const costWithMalformedTranscript = await request("usage.get", {
+      runId: "row-malformed-observations",
+      observe: { nativeId: "native-cost-with-malformed-transcript", costUsd: 2.25 },
+      transcript: { nativeId: malformedTranscriptId, path: 27 },
+    });
+    expect(costWithMalformedTranscript.result.orchestrator.costUsd).toBe(2.25);
+    expect(liveCursor(malformedTranscriptId)).toBeUndefined();
+
+    const invalidCost = await request("usage.get", {
+      runId: "row-malformed-observations",
+      observe: null,
+      transcript: { nativeId: malformedTranscriptId, path: malformedTranscriptPath },
+    });
+    expect(invalidCost.error?.code).toBe("INVALID");
+    expect(liveCursor(malformedTranscriptId)).toBeUndefined();
+    expect((daemon as any).nativeLinks.linksFor(["row-malformed-observations"]))
+      .not.toContainEqual(expect.objectContaining({ nativeId: malformedTranscriptId }));
+
+    const mismatchId = "native-transcript-mismatch";
+    const mismatchPath = transcriptFile(mismatchId);
+    fs.writeFileSync(mismatchPath, `${assistantLine("message-mismatch", "request-mismatch", 11, 9)}\n`);
+    const mismatch = await request("usage.get", {
+      runId: "row-malformed-observations",
+      observe: { nativeId: "native-cost-mismatch", costUsd: 3 },
+      transcript: { nativeId: mismatchId, path: mismatchPath },
+    });
+    expect(mismatch.result.orchestrator.costUsd).toBe(5.25);
+    expect(liveCursor(mismatchId)).toBeUndefined();
+    expect((daemon as any).nativeLinks.linksFor(["row-malformed-observations"]))
+      .toContainEqual(expect.objectContaining({ nativeId: "native-cost-mismatch" }));
+  });
+
+  it("skips transcript ingestion for terminal rows while keeping valid cost observations", async () => {
+    seedOpen("row-terminal-live");
+    const nativeId = "native-terminal-live";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-terminal", "request-terminal", 14, 6)}\n`);
+    seam(daemon!).sessions.setStatus("row-terminal-live", "completed");
+
+    const response = await request("usage.get", {
+      runId: "row-terminal-live",
+      observe: { nativeId, costUsd: 4 },
+      transcript: { nativeId, path: file },
+    });
+
+    expect(response.result.orchestrator).toMatchObject({ costUsd: 4, inputTokens: 0, outputTokens: 0 });
+    expect(liveCursor(nativeId)).toBeUndefined();
+  });
+
+  it("does not recreate a cursor after release", async () => {
+    seedOpen("row-post-release-live");
+    const nativeId = "native-post-release-live";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-post-release", "request-post-release", 12, 5)}\n`);
+    await request("usage.get", {
+      runId: "row-post-release-live",
+      transcript: { nativeId, path: file },
+    });
+    expect(liveCursor(nativeId)).toBeDefined();
+
+    await request("session.release", { id: "row-post-release-live" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(liveCursor(nativeId)).toBeUndefined();
+
+    const response = await request("usage.get", {
+      runId: "row-post-release-live",
+      observe: { nativeId, costUsd: 2 },
+      transcript: { nativeId, path: file },
+    });
+    expect(response.result.orchestrator).toMatchObject({ costUsd: 2, inputTokens: 12, outputTokens: 5 });
+    expect(liveCursor(nativeId)).toBeUndefined();
+  });
+
+  it("reads at most one MiB and carries an incomplete line to the next request", async () => {
+    seedOpen("row-live-chunk");
+    const nativeId = "native-live-chunk";
+    const file = transcriptFile(nativeId);
+    const line = assistantLine("message-chunk", "request-chunk", 21, 9, 4, 1_048_600);
+    fs.writeFileSync(file, `${line}\n`);
+
+    const first = await request("usage.get", {
+      runId: "row-live-chunk",
+      transcript: { nativeId, path: file },
+    });
+    expect(first.result.orchestrator.totalTokens).toBe(0);
+    expect(liveCursor(nativeId)).toMatchObject({
+      byteOffset: 1_048_576,
+      pendingLine: expect.any(Uint8Array),
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    expect(liveCursor(nativeId)?.pendingLine.byteLength).toBe(1_048_576);
+
+    const second = await request("usage.get", {
+      runId: "row-live-chunk",
+      transcript: { nativeId, path: file },
+    });
+    expect(second.result.orchestrator).toMatchObject({ inputTokens: 21, outputTokens: 9, cachedTokens: 4, totalTokens: 34 });
+    expect(liveCursor(nativeId)?.byteOffset).toBe(Buffer.byteLength(`${line}\n`));
+  });
+
+  it("resets pending parser state after truncation and preserves totals and seen keys", async () => {
+    seedOpen("row-live-reset");
+    const nativeId = "native-live-reset";
+    const file = transcriptFile(nativeId);
+    const duplicate = assistantLine("message-reset-duplicate", "request-reset-duplicate", 10, 4);
+    fs.writeFileSync(file, `${duplicate}\n${"x".repeat(1_100_000)}`);
+    await request("usage.get", { runId: "row-live-reset", transcript: { nativeId, path: file } });
+    expect(liveCursor(nativeId)).toMatchObject({ byteOffset: 1_048_576, inputTokens: 10, outputTokens: 4 });
+
+    const added = assistantLine("message-reset-added", "request-reset-added", 5, 3);
+    const replacement = `${duplicate}\n${added}\n`;
+    fs.writeFileSync(file, replacement);
+    const afterTruncate = await request("usage.get", {
+      runId: "row-live-reset",
+      transcript: { nativeId, path: file },
+    });
+    expect(afterTruncate.result.orchestrator).toMatchObject({ inputTokens: 15, outputTokens: 7 });
+    expect(liveCursor(nativeId)?.pendingLine.byteLength).toBe(0);
+    expect(liveCursor(nativeId)?.discardUntilNewline).toBe(false);
+
+    const replaced = `${duplicate}\n${assistantLine("message-new-inode", "request-new-inode", 6, 2)}\n${"z".repeat(500)}`;
+    const replacementPath = `${file}.replacement`;
+    fs.writeFileSync(replacementPath, replaced);
+    fs.renameSync(replacementPath, file);
+    const afterReplace = await request("usage.get", {
+      runId: "row-live-reset",
+      transcript: { nativeId, path: file },
+    });
+    expect(afterReplace.result.orchestrator).toMatchObject({ inputTokens: 21, outputTokens: 9 });
+  });
+
+  it("serializes an in-flight transcript read with release cursor cleanup", async () => {
+    seedOpen("row-release-overlap");
+    const nativeId = "native-release-overlap";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-overlap-first", "request-overlap-first", 5, 2)}\n`);
+    await request("usage.get", { runId: "row-release-overlap", transcript: { nativeId, path: file } });
+    fs.appendFileSync(file, `${assistantLine("message-overlap-second", "request-overlap-second", 7, 3)}\n`);
+
+    const opened = deferred();
+    const allowRead = deferred();
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    fs.promises.open = (async (...args: Parameters<typeof fs.promises.open>) => {
+      const handle = await originalOpen(...args);
+      if (args[0] === file) {
+        const originalRead = handle.read.bind(handle);
+        handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+          opened.resolve();
+          await allowRead.promise;
+          return originalRead(...readArgs);
+        }) as typeof handle.read;
+      }
+      return handle;
+    }) as typeof fs.promises.open;
+
+    try {
+      const liveRequest = request("usage.get", {
+        runId: "row-release-overlap",
+        transcript: { nativeId, path: file },
+      });
+      await opened.promise;
+      const releaseRequest = request("session.release", { id: "row-release-overlap" });
+      expect(seam(daemon!).sessions.get("row-release-overlap")?.status).toBe("completed");
+      const released = await releaseRequest;
+      expect(released.result.session.status).toBe("completed");
+      allowRead.resolve();
+      await liveRequest;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      allowRead.resolve();
+      fs.promises.open = originalOpen;
+    }
+
+    expect(liveCursor(nativeId)).toBeUndefined();
+    expect(seam(daemon!).sessions.get("row-release-overlap")?.usage)
+      .toMatchObject({ inputTokens: 12, outputTokens: 5 });
+  });
+
+  it("cleans every released cursor after successful reconciliation and keeps a shared active id", async () => {
+    seedOpen("row-release-cleanup");
+    seedOpen("row-shared-cleanup");
+    const ids = ["native-cleanup-one", "native-cleanup-two", "native-cleanup-shared"];
+    for (const [index, nativeId] of ids.entries()) {
+      const file = transcriptFile(nativeId);
+      fs.writeFileSync(file, `${assistantLine(`message-cleanup-${index}`, `request-cleanup-${index}`, 1, 1)}\n`);
+      await request("usage.get", { runId: "row-release-cleanup", transcript: { nativeId, path: file } });
+    }
+    await request("session.linkNative", { id: "row-shared-cleanup", nativeId: ids[2] });
+
+    await request("session.release", { id: "row-release-cleanup" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(liveCursor(ids[0])).toBeUndefined();
+    expect(liveCursor(ids[1])).toBeUndefined();
+    expect(liveCursor(ids[2])).toBeDefined();
+  });
+
+  it("retains every cursor when a full release reconciliation fails", async () => {
+    seedOpen("row-release-reconcile-failure");
+    const ids = ["native-a-reconcile-good", "native-z-reconcile-fails"];
+    for (const [index, nativeId] of ids.entries()) {
+      const file = transcriptFile(nativeId);
+      fs.writeFileSync(file, `${assistantLine(`message-failure-${index}`, `request-failure-${index}`, 2, 1)}\n`);
+      await request("usage.get", { runId: "row-release-reconcile-failure", transcript: { nativeId, path: file } });
+    }
+
+    const ledger = (daemon as any).usageLedger;
+    const originalObserve = ledger.observe.bind(ledger);
+    ledger.observe = (sessionId: string, sourceKey: string, observation: unknown, seedIntoIncoming?: boolean) => {
+      if (sourceKey === `claude-open:${ids[1]}`) throw new Error("injected ledger failure");
+      return originalObserve(sessionId, sourceKey, observation, seedIntoIncoming);
+    };
+    try {
+      await request("session.release", { id: "row-release-reconcile-failure" });
+    } finally {
+      ledger.observe = originalObserve;
+    }
+
+    expect(liveCursor(ids[0])).toBeDefined();
+    expect(liveCursor(ids[1])).toBeDefined();
+    expect((daemon as any).nativeLinks.unreconciled("row-release-reconcile-failure")).toHaveLength(1);
+  });
+
+  it("marks a vanished transcript missing and cleans its cursor after release", async () => {
+    seedOpen("row-missing-live-transcript");
+    const nativeId = "native-missing-live-transcript";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-missing-live", "request-missing-live", 3, 2)}\n`);
+    await request("usage.get", { runId: "row-missing-live-transcript", transcript: { nativeId, path: file } });
+    expect(liveCursor(nativeId)).toBeDefined();
+    fs.unlinkSync(file);
+
+    await request("session.release", { id: "row-missing-live-transcript" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect((daemon as any).nativeLinks.linksFor(["row-missing-live-transcript"]))
+      .toMatchObject([{ nativeId, state: "missing" }]);
+    expect(liveCursor(nativeId)).toBeUndefined();
+  });
+
+  it("keeps the cursor unchanged when ledger persistence fails, then rereads on retry", async () => {
+    seedOpen("row-live-ledger-failure");
+    const earlierId = "native-earlier-ledger-failure";
+    await request("session.linkNative", { id: "row-live-ledger-failure", nativeId: earlierId });
+    const nativeId = "native-live-ledger-failure";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-ledger-failure", "request-ledger-failure", 13, 7)}\n`);
+    const ledger = (daemon as any).usageLedger;
+    const originalObserve = ledger.observe.bind(ledger);
+    const reconciliationQueued = deferred();
+    let queuedSessionId: string | undefined;
+    let queuedNativeIds: readonly string[] | undefined;
+    const originalReconcile = (daemon as any).reconcileOpenUsageSafely.bind(daemon);
+    (daemon as any).reconcileOpenUsageSafely = async (sessionId: string, nativeIds?: readonly string[]) => {
+      queuedSessionId = sessionId;
+      queuedNativeIds = nativeIds;
+      reconciliationQueued.resolve();
+      return true;
+    };
+    ledger.observe = () => { throw new Error("injected live ledger failure"); };
+    try {
+      const failed = await request("usage.get", { runId: "row-live-ledger-failure", transcript: { nativeId, path: file } });
+      await reconciliationQueued.promise;
+      expect(failed.result.runId).toBe("row-live-ledger-failure");
+      expect(liveCursor(nativeId)).toBeUndefined();
+      expect((daemon as any).usageLedger.attributionsFor(["row-live-ledger-failure"])).toEqual([]);
+      expect(queuedSessionId).toBe("row-live-ledger-failure");
+      expect(queuedNativeIds).toEqual([earlierId]);
+    } finally {
+      ledger.observe = originalObserve;
+      (daemon as any).reconcileOpenUsageSafely = originalReconcile;
+    }
+
+    const retried = await request("usage.get", { runId: "row-live-ledger-failure", transcript: { nativeId, path: file } });
+    expect(retried.result.orchestrator).toMatchObject({ inputTokens: 13, outputTokens: 7 });
+    expect(liveCursor(nativeId)?.byteOffset).toBe(Buffer.byteLength(`${assistantLine("message-ledger-failure", "request-ledger-failure", 13, 7)}\n`));
+  });
+
+  it("restarts at byte zero without lowering high-water totals and catches up later chunks", async () => {
+    seedOpen("row-live-restart");
+    const nativeId = "native-live-restart";
+    const file = transcriptFile(nativeId);
+    const firstLine = assistantLine("message-restart-first", "request-restart-first", 10, 4);
+    const secondLine = assistantLine("message-restart-second", "request-restart-second", 20, 8, 0, 1_048_600);
+    fs.writeFileSync(file, `${firstLine}\n${secondLine}\n`);
+
+    await request("usage.get", { runId: "row-live-restart", transcript: { nativeId, path: file } });
+    expect(seam(daemon!).sessions.get("row-live-restart")?.usage).toMatchObject({ inputTokens: 10, outputTokens: 4 });
+    await request("usage.get", { runId: "row-live-restart", transcript: { nativeId, path: file } });
+    expect(seam(daemon!).sessions.get("row-live-restart")?.usage).toMatchObject({ inputTokens: 30, outputTokens: 12 });
+
+    seam(daemon!).db.close();
+    daemon = new Daemon();
+    expect(liveCursor(nativeId)).toBeUndefined();
+    const afterRestartFirst = await request("usage.get", { runId: "row-live-restart", transcript: { nativeId, path: file } });
+    expect(afterRestartFirst.result.orchestrator).toMatchObject({ inputTokens: 30, outputTokens: 12 });
+    expect(liveCursor(nativeId)?.byteOffset).toBe(1_048_576);
+    expect(seam(daemon!).sessions.get("row-live-restart")?.usage).toMatchObject({ inputTokens: 30, outputTokens: 12 });
+
+    await request("usage.get", { runId: "row-live-restart", transcript: { nativeId, path: file } });
+    fs.appendFileSync(file, `${assistantLine("message-restart-later", "request-restart-later", 5, 2)}\n`);
+    const caughtUp = await request("usage.get", { runId: "row-live-restart", transcript: { nativeId, path: file } });
+    expect(caughtUp.result.orchestrator).toMatchObject({ inputTokens: 35, outputTokens: 14 });
+    expect(seam(daemon!).sessions.get("row-live-restart")?.usage).toMatchObject({ inputTokens: 35, outputTokens: 14 });
+  });
+
+  it("deduplicates deferred earlier-id reconciliation while it is in flight", async () => {
+    seedOpen("row-deferred-reconcile");
+    await request("session.linkNative", { id: "row-deferred-reconcile", nativeId: "native-earlier-unreconciled" });
+    const liveId = "native-current-live";
+    const file = transcriptFile(liveId);
+    fs.writeFileSync(file, `${assistantLine("message-current-live", "request-current-live", 9, 4)}\n`);
+
+    const reconciliationStarted = deferred();
+    const finishFirstReconciliation = deferred();
+    const secondReconciliationStarted = deferred();
+    const reconciliations: Array<{ sessionId: string; nativeIds?: readonly string[] }> = [];
+    const originalReconcile = (daemon as any).reconcileOpenUsageSafely.bind(daemon);
+    (daemon as any).reconcileOpenUsageSafely = async (sessionId: string, nativeIds?: readonly string[]) => {
+      reconciliations.push({ sessionId, nativeIds });
+      if (reconciliations.length === 1) {
+        reconciliationStarted.resolve();
+        await finishFirstReconciliation.promise;
+      }
+      if (reconciliations.length === 2) secondReconciliationStarted.resolve();
+      return true;
+    };
+    try {
+      const response = await request("usage.get", {
+        runId: "row-deferred-reconcile",
+        transcript: { nativeId: liveId, path: file },
+      });
+      expect(response.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
+      await reconciliationStarted.promise;
+      expect(reconciliations[0]).toEqual({
+        sessionId: "row-deferred-reconcile",
+        nativeIds: ["native-earlier-unreconciled"],
+      });
+
+      const secondResponse = await request("usage.get", {
+        runId: "row-deferred-reconcile",
+        transcript: { nativeId: liveId, path: file },
+      });
+      expect(secondResponse.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
+      expect(reconciliations).toHaveLength(1);
+
+      finishFirstReconciliation.resolve();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const thirdResponse = await request("usage.get", {
+        runId: "row-deferred-reconcile",
+        transcript: { nativeId: liveId, path: file },
+      });
+      expect(thirdResponse.result.orchestrator).toMatchObject({ inputTokens: 9, outputTokens: 4 });
+      await secondReconciliationStarted.promise;
+      expect(reconciliations).toHaveLength(2);
+      expect(reconciliations[1]).toEqual({
+        sessionId: "row-deferred-reconcile",
+        nativeIds: ["native-earlier-unreconciled"],
+      });
+    } finally {
+      finishFirstReconciliation.resolve();
+      (daemon as any).reconcileOpenUsageSafely = originalReconcile;
+    }
+  });
+
+  it("attributes only release output growth above live input and output marks", async () => {
+    seedOpen("row-live-release-high-water");
+    const nativeId = "native-live-release-high-water";
+    const file = transcriptFile(nativeId);
+    fs.writeFileSync(file, `${assistantLine("message-live-high-water", "request-live-high-water", 100, 20)}\n`);
+    await request("usage.get", { runId: "row-live-release-high-water", transcript: { nativeId, path: file } });
+    expect(seam(daemon!).sessions.get("row-live-release-high-water")?.usage)
+      .toMatchObject({ inputTokens: 100, outputTokens: 20 });
+
+    fs.writeFileSync(file, `${JSON.stringify({
+      type: "cost-state",
+      totalCostUSD: 5,
+      modelUsage: {
+        "claude-sonnet-4-5": {
+          inputTokens: 80,
+          outputTokens: 45,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          costUSD: 5,
+        },
+      },
+    })}\n`);
+    await request("session.release", { id: "row-live-release-high-water" });
+
+    expect(seam(daemon!).sessions.get("row-live-release-high-water")?.usage)
+      .toMatchObject({ inputTokens: 100, outputTokens: 45 });
+    expect((daemon as any).usageLedger.attributionsFor(["row-live-release-high-water"]))
+      .toContainEqual(expect.objectContaining({
+        sourceKey: `claude-open:${nativeId}`,
+        inputTokens: 100,
+        outputTokens: 45,
+      }));
   });
 });
