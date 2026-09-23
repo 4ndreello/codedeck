@@ -1,10 +1,8 @@
 # Web console tasks
 
-## Execution Protocol (mandatory)
+## Execution protocol
 
-Implement these tasks with the tlc-spec-driven skill. Follow its Execute flow, per-task gates, atomic commits, and final verifier. The implementation stays within the source and test files named by each task. Do not change plugin files, add a frontend framework, or run the full Vitest suite.
-
----
+Implement these tasks with the tlc-spec-driven skill. Keep tests in the task that changes the code they cover. Run only the scoped commands below. Do not change plugin files or add a frontend framework. Do not run the full Vitest suite.
 
 **Design**: .specs/features/web-console/design.md
 
@@ -12,407 +10,499 @@ Implement these tasks with the tlc-spec-driven skill. Follow its Execute flow, p
 
 ## Test Coverage Matrix
 
-> Generated from the current Vitest setup, repository instructions, and spec. Tests run under Node and live in tests/. The current project instructions require scoped Vitest commands and prohibit the full suite.
+> Generated from the feature requirements, repository test locations, and the project instruction to use scoped Vitest commands. The Node test environment has no DOM dependency.
 
-| Code Layer | Required Test Type | Coverage Expectation | Location Pattern | Run Command |
+| Code layer | Required test type | Coverage expectation | Location pattern | Run command |
 | --- | --- | --- | --- | --- |
-| Web server/router | Integration | Loopback binding, port parsing, route dispatch, review aliases, browser-open fallback, and close behavior | tests/web-server.test.ts, tests/review.test.ts, tests/review-command.test.ts | npx vitest run tests/web-server.test.ts tests/review.test.ts tests/review-command.test.ts |
-| Security | Integration | Accepted and rejected Host, token, and Origin combinations; rejected requests never invoke handlers | tests/web-security.test.ts, tests/web-server.test.ts | npx vitest run tests/web-security.test.ts tests/web-server.test.ts |
-| Setup core | Unit and integration | Pure planner results for each setup field, profile targeting, diff and validation results, wizard compatibility, and existing setup contracts | tests/setup-plan.test.ts, tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts | npx vitest run tests/setup-plan.test.ts tests/setup-wizard.test.ts tests/setup-cli-contract.test.ts |
-| Setup web handlers | Integration | Catalog reads and refresh, dry-run without writes, apply, unchanged apply, malformed body, validation failure, and save failure | tests/setup-web.test.ts | npx vitest run tests/setup-web.test.ts |
-| Usage web handler | Integration | Every supported filter mapping, query success, and IPC plus SQLite error handling | tests/usage-web.test.ts | npx vitest run tests/usage-web.test.ts |
-| HTML pages | Unit | Home links, setup controls, visible discovery state, usage totals and breakdowns, optional byOrigin, and refresh interval | tests/web-pages.test.ts | npx vitest run tests/web-pages.test.ts |
-| CLI wiring | Command contract | ui, review, setup, and usage flags; setup batch output; usage JSON and single-run statusline behavior | tests/web-cli.test.ts, tests/review-command.test.ts, tests/setup-cli-contract.test.ts, tests/usage-statusline-contract.test.ts | npx vitest run tests/web-cli.test.ts tests/review-command.test.ts tests/setup-cli-contract.test.ts tests/usage-statusline-contract.test.ts |
+| Web server/router | Integration | Loopback bind, actual port after listen, port parsing, route dispatch, review aliases, browser URL, listen failure, and injected shutdown | tests/web-server.test.ts, tests/review.test.ts, tests/review-command.test.ts | npx vitest run tests/web-server.test.ts tests/review.test.ts tests/review-command.test.ts |
+| Security | Integration | Allowed and rejected Host, token bootstrap and cookie, Origin, POST rejection before dispatch, and HTML framing header | tests/web-security.test.ts, tests/web-server.test.ts | npx vitest run tests/web-security.test.ts tests/web-server.test.ts |
+| Setup core | Unit and integration | Planner fields and preservation, profile targets, skip behavior, no catalog validation in planner, separate changed-binding validation, wizard and batch compatibility | tests/setup-plan.test.ts, tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts | npx vitest run tests/setup-plan.test.ts tests/setup-wizard.test.ts tests/setup-cli-contract.test.ts |
+| Setup web handlers | Integration | State prefill, catalog cache and refresh fallback, dry-run no-write, apply, changed-only validation, invalid config codes, malformed body, and save errors | tests/setup-web.test.ts | npx vitest run tests/setup-web.test.ts |
+| Usage query builder | Unit and command contract | CLI and web callers produce identical UsageQueryParams for the same options, cwd, and clock; all supported filters and precedence | tests/usage-cli.test.ts | npx vitest run tests/usage-cli.test.ts |
+| Usage web handler | Integration | Query mapping, every supported filter, query success, and query error response | tests/usage-web.test.ts | npx vitest run tests/usage-web.test.ts |
+| HTML pages and page behavior | Unit | Direct Node tests of injected page functions for setup state, free-text input, discovery, 403 message, filters, polling, rendering data, optional byOrigin, and retained result on error | tests/web-pages.test.ts | npx vitest run tests/web-pages.test.ts |
+| CLI wiring | Command contract | ui, review, setup, and usage routes and flags; setup batch and non-TTY behavior; usage.get with --web --json without server startup | tests/web-cli.test.ts, tests/review-command.test.ts, tests/setup-cli-contract.test.ts, tests/usage-cli.test.ts, tests/usage-statusline-contract.test.ts | npx vitest run tests/web-cli.test.ts tests/review-command.test.ts tests/setup-cli-contract.test.ts tests/usage-cli.test.ts tests/usage-statusline-contract.test.ts |
+| Documentation | none | Text-only README update; no test coverage required | None | git diff --check -- README.md |
 
 ## Gate Check Commands
 
-| Gate Level | When to Use | Command |
+| Gate level | When to use | Command |
 | --- | --- | --- |
 | Task | After each task | Run the scoped command in that task's Gate field. |
 | P1 | After shared server and home wiring | npx vitest run tests/web-server.test.ts tests/web-pages.test.ts tests/review.test.ts tests/review-command.test.ts tests/web-cli.test.ts |
-| P2 | After security integration | npx vitest run tests/web-security.test.ts tests/web-server.test.ts |
+| P2 | After security integration | npx vitest run tests/web-security.test.ts tests/web-server.test.ts tests/web-pages.test.ts |
 | P3 | After setup core extraction | npx vitest run tests/setup-plan.test.ts tests/setup-wizard.test.ts tests/setup-cli-contract.test.ts |
 | P4 | After setup web wiring | npx vitest run tests/setup-web.test.ts tests/web-pages.test.ts tests/web-cli.test.ts tests/setup-cli-contract.test.ts |
-| P5 | After usage web wiring and feat/orchestrator-usage merge | npx vitest run tests/usage-web.test.ts tests/web-pages.test.ts tests/web-cli.test.ts tests/usage-statusline-contract.test.ts |
+| P5 | After the usage changes land | git merge-base --is-ancestor origin/feat/orchestrator-usage HEAD && npx vitest run tests/usage-cli.test.ts tests/usage-web.test.ts tests/web-pages.test.ts tests/web-cli.test.ts tests/usage-statusline-contract.test.ts |
 
 ## Execution Plan
 
-Phases run in P1 to P5 order. Tasks run sequentially within each phase. P5 must not start until feat/orchestrator-usage has merged into the implementation base.
+Phases run in dependency order. Within each phase, start a task after its listed dependencies pass. P5 cannot start until P4 is complete and origin/feat/orchestrator-usage is an ancestor of implementation HEAD.
 
 ### Phase 1: Shared server and home page
 
 ```text
 T1 -> T2
 T1 -> T3
-T1 -> T4
 T2 -> T4
 T3 -> T4
 T4 -> T5
 ```
 
-### Phase 2: Security
+### Phase 2: Request security
 
 ```text
-T1 -> T6 -> T7
+T1 -> T6
 T1 -> T7
+T6 -> T7
 ```
 
-### Phase 3: Shared setup planner
+### Phase 3: Shared setup planning
 
 ```text
+T7 -> T8
 T8 -> T9
 ```
 
-### Phase 4: Setup web
+### Phase 4: Browser setup
 
 ```text
 T8 -> T10
-T9 -> T10
 T7 -> T11
 T8 -> T11
 T9 -> T12
 T10 -> T12
 T11 -> T12
 T12 -> T13
+T12 -> T19
 ```
 
-### Phase 5: Usage web
+### Phase 5: Browser usage
 
 ```text
-T7 -> T14
-T13 -> T14 -> T15 -> T16 -> T17
-T14 -> T16
-T13 -> T17
+T14 -> T15
+T7 -> T15
+T15 -> T16
+T14 -> T17
+T15 -> T17
+T16 -> T17
+T13 -> T18
+T15 -> T18
+T16 -> T18
 ```
 
 ## Task Breakdown
 
 ### T1: Extract the shared server and router
 
-**What**: Add the loopback server, route table, port parser, browser opener, URL output, and signal shutdown.
+**What**: Move loopback server startup, route dispatch, port parsing, browser opening, and testable shutdown into the shared web server.
 **Where**: src/web/server.ts
 **Depends on**: None
 **Reuses**: src/cli/commands/review.ts
-**Requirement**: WEB-01, WEB-02, WEB-03, WEB-04, WEB-09, WEB-57
-**Tools**: MCP none; Skill tlc-spec-driven
+**Requirement**: WEB-01, WEB-02, WEB-03, WEB-04, WEB-57, WEB-75
 
 **Done when**:
 
-- The server binds to 127.0.0.1 and accepts a validated port from 1 through 65535.
-- The default port is 3100.
-- A failed browser open or --no-open prints the full URL while the process keeps serving.
-- SIGINT and SIGTERM close the server.
-- An occupied port prints a listen error and exits with code 1 before reporting a started URL.
-- Route tests cover successful dispatch, unknown paths, listen errors, and close behavior.
+- The server binds to 127.0.0.1 and defaults to port 3100.
+- The user-facing parser accepts only integer ports from 1 through 65535; an injected test seam can listen on port 0.
+- After listen, the server reads server.address().port and uses that actual value for its returned address.
+- Signal handling calls the injected close function and then the injected exit function for SIGINT and SIGTERM.
+- A listen failure reports the error and exits with code 1 without printing a started URL.
+- Server tests cover route dispatch, unknown routes, ephemeral bound port, listen failure, and both shutdown callbacks.
 
 **Tests**: Integration, tests/web-server.test.ts
 **Gate**: npx vitest run tests/web-server.test.ts
 
-### T2: Add the home page
+### T2: Render the home page from registered routes
 
-**What**: Add a self-contained home page with links to Review, Usage, and Setup.
+**What**: Add a self-contained home page renderer that receives the registered page routes and creates links only for those routes.
 **Where**: src/web/home-page.ts
 **Depends on**: T1
 **Reuses**: src/web/review-page.ts
 **Requirement**: WEB-08
-**Tools**: MCP none; Skill tlc-spec-driven
 
 **Done when**:
 
-- The page contains links to /review, /usage, and /setup.
-- The page has no external CSS, JavaScript, image, or font dependency.
-- Page tests assert each link target.
+- The home renderer accepts route labels and paths instead of hard-coding future routes.
+- Tests pass only /review as registered and assert there is no /usage or /setup link.
+- The page uses inline CSS and has no external asset dependency.
 
 **Tests**: Unit, tests/web-pages.test.ts
 **Gate**: npx vitest run tests/web-pages.test.ts
 
 ### T3: Rewire the review command
 
-**What**: Move review server startup to the shared server while preserving the handler exports and current review routes.
+**What**: Start review with the shared server and preserve its page and API behavior.
 **Where**: src/cli/commands/review.ts
 **Depends on**: T1
 **Reuses**: src/web/review-page.ts and src/git/review.ts
 **Requirement**: WEB-05, WEB-06, WEB-07
-**Tools**: MCP none; Skill tlc-spec-driven
 
 **Done when**:
 
-- GET / and GET /review still serve the current review page.
+- GET / and GET /review return the current review page with HTTP 200.
 - GET /api/review keeps ref=HEAD as its default and passes file when supplied.
-- Existing review command options and exported test seams remain available.
-- Existing review route and command tests pass without changing their current assertions.
+- Existing review options and test seams remain available.
+- Existing review assertions pass unchanged.
 
 **Tests**: Integration, tests/review.test.ts and tests/review-command.test.ts
 **Gate**: npx vitest run tests/review.test.ts tests/review-command.test.ts
 
 ### T4: Add the ui command
 
-**What**: Start the shared server with the home page as root and the review route available.
+**What**: Start the shared server with the home page at / and the registered review page.
 **Where**: src/cli/commands/ui.ts
-**Depends on**: T1, T2, T3
-**Reuses**: Shared server and review handler
-**Requirement**: WEB-08, WEB-09
-**Tools**: MCP none; Skill tlc-spec-driven
+**Depends on**: T2, T3
+**Reuses**: Shared server, home renderer, and review handler
+**Requirement**: WEB-08
 
 **Done when**:
 
 - codedeck ui opens / by default.
-- The route table serves /review.
+- Its initial page route table registers the home page and /review.
 - --port and --no-open use the shared server options.
-- Command tests assert the home path, flags, printed URL, and browser-open failure behavior.
+- Command tests assert registered links, route status, and URL output.
 
 **Tests**: Command contract, tests/web-cli.test.ts
 **Gate**: npx vitest run tests/web-cli.test.ts
 
 ### T5: Register ui with the CLI
 
-**What**: Register the ui command with the root Commander program.
+**What**: Register codedeck ui with the root Commander program.
 **Where**: src/cli/index.ts
 **Depends on**: T4
-**Reuses**: Existing command registration order in src/cli/index.ts
+**Reuses**: Existing command registration
 **Requirement**: WEB-08
-**Tools**: MCP none; Skill tlc-spec-driven
 
 **Done when**:
 
 - codedeck --help lists ui.
-- CLI tests invoke the registered command.
+- A command test invokes the registered command and verifies the home route.
 
 **Tests**: Command contract, tests/web-cli.test.ts
 **Gate**: npx vitest run tests/web-cli.test.ts
 
-### T6: Add the request security guard
+### T6: Add request security
 
-**What**: Generate the per-start token and validate Host, token cookie, and Origin.
+**What**: Create the per-start token and route guard for Host, cookie, Origin, and HTML response policy.
 **Where**: src/web/security.ts
 **Depends on**: T1
-**Reuses**: Node request headers and the configured bound port
-**Requirement**: WEB-10, WEB-11, WEB-12, WEB-13, WEB-58
-**Tools**: MCP none; Skill tlc-spec-driven
+**Reuses**: Node request headers and the actual bound port from the server
+**Requirement**: WEB-10, WEB-11, WEB-12, WEB-13, WEB-71, WEB-72, WEB-74
 
 **Done when**:
 
-- Each server security instance creates a 32-byte random token.
-- HTML responses can set the host-only HttpOnly, SameSite=Strict, Path=/ cookie.
-- The guard accepts only the two allowed Host values with the bound port.
-- Missing or stale token and missing or mismatched Origin return 403 for POST routes.
-- A cookie from a prior server process is rejected by the current security instance.
-- Security tests assert that rejected requests do not reach route handlers.
+- Each security instance creates a token from 32 cryptographically random bytes.
+- Host validation accepts only 127.0.0.1:<bound-port> and localhost:<bound-port>, case-insensitively.
+- Every POST requires the codedeck_ui_token_<port> cookie and an HTTP Origin matching Host and the bound port.
+- A valid t token on an HTML GET sets a host-only HttpOnly, SameSite=Strict, Path=/ cookie and returns HTTP 303 to the same path without t.
+- An HTML GET without a valid token does not set the session cookie.
+- HTML responses include Content-Security-Policy: frame-ancestors 'none'.
+- Unit tests cover valid and invalid token bootstrap, Host, Origin, cookie name, redirect, and CSP behavior.
 
 **Tests**: Integration, tests/web-security.test.ts
 **Gate**: npx vitest run tests/web-security.test.ts
 
 ### T7: Apply security before route dispatch
 
-**What**: Integrate the security guard into the shared server so every request gets a Host check and every POST gets token and Origin checks.
+**What**: Integrate the guard into the shared server before any handler can run.
 **Where**: src/web/server.ts
 **Depends on**: T1, T6
 **Reuses**: Route policies from src/web/security.ts
-**Requirement**: WEB-10, WEB-12, WEB-13, WEB-58
-**Tools**: MCP none; Skill tlc-spec-driven
+**Requirement**: WEB-10, WEB-12, WEB-13, WEB-71, WEB-73, WEB-74, WEB-75
 
 **Done when**:
 
-- The guard runs before route dispatch.
-- Valid GET routes remain Host-checked and do not require a mutation token.
-- Every POST route is rejected with 403 when its token or Origin check fails.
-- A token issued by a previous server process cannot authorize a POST.
-- Server-level tests cover the guard and route handler call count.
+- The server obtains the actual port after listen and creates security with that port before opening or printing the URL.
+- Every route gets a Host check before route dispatch.
+- Invalid POST cookie or Origin requests return 403 without invoking the route handler.
+- The opened and printed initial page URL includes ?t=<token>; a browser-open failure prints the same full URL and keeps serving.
+- Server tests prove rejected requests do not reach handlers and token URLs are passed to the browser opener and output.
 
 **Tests**: Integration, tests/web-security.test.ts and tests/web-server.test.ts
 **Gate**: npx vitest run tests/web-security.test.ts tests/web-server.test.ts
 
-### T8: Create the pure setup planner
+### T8: Add the pure setup planner and separate binding validator
 
-**What**: Add a synchronous planner for full role, orchestrator, sandbox, autocompact, and profile selections.
+**What**: Add a pure planner that applies setup selections to RunAgentConfig and a separate binding validation function used by callers.
 **Where**: src/config/setup-plan.ts
-**Depends on**: None
-**Reuses**: Existing config and profile helpers, diffConfig, and binding validation
-**Requirement**: WEB-14, WEB-15, WEB-16, WEB-17, WEB-18, WEB-19, WEB-20, WEB-21, WEB-61
-**Tools**: MCP none; Skill tlc-spec-driven
+**Depends on**: T7
+**Reuses**: RunAgentConfig, profile helpers, diffConfig, role bindings, and existing catalog validation rules
+**Requirement**: WEB-14, WEB-15, WEB-16, WEB-17, WEB-18, WEB-19, WEB-61, WEB-62, WEB-86, WEB-87
 
 **Done when**:
 
-- The planner returns the whole proposed config, diff, and validation results.
-- It performs no file, network, or discovery I/O.
-- Autocompact on sets enabled=true; off sets enabled=false only when the current config already has an autocompact block.
-- Tests cover each field, preservation of unselected values, profiles, diff paths, and rejected bindings.
-- Rejected bindings cannot produce a saveable success result.
+- buildSetupPlan accepts RunAgentConfig, a resolved target, and selections; it returns proposedConfig and diff only.
+- The planner does not read or write files, discover models, or call catalog validation.
+- Separate binding validation can be invoked by web apply and batch without being called by the planner.
+- Planner tests cover selected values, skipped roles, unrelated config keys, profiles, and diff paths for each setup field.
+- Planner tests prove typed or off-catalog binding values can be planned without catalog validation.
 
 **Tests**: Unit, tests/setup-plan.test.ts
 **Gate**: npx vitest run tests/setup-plan.test.ts
 
-### T9: Reuse the planner from the terminal wizard
+### T9: Reuse planning and separate validation in setup paths
 
-**What**: Replace wizard-local config assembly with the shared planner and keep the same save boundary.
+**What**: Route wizard config assembly through the pure planner and keep batch validation outside it.
 **Where**: src/cli/commands/setup.ts
 **Depends on**: T8
-**Reuses**: Existing wizard selection and persistence flow
-**Requirement**: WEB-22
-**Tools**: MCP none; Skill tlc-spec-driven
+**Reuses**: Existing wizard selection, runSetupBatch, and config save flow
+**Requirement**: WEB-22, WEB-36
 
 **Done when**:
 
-- The wizard delegates completed selections to the planner.
-- Discovery, abort, skip, save-failure, and profile behavior remain unchanged.
-- Existing setup wizard and setup CLI contract cases remain unchanged and pass.
+- The wizard passes its selections through buildSetupPlan before saving.
+- The wizard keeps typed-model, role skip, effort skip, abort, discovery, save-failure, and profile behavior.
+- runSetupBatch validates only the winning --bind value for each role outside the planner.
+- Existing setup wizard and CLI contract cases pass unchanged.
 
 **Tests**: Integration, tests/setup-wizard.test.ts and tests/setup-cli-contract.test.ts
 **Gate**: npx vitest run tests/setup-wizard.test.ts tests/setup-cli-contract.test.ts
 
-### T10: Add the setup page
+### T10: Add the setup page and tested behavior logic
 
-**What**: Add the self-contained setup page with all controls represented by the current wizard.
+**What**: Add a self-contained setup HTML page whose exported TypeScript behavior functions also drive selection, refresh state, and 403 recovery in the browser.
 **Where**: src/web/setup-page.ts
-**Depends on**: T8, T9
-**Reuses**: Setup selection semantics in src/cli/commands/setup.ts
-**Requirement**: WEB-23, WEB-25, WEB-37, WEB-38, WEB-39, WEB-40, WEB-41, WEB-42
-**Tools**: MCP none; Skill tlc-spec-driven
+**Depends on**: T8
+**Reuses**: Wizard selection semantics and the route contracts in spec.md
+**Requirement**: WEB-23, WEB-25, WEB-37, WEB-38, WEB-39, WEB-40, WEB-41, WEB-64, WEB-65, WEB-66, WEB-67, WEB-68, WEB-73
 
 **Done when**:
 
-- The page offers every role's harness and model selection.
-- It offers effort only for roles whose wizard has an effort screen.
-- It offers all orchestrator parameters, both sandbox values, and both autocompact values.
-- It displays the selected --profile target.
-- Refresh shows “Discovering models...” until the response completes.
-- Page tests assert controls, route requests, and no external assets.
+- The page has a free-text harness:model field for every role, with supported effort choices and no effort control for opencode.
+- It has role skip controls, orchestrator presets and custom parameters, both sandbox values, and autocompact on/off.
+- Its state logic preserves skipped roles and effort; a first-run all-role skip can produce agents: {}.
+- Positive finite custom parallelism is kept as a number in the proposal.
+- A pending refresh exposes “Discovering models...” until the response completes.
+- A protected POST response of 403 exposes the exact reload/restart message from WEB-73.
+- The HTML injects its exported behavior function source; Node tests call those same functions with fake fetch and state callbacks without a DOM.
 
 **Tests**: Unit, tests/web-pages.test.ts
 **Gate**: npx vitest run tests/web-pages.test.ts
 
-### T11: Add setup catalog and mutation handlers
+### T11: Add setup state, catalog, and mutation routes
 
-**What**: Implement GET catalog and protected POST refresh, dry-run, and apply handlers.
+**What**: Add the setup route factory for state and catalog reads plus refresh, dry-run, and apply actions.
 **Where**: src/web/setup-routes.ts
 **Depends on**: T7, T8
-**Reuses**: Config store, getBatchModels, getCachedOrDiscoverModels, and buildSetupPlan
-**Requirement**: WEB-24, WEB-25, WEB-26, WEB-27, WEB-28, WEB-29, WEB-30, WEB-31, WEB-32, WEB-33, WEB-59
-**Tools**: MCP none; Skill tlc-spec-driven
+**Reuses**: readConfigForSetup, resolveSetupTarget, getBatchModels, buildSetupPlan, and separate binding validation
+**Requirement**: WEB-20, WEB-21, WEB-24, WEB-26, WEB-27, WEB-28, WEB-29, WEB-30, WEB-31, WEB-32, WEB-33, WEB-59, WEB-63, WEB-76, WEB-77, WEB-84, WEB-85
 
 **Done when**:
 
-- GET catalog returns cached catalog data and status without discovery.
-- POST refresh starts discovery and concurrent callers share its promise.
-- A discovery error for one harness stays beside the other returned catalog entries.
-- Dry-run returns a proposal, diff, and validations without writing.
-- Apply writes only a valid non-empty proposal; an empty diff returns unchanged without writing.
-- Malformed, oversized, invalid, and save-failure requests return the specified status and envelope.
-- HTTP integration tests verify the saved config and every no-write path.
+- GET /api/setup/state returns the global or named profile target and current bindings, effort, orchestrator, sandbox, and autocompact values for prefill.
+- An active profile without a snapshot returns the existing SetupUsageError instead of selecting global config.
+- GET /api/setup/catalog calls only getBatchModels with allowNetwork:false and returns its actual result fields.
+- Protected refresh calls getBatchModels with refresh:true, allowNetwork:true, and timeoutMs:12000; incomplete discovery returns the helper's cache fallback and discoveryError without partial network results.
+- Concurrent refresh callers share the in-flight promise.
+- Dry-run returns an exact SetupEnvelope with proposta, validacoes, mudancas, and resultado and does not write config.
+- Apply uses readConfigForSetup, validates only bindings whose harness or model changed, does not validate effort-only changes, and does not block unrelated changes for an unchanged off-catalog binding.
+- Invalid JSON returns resultado.code=14 and a read error returns resultado.code=15; both paths do not write config.
+- Empty diffs return unchanged and do not write; valid non-empty diffs save; malformed bodies return 400; validation failures return 422; save failures return 500.
+- Tests cover state, cache and refresh results, concurrency, exact envelope keys, changed and unchanged off-catalog bindings, invalid/read errors, and every no-write path.
 
 **Tests**: Integration, tests/setup-web.test.ts
 **Gate**: npx vitest run tests/setup-web.test.ts
 
-### T12: Make web setup the default command path
+### T12: Make interactive setup open the web console
 
-**What**: Add setup web flags and route startup while preserving --tui and the existing batch path.
+**What**: Add setup web startup flags and preserve the confirmed TTY, TUI, and batch branches.
 **Where**: src/cli/commands/setup.ts
 **Depends on**: T9, T10, T11
 **Reuses**: Existing argument parser and runSetupBatch
-**Requirement**: WEB-34, WEB-35, WEB-36, WEB-42
-**Tools**: MCP none; Skill tlc-spec-driven
+**Requirement**: WEB-09, WEB-34, WEB-35, WEB-36, WEB-42, WEB-69, WEB-70
 
 **Done when**:
 
-- codedeck setup without batch flags or --tui opens /setup.
-- --tui selects the existing terminal wizard.
-- Batch flags still call runSetupBatch and keep JSON, dry-run, binding, exit-code, and save behavior.
-- --profile and --refresh reach the intended web setup target and catalog refresh.
-- Existing setup CLI contract cases pass without changes.
+- With both TTYs, no batch flags, and no --tui, codedeck setup starts the server at /setup.
+- With --tui and both TTYs, setup runs the existing terminal wizard.
+- Without both TTYs and without batch flags, setup exits 1 with the existing terminal message and starts no server.
+- Batch flags continue to call runSetupBatch without changing JSON, dry-run, bind, validation, save, or exit-code contracts.
+- --profile targets the selected profile and --refresh starts the protected catalog refresh after /setup loads.
+- --json with --port returns a usage error before server startup.
+- --port, --no-open, open failure, and printed token URL are covered by web command tests.
+- Existing setup CLI contract tests pass without changes.
 
 **Tests**: Command contract, tests/web-cli.test.ts and tests/setup-cli-contract.test.ts
 **Gate**: npx vitest run tests/web-cli.test.ts tests/setup-cli-contract.test.ts
 
-### T13: Add setup routes to ui
+### T13: Register setup routes with ui
 
-**What**: Register the setup page and setup API routes in the home command's route table.
+**What**: Add the setup page and API routes to the route table used by codedeck ui.
 **Where**: src/cli/commands/ui.ts
 **Depends on**: T12
-**Reuses**: Existing home and review route registrations
-**Requirement**: WEB-08, WEB-23
-**Tools**: MCP none; Skill tlc-spec-driven
+**Reuses**: The registered review routes and setup route factory
+**Requirement**: WEB-08, WEB-23, WEB-42, WEB-63
 
 **Done when**:
 
-- codedeck ui serves /setup and its API routes.
-- The home page setup link returns the setup page.
-- Command tests assert page status and route registration.
+- codedeck ui serves /setup, /api/setup/state, /api/setup/catalog, and the setup action routes.
+- The home page includes /setup only after that page route is registered.
+- Command tests assert setup status and route registration.
 
 **Tests**: Integration, tests/web-cli.test.ts
 **Gate**: npx vitest run tests/web-cli.test.ts
 
-### T14: Add the usage query handler
+### T19: Update setup instructions in README
 
-**What**: Translate browser filters into UsageQueryParams and call an injected usage query function.
-**Where**: src/web/usage-routes.ts
-**Depends on**: T7, T13
-**Reuses**: UsageQueryParams and fetchUsageQuery
-**Requirement**: WEB-44
-**Tools**: MCP none; Skill tlc-spec-driven
+**What**: Replace the picker-first setup description with browser setup as the interactive default and retain the --tui and --refresh options.
+**Where**: README.md
+**Depends on**: T12
+**Reuses**: Existing setup section at lines 149-186
+**Requirement**: WEB-82
 
 **Done when**:
 
-- The handler maps every supported aggregate filter to the same value used by the CLI.
-- --current resolves to the command process working directory.
-- Query errors return a JSON error response.
-- Tests cover each filter and the successful query result.
+- The example at line 154 describes codedeck setup opening the web console.
+- The text at line 186 describes --refresh and points to --tui for the frozen terminal picker.
+- No unrelated README sections change.
+
+**Tests**: none
+**Gate**: git diff --check -- README.md
+
+### T14: Extract shared usage query parameter construction
+
+**What**: Extract buildUsageQueryParams(opts, cwd, now) from the aggregate CLI branch into the shared helper and use it from src/cli/commands/usage.ts.
+**Where**: src/core/usage-query.ts
+**Depends on**: None
+**Reuses**: Existing aggregate filter precedence in src/cli/commands/usage.ts:129-164
+**Requirement**: WEB-44
+
+**Done when**:
+
+- The pure function preserves all, today, days, default-today, current-over-repo, since, until, model, and agent behavior.
+- src/cli/commands/usage.ts calls the shared function with parsed options, process.cwd(), and the current date.
+- The same options, cwd, and now produce identical UsageQueryParams for CLI and web callers.
+- tests/usage-cli.test.ts covers the helper and CLI parity cases.
+- Before P5 starts, origin/feat/orchestrator-usage is an ancestor of HEAD.
+
+**Tests**: Unit and command contract, tests/usage-cli.test.ts
+**Gate**: git merge-base --is-ancestor origin/feat/orchestrator-usage HEAD && npx vitest run tests/usage-cli.test.ts
+
+### T15: Add the usage query route
+
+**What**: Map GET /api/usage filters through buildUsageQueryParams and call the injected usage query function.
+**Where**: src/web/usage-routes.ts
+**Depends on**: T7, T14
+**Reuses**: buildUsageQueryParams and fetchUsageQuery
+**Requirement**: WEB-44
+
+**Done when**:
+
+- Query parsing maps period, repo, model, agent, since, until, all, today, days, and current to the shared builder input.
+- --current resolves to the CLI process working directory and overrides repo.
+- Successful results retain the UsageQueryResult shape.
+- Query errors return an HTTP 500 JSON error.
+- tests/usage-web.test.ts covers each filter, the current override, success, and error response.
 
 **Tests**: Integration, tests/usage-web.test.ts
 **Gate**: npx vitest run tests/usage-web.test.ts
 
-### T15: Add the usage page
+### T16: Add usage page and tested behavior logic
 
-**What**: Add the self-contained usage page with totals, all current breakdowns, optional byOrigin, and polling.
+**What**: Add the self-contained usage page and its exported filter, render-state, and polling functions.
 **Where**: src/web/usage-page.ts
-**Depends on**: T14
-**Reuses**: UsageQueryResult and UsageMetricBucket
-**Requirement**: WEB-43, WEB-45, WEB-46, WEB-47, WEB-48, WEB-49, WEB-50, WEB-51, WEB-52, WEB-53, WEB-60
-**Tools**: MCP none; Skill tlc-spec-driven
+**Depends on**: T15
+**Reuses**: UsageQueryResult, UsageTotals, and UsageMetricBucket
+**Requirement**: WEB-43, WEB-45, WEB-46, WEB-47, WEB-48, WEB-49, WEB-50, WEB-51, WEB-52, WEB-53, WEB-60, WEB-78, WEB-80, WEB-81
 
 **Done when**:
 
-- The page renders every UsageTotals field and each of the five existing breakdown arrays.
-- It renders byOrigin when present and renders the other sections when absent.
-- It polls the active filter set every 2 seconds by default and honors --interval.
-- Query errors leave the last successful result visible and show the error.
-- Page tests cover origin-present, origin-absent, polling, and error states.
+- Page logic exposes every UsageTotals field and each of byDay, byRepository, byModel, byAgent, and byRun.
+- It exposes byOrigin when present and handles its absence from an older daemon without throwing.
+- Period, repo, model, agent, since, and until changes each issue a query with the updated filters.
+- Polling refreshes the active filter set and normalizes the interval with Math.max(1, Number(opts.interval) || 2).
+- A query error leaves the last successful result visible and stores the error state.
+- --by origin selects origin initially while every available breakdown remains reachable.
+- The HTML injects the exported behavior function source; tests directly call that function in Node with fake fetch, timer, and render adapters.
 
 **Tests**: Unit, tests/web-pages.test.ts
 **Gate**: npx vitest run tests/web-pages.test.ts
 
-### T16: Add usage --web command wiring
+### T17: Add usage --web command wiring
 
-**What**: Add --web, --port, and --no-open behavior to aggregate usage while preserving CLI output paths.
+**What**: Add aggregate usage web startup while keeping single-run and post-merge CLI branches ahead of it.
 **Where**: src/cli/commands/usage.ts
-**Depends on**: T14, T15
-**Reuses**: Existing usage option parser, fetchUsageQuery, and single-run branch
-**Requirement**: WEB-54, WEB-55, WEB-56
-**Tools**: MCP none; Skill tlc-spec-driven
+**Depends on**: T14, T15, T16
+**Reuses**: Shared server, usage route factory, and existing command options
+**Requirement**: WEB-09, WEB-54, WEB-55, WEB-56, WEB-80, WEB-81, WEB-83
 
 **Done when**:
 
-- --web opens /usage and forwards aggregate filters.
-- Without --web the existing snapshot, TUI, watch, plain, and JSON paths remain in place.
-- Positional and --run IDs keep the current single-run branch, including when --web is also supplied.
-- Usage and statusline command contract tests pass unchanged.
+- Aggregate usage with --web starts /usage and passes the same date, repository, model, agent, and --by filters.
+- --port and --no-open use the shared server; --interval uses the existing normalization rule.
+- --web --json for aggregate usage starts the page and prints its token URL.
+- When --backfill is absent, positional ID or --run takes the usage.get path before web startup, preserves --observe and --json, ignores aggregate-only --by origin, and starts no server.
+- --backfill runs before web startup and starts no server even with --web.
+- Without --web, snapshot, TUI, watch, plain, JSON, --by origin, --observe, and --backfill contracts remain unchanged.
+- tests/web-cli.test.ts proves usage <id> --web --json calls usage.get and starts no server.
+- tests/usage-cli.test.ts covers --by origin, --observe, --backfill, and --interval contracts.
 
-**Tests**: Command contract, tests/web-cli.test.ts and tests/usage-statusline-contract.test.ts
-**Gate**: npx vitest run tests/web-cli.test.ts tests/usage-statusline-contract.test.ts
+**Tests**: Command contract, tests/web-cli.test.ts and tests/usage-cli.test.ts
+**Gate**: npx vitest run tests/web-cli.test.ts tests/usage-cli.test.ts
 
-### T17: Add usage routes to ui
+### T18: Register usage routes with ui
 
-**What**: Register the usage page and API route in the home command's route table.
+**What**: Register /usage and /api/usage after their route factories are available.
 **Where**: src/cli/commands/ui.ts
-**Depends on**: T13, T16
-**Reuses**: Existing home, review, and setup route registrations
+**Depends on**: T13, T15, T16
+**Reuses**: Existing ui route table and the home page renderer
 **Requirement**: WEB-08, WEB-43
-**Tools**: MCP none; Skill tlc-spec-driven
 
 **Done when**:
 
 - codedeck ui serves /usage and /api/usage.
-- The home page usage link returns the usage page.
-- Command tests assert page status and route registration.
+- The home page links to /usage only after its page route is registered.
+- tests/web-cli.test.ts asserts both route status and the home link.
 
-**Tests**: Integration, tests/web-cli.test.ts and tests/web-server.test.ts
-**Gate**: npx vitest run tests/web-cli.test.ts tests/web-server.test.ts
+**Tests**: Integration, tests/web-cli.test.ts
+**Gate**: npx vitest run tests/web-cli.test.ts
+
+
+## Diagram-Definition Cross-Check
+
+| Task | Depends on | Diagram edges | Status |
+| --- | --- | --- | --- |
+| T1 | None | None | Match |
+| T2 | T1 | T1 -> T2 | Match |
+| T3 | T1 | T1 -> T3 | Match |
+| T4 | T2, T3 | T2 -> T4; T3 -> T4 | Match |
+| T5 | T4 | T4 -> T5 | Match |
+| T6 | T1 | T1 -> T6 | Match |
+| T7 | T1, T6 | T1 -> T7; T6 -> T7 | Match |
+| T8 | T7 | T7 -> T8 | Match |
+| T9 | T8 | T8 -> T9 | Match |
+| T10 | T8 | T8 -> T10 | Match |
+| T11 | T7, T8 | T7 -> T11; T8 -> T11 | Match |
+| T12 | T9, T10, T11 | T9 -> T12; T10 -> T12; T11 -> T12 | Match |
+| T13 | T12 | T12 -> T13 | Match |
+| T14 | None | None | Match |
+| T15 | T7, T14 | T7 -> T15; T14 -> T15 | Match |
+| T16 | T15 | T15 -> T16 | Match |
+| T17 | T14, T15, T16 | T14 -> T17; T15 -> T17; T16 -> T17 | Match |
+| T18 | T13, T15, T16 | T13 -> T18; T15 -> T18; T16 -> T18 | Match |
+| T19 | T12 | T12 -> T19 | Match |
+
+## Test Co-location Validation
+
+| Task | Code layer | Matrix requires | Task tests | Status |
+| --- | --- | --- | --- | --- |
+| T1 | Web server/router | Integration | tests/web-server.test.ts | OK |
+| T2 | HTML pages and page behavior | Unit | tests/web-pages.test.ts | OK |
+| T3 | Web server/router | Integration | tests/review.test.ts, tests/review-command.test.ts | OK |
+| T4 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
+| T5 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
+| T6 | Security | Integration | tests/web-security.test.ts | OK |
+| T7 | Security | Integration | tests/web-security.test.ts, tests/web-server.test.ts | OK |
+| T8 | Setup core | Unit | tests/setup-plan.test.ts | OK |
+| T9 | Setup core | Integration | tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts | OK |
+| T10 | HTML pages and page behavior | Unit | tests/web-pages.test.ts | OK |
+| T11 | Setup web handlers | Integration | tests/setup-web.test.ts | OK |
+| T12 | CLI wiring | Command contract | tests/web-cli.test.ts, tests/setup-cli-contract.test.ts | OK |
+| T13 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
+| T14 | Usage query builder | Unit and command contract | tests/usage-cli.test.ts | OK |
+| T15 | Usage web handler | Integration | tests/usage-web.test.ts | OK |
+| T16 | HTML pages and page behavior | Unit | tests/web-pages.test.ts | OK |
+| T17 | CLI wiring | Command contract | tests/web-cli.test.ts, tests/usage-cli.test.ts | OK |
+| T18 | CLI wiring | Command contract | tests/web-cli.test.ts | OK |
+| T19 | Documentation | none | none | OK |

@@ -6,171 +6,203 @@
 
 ---
 
-## Architecture Overview
+## Architecture overview
 
-Each CLI entry starts the same in-process HTTP server with a command-specific root path and route table. The shared router checks Host before dispatch. Action routes also check the per-start token and Origin. The server closes when its CLI command receives SIGINT or SIGTERM.
+Each web command starts the shared Node HTTP server in the CLI process. The server binds to 127.0.0.1, obtains its actual port after listen, creates the per-start security instance for that port, then opens or prints a token-bearing URL. The route table owns page registration and supplies its registered page links to the home renderer. Review keeps its existing root and /review aliases.
 
-The UI command serves the home page and all registered pages. Review keeps its current root behavior when invoked as codedeck review. Setup and Usage open their page routes directly. Every page stays a self-contained HTML string.
+Every request passes a Host check before route dispatch. POST routes also require the per-port session cookie and a matching HTTP Origin. A valid token query on an HTML GET bootstraps the cookie and redirects to the URL without the query token. The server closes with its owning command.
+
+Setup uses a pure planner that accepts a RunAgentConfig and selections, then returns a proposal and diff. Config reading, binding validation, and writing remain separate. The web apply path validates only bindings whose harness or model changed. Batch keeps validating only its winning --bind values. The terminal wizard continues accepting typed and off-catalog models without catalog validation.
+
+Usage shares one pure query parameter builder between the CLI and the web API. The page keeps its view-state, filter, and polling transitions in testable TypeScript functions and injects those function sources into its self-contained HTML string.
 
 ~~~mermaid
 flowchart LR
-    C[CLI commands] --> S[Shared server and route table]
-    S --> H[Host check]
-    H --> O[Origin and token check on POST]
-    O --> R[Route handler]
-    R --> RP[Review page and API]
-    R --> SP[Setup page and API]
-    R --> UP[Usage page and API]
-    SP --> P[Pure setup planner]
-    P --> W[Config writer]
-    UP --> Q[fetchUsageQuery]
+    C[CLI commands] --> S[Shared loopback server]
+    S --> H[Host guard]
+    H --> O[Token and Origin guard on POST]
+    O --> R[Registered route table]
+    R --> P[Self-contained pages]
+    R --> A[HTTP API handlers]
+    A --> SP[Setup planner]
+    A --> V[Separate setup validation]
+    V --> W[Config writer]
+    A --> U[Usage query parameter builder]
+    U --> Q[fetchUsageQuery]
     Q --> I[Daemon IPC]
     Q --> D[Read-only SQLite fallback]
 ~~~
 
-The route table receives handlers from the CLI commands. This keeps the router independent of setup, usage, and review internals. The server remains in the CLI process and does not start or delegate work to the daemon.
+## Research notes
 
-## Research Notes
-
-The repository already uses Node's built-in HTTP server in review.ts and declares Node 24 or newer in package.json. The official Node 24 HTTP docs cover createServer, listen, request headers, and server close. The official crypto docs cover randomBytes for the per-start token. No HTTP or frontend dependency is needed.
+The existing review command uses Node's built-in HTTP server and browser opener. The repository uses Node 24 or newer. The server and token can use node:http and node:crypto without another dependency.
 
 - Node.js v24 HTTP documentation: https://nodejs.org/download/release/latest-v24.x/docs/api/http.html
 - Node.js v24 crypto documentation: https://nodejs.org/download/release/latest-v24.x/docs/api/crypto.html
 - Context7 MCP was not available in this session.
 - .specs/STATE.md is absent, so there are no active project decision entries to apply.
 
-## Code Reuse Analysis
+## Code reuse analysis
 
 ### Existing components to leverage
 
 | Component | Location | How to use |
 | --- | --- | --- |
-| Review port parsing, browser opening, and request behavior | src/cli/commands/review.ts:7-135 | Move the shared server concerns into src/web/server.ts and keep review route behavior in the review handler. Preserve its default port and CLI flags. |
-| Review HTML | src/web/review-page.ts:8-662 | Serve the existing string without adding assets or changing page behavior. |
-| Usage query and fallback | src/cli/commands/usage.ts:37-77 | Inject fetchUsageQuery into the web usage handler so the page uses daemon IPC and the existing read-only SQLite fallback. |
-| Usage request and result types | src/daemon/protocol.ts:160-211 | Use UsageQueryParams and UsageQueryResult. Add the optional byOrigin rendering only after feat/orchestrator-usage merges. |
-| Setup wizard and selection rules | src/cli/commands/setup.ts:580-801 | Keep the existing wizard, but have it pass completed selections through the shared planner before saving. |
-| Setup profile and config helpers | src/config/config.ts:48-76, :103-137, :237-257, :543-548 | Reuse RunAgentConfig, profile snapshot helpers, SetupConfigRead, SetupConfigStore, and saveConfig. |
-| Setup proposal and diff behavior | src/cli/commands/setup.ts:1000-1036, :1229-1245, :1257-1332 | Move the pure proposal, diff, and binding validation logic into the shared planner while preserving SetupEnvelope fields and status values. |
-| Model discovery | src/core/models.ts:151-190 | Use the cached catalog for GET and invoke getCachedOrDiscoverModels with refresh=true from the protected refresh route. |
-| Existing review, setup, and usage tests | tests/review.test.ts, tests/review-command.test.ts, tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts, tests/usage*.test.ts | Preserve current assertions and add focused tests beside the new server, handlers, pages, and command wiring. |
+| Review port parsing, browser opening, and request behavior | src/cli/commands/review.ts:7-135 | Move server startup, port parsing, and browser opening into src/web/server.ts. Keep review data handling and both existing page routes. |
+| Review page | src/web/review-page.ts:8-662 | Serve the current self-contained HTML string without adding assets. |
+| Setup wizard selections | src/cli/commands/setup.ts:499-801 | Keep its harness, model, effort, orchestrator, sandbox, autocompact, skip, and profile choices. Pass completed selections through the planner before saving. |
+| Picker free-text behavior | src/cli/picker-state.ts:113-141 | Preserve typed harness:model values, including models absent from the catalog. |
+| Profile target resolution | src/cli/commands/setup.ts:831-853 | Use the current explicit and active profile rules for setup state and planning. |
+| Setup envelope and batch validation | src/cli/commands/setup.ts:1000-1036, 1402-1459 | Preserve the exact envelope fields and keep batch validation on winning --bind values outside the planner. |
+| Setup config reads | src/config/config.ts:391-405, 531-540 | Use readConfigForSetup for web state and apply so invalid JSON and read errors are not replaced by default config. Do not use loadConfig for apply. |
+| Setup diffs and profile snapshots | src/config/config.ts:48-76, 103-137, 237-257, 543-548 | Use RunAgentConfig, existing profile helpers, and diffConfig to produce and save the same config shape. |
+| Model catalog | src/core/models.ts:276-389 | Use getBatchModels for catalog reads and refresh. |
+| Usage query and fallback | src/cli/commands/usage.ts:37-77 | Reuse fetchUsageQuery so CLI and web keep daemon usage.query and read-only SQLite fallback behavior. |
+| Usage query and result types | src/daemon/protocol.ts:160-220 | Use UsageQueryParams and UsageQueryResult. The merged type requires byOrigin; tolerate its absence at runtime for an older daemon over IPC. |
+| Existing command and behavior tests | tests/review.test.ts, tests/review-command.test.ts, tests/setup-wizard.test.ts, tests/setup-cli-contract.test.ts, tests/usage-cli.test.ts | Preserve current contract assertions and add focused tests for new server, page logic, route handlers, and CLI options. |
+| Setup README section | README.md:149-186 | Replace the picker-first description with web setup as the default and retain --tui and --refresh guidance. |
 
 ### Integration points
 
 | System | Integration method |
 | --- | --- |
-| CLI command registration | Add codedeck ui in src/cli/index.ts; keep web startup in the existing review, setup, and usage commands. |
-| Review data | Keep GET /api/review read-only and delegate to the current local review loader. |
-| Setup config | The handler reads through the existing config store, calls the pure planner, then saves only after validation passes. |
-| Setup model catalog | GET returns cached status and models. A protected POST starts or joins discovery and shows the page's discovering state while it is pending. |
-| Usage analytics | The handler translates URL filters to UsageQueryParams and calls the same fetchUsageQuery used by the CLI. |
-| Daemon | No changes. Usage continues to use the current IPC query and SQLite fallback from the CLI process. |
+| CLI command registry | Register codedeck ui while preserving the current review, setup, and usage command contracts. |
+| Review data | Keep GET /api/review read-only and delegate to the current review loader. |
+| Setup config | Read with readConfigForSetup, resolve the target, plan from RunAgentConfig, validate changed bindings separately, then save only a valid proposal. |
+| Setup catalog | GET calls getBatchModels with allowNetwork:false. Protected refresh calls it with refresh:true, allowNetwork:true, and timeoutMs:12000. |
+| Usage query | Convert URL filters to the options accepted by buildUsageQueryParams, then inject the result into fetchUsageQuery. |
+| Daemon | No changes. HTTP stays in the CLI process; usage keeps its existing IPC and SQLite fallback. |
 
 ## Components
 
 ### Shared web server
 
-- **Purpose**: Start a loopback-only Node HTTP server, dispatch a route table, print the URL, and close with the command.
+- **Purpose**: Start a loopback server, dispatch registered routes, open or print its URL, and close it with the CLI command.
 - **Location**: src/web/server.ts
 - **Interfaces**:
-  - createWebServer(options): creates the route listener with a command-specific root page.
-  - startWebServer(options): listens on 127.0.0.1, opens the requested URL unless --no-open is set, and returns a close handle.
-  - parseWebPort(value): validates integer ports from 1 through 65535; review re-exports or delegates to this parser.
-- **Dependencies**: node:http, node:child_process, route handlers, and the security guard.
-- **Reuses**: The current listener, browser opener, and port behavior in src/cli/commands/review.ts.
+  - createWebServer(options) creates a listener from a route table and injectable server dependencies.
+  - startWebServer(options) listens on 127.0.0.1 and returns its actual address, URL, and close operation.
+  - parseWebPort(value) accepts integer user ports from 1 through 65535.
+- **Dependencies**: node:http, node:child_process, page and API route handlers, and the security guard.
+- **Reuses**: Current listener, browser opener, and port behavior in src/cli/commands/review.ts.
 
-### Route security
+The injected server seam may listen on port 0 for tests. After listen, read server.address().port and pass that actual port to createWebSecurity before opening or printing the URL. The CLI parser still rejects port 0. Inject both server close and process exit functions so signal handling can be tested without process.exit.
 
-- **Purpose**: Reject requests with an invalid Host and protect every POST route with a per-start token and same-origin check.
+The browser opener and --no-open output use the initial route URL with ?t=<token>. If opening fails, print that full URL and keep serving. SIGINT and SIGTERM close the server, then call the injected exit function. An occupied port reports the listen error and never reports a started URL.
+
+The route table identifies page routes separately from API routes and may attach a navigation label to a page. codedeck ui renders links only from its registered page routes. The review command selects the review page at both / and /review; codedeck ui selects the home page at /.
+
+### Request security
+
+- **Purpose**: Check Host on every request and protect each mutating route with a token cookie and Origin validation.
 - **Location**: src/web/security.ts
 - **Interfaces**:
-  - createWebSecurity(boundPort): creates a 32-byte random token and a request guard.
-  - checkWebRequest(request, routePolicy): returns an allow result or HTTP 403.
-- **Dependencies**: node:crypto and node:http request headers.
-- **Reuses**: The server receives normalized lower-case header names from Node's IncomingMessage.
+  - createWebSecurity(boundPort) creates one cryptographically random 32-byte token after listen.
+  - checkWebRequest(request, routePolicy) returns an allow result or HTTP 403.
+  - getTokenUrl(url, token) adds the out-of-band t query parameter to an initial HTML page URL.
+- **Dependencies**: node:crypto and Node request headers.
+- **Reuses**: Node's normalized IncomingMessage headers and the port resolved by the server.
 
-Use a host-only cookie named codedeck_ui_token with HttpOnly, SameSite=Strict, and Path=/. Set it on HTML responses. Compare its value with the token created for this server process. Reject every POST whose Origin is missing or whose HTTP origin does not match the request Host and bound port. The only accepted Host values are 127.0.0.1:<bound-port> and localhost:<bound-port>. Do not add CORS response headers.
+Accept only Host values 127.0.0.1:<bound-port> and localhost:<bound-port>, compared case-insensitively. Every POST requires an HTTP Origin whose host and port match that request Host and the bound port. A missing or mismatched Host, cookie, or Origin returns 403 before the route handler runs.
+
+Only an HTML GET with the valid t query token sets the host-only HttpOnly cookie named codedeck_ui_token_<port>, with SameSite=Strict and Path=/. That response uses HTTP 303 and redirects to the same path without t. An HTML GET without a valid token does not set the cookie. The cookie value is checked against the current server token on every POST. Do not add CORS response headers.
+
+Every HTML response includes Content-Security-Policy: frame-ancestors 'none'. This applies to the home, review, setup, and usage pages.
 
 ### Home page
 
-- **Purpose**: List links to Review, Usage, and Setup.
+- **Purpose**: List links to pages registered by the active route table.
 - **Location**: src/web/home-page.ts
-- **Interfaces**: HOME_PAGE is a self-contained HTML string.
-- **Dependencies**: None.
-- **Reuses**: The inline HTML, CSS, and JavaScript style in src/web/review-page.ts.
+- **Interfaces**: renderHomePage(pageRoutes) returns a self-contained HTML string for the passed route labels and paths.
+- **Dependencies**: Registered page route metadata.
+- **Reuses**: Inline HTML and CSS in src/web/review-page.ts.
+
+The home page does not hard-code future routes. The initial ui command links only the page routes it registers. Adding the setup and usage routes adds their links through the same route metadata.
 
 ### Setup planner
 
-- **Purpose**: Apply a complete selection set to the resolved config target and return a proposal, diff, and validations without I/O.
+- **Purpose**: Apply setup selections to an already-resolved RunAgentConfig and return a proposed config and diff without I/O or catalog validation.
 - **Location**: src/config/setup-plan.ts
 - **Interfaces**:
-  - buildSetupPlan(input): returns proposedConfig, diff, and validations.
-  - SetupPlanInput carries the current config read, resolved profile target, complete setup selections, and catalog validation result.
-  - SetupPlanResult carries the complete proposed config, config diff, and validation details used by SetupEnvelope.
-- **Dependencies**: Existing config, profile, role binding, orchestrator, sandbox, autocompact, and model catalog types.
-- **Reuses**: Existing config merge rules, profile snapshot helpers, diffConfig, and validateBindings behavior from src/cli/commands/setup.ts.
+  - buildSetupPlan(currentConfig, targetProfile, selections) returns proposedConfig and diff.
+  - SetupSelection represents selected bindings, effort values, orchestrator mode and parameters, sandbox, and autocompact.
+- **Dependencies**: RunAgentConfig, Role, role binding, orchestrator, sandbox, and autocompact types; profile snapshot helpers; diffConfig.
+- **Reuses**: Existing setup merge rules and config diff behavior.
 
-Keep file reads, catalog discovery, and writes outside buildSetupPlan. The terminal wizard and setup web handler pass the same selection model to this function. The existing runSetupBatch stays on its current contract.
+The planner accepts a RunAgentConfig, never SetupConfigRead. It performs no filesystem, network, model discovery, or catalog validation. The terminal wizard and web flow pass the same selection model into it. The wizard keeps its current typed-model behavior and does not gain catalog validation.
 
-When autocompact is turned on, the planner sets enabled=true and keeps other fields. When it is turned off, it sets enabled=false only if the current config already has an autocompact block; otherwise it keeps that block absent. This matches the current wizard behavior.
+Profile resolution and config reading happen before planning. An explicit profile uses the existing profile snapshot rules. An absent active profile keeps the existing SetupUsageError. A first-run target with all roles skipped keeps agents: {} as the empty sentinel. Turning autocompact off writes enabled=false only when the target already has an autocompact block.
 
-### Setup web page
+The planner does not produce binding validation results. Batch continues to validate only the winning --bind value for each role. Web apply compares each selected binding with the resolved target, validates only bindings whose harness or model changed, and does not validate effort-only changes. As a result, an unchanged off-catalog binding does not block a sandbox or other unrelated change.
 
-- **Purpose**: Show the full wizard selection set, catalog state, proposal diff, and apply result.
-- **Location**: src/web/setup-page.ts
-- **Interfaces**: SETUP_PAGE is a self-contained HTML string that submits JSON to the setup API routes.
-- **Dependencies**: Browser fetch, setup catalog and proposal endpoints.
-- **Reuses**: The role, effort, orchestrator, sandbox, autocompact, and profile semantics in src/cli/commands/setup.ts.
+### Setup page and API
 
-### Setup web handlers
-
-- **Purpose**: Load catalog state, refresh discovery, produce dry-run proposals, and apply validated setup changes.
-- **Location**: src/web/setup-routes.ts
+- **Purpose**: Show the current target and all wizard selections, produce a dry-run proposal, and save only a validated proposal.
+- **Page location**: src/web/setup-page.ts
+- **API location**: src/web/setup-routes.ts
 - **Interfaces**:
-  - createSetupRoutes(dependencies): returns GET page/catalog and POST refresh/dry-run/apply routes.
-  - createSetupHandler(dependencies): exposes the same routes as an HTTP request listener when a command needs only setup.
-- **Dependencies**: Config store, model registry, getBatchModels, getCachedOrDiscoverModels, and buildSetupPlan.
-- **Reuses**: SetupEnvelope statuses, validation codes, profile targeting, and config persistence.
+  - SETUP_PAGE is a self-contained HTML string with inline CSS and injected setup page behavior.
+  - createSetupRoutes(dependencies) returns the setup page, catalog, state, refresh, dry-run, and apply route definitions.
+  - buildSetupState(configRead, profileOption) returns the resolved target and current values needed for prefill.
+- **Dependencies**: readConfigForSetup, resolveSetupTarget, getBatchModels, separate binding validation, buildSetupPlan, and the config writer.
+- **Reuses**: Existing setup config, profile, diff, validation codes, and SetupEnvelope.
 
-Bound request bodies to 64 KiB. A refresh route keeps one in-flight discovery promise and shares it with concurrent refresh callers. Read and validate the current config immediately before the synchronous plan-and-save section so two requests in this process do not both apply a proposal based on an older read.
+GET /api/setup/state reads with readConfigForSetup and reports whether the resolved target is global or a named profile. It returns current bindings, per-role effort, orchestrator, sandbox, and autocompact values. An active profile name without a snapshot returns the existing SetupUsageError. An explicit profile without a saved snapshot uses the current profile defaults.
 
-For an explicit --profile target with no saved snapshot, use the existing setup target resolution and profile defaults. Do not add a profile selector or profile editor to the page.
+GET /api/setup/catalog calls getBatchModels with allowNetwork:false and returns its models, status, source, ageMs, cacheWriteFailed, and discoveryError when present. The protected POST /api/setup/catalog/refresh calls getBatchModels with refresh:true, allowNetwork:true, and timeoutMs:12000. If discovery is incomplete or a requested harness reports an error, getBatchModels returns its cache fallback and discoveryError without partial network results. Concurrent refresh requests share one in-flight promise.
 
-### Usage web page
+Dry-run calls the planner and separate validator, then returns an object with the exact SetupEnvelope fields proposta, validacoes, mudancas, and resultado. It never writes config. Apply uses the same proposal and validation steps, and writes only if the diff is non-empty and every changed binding validates. An empty diff returns unchanged without a write.
 
-- **Purpose**: Display usage totals and every available breakdown, with periodic refresh.
-- **Location**: src/web/usage-page.ts
-- **Interfaces**: USAGE_PAGE is a self-contained HTML string that serializes selected filters into GET /api/usage.
-- **Dependencies**: Browser fetch and the usage API response.
-- **Reuses**: The current UsageQueryResult fields and the usage query controls from src/cli/commands/usage.ts.
+The route reads config through readConfigForSetup, never loadConfig. Invalid JSON returns resultado.code=14 and a read error returns resultado.code=15, with no write in either case. Malformed or oversized requests return HTTP 400. Validation failures return HTTP 422 with the existing code and saved=false. Save failures return HTTP 500 with saved=false. The setup API has one route factory, createSetupRoutes.
 
-### Usage web handler
+Setup selection, error rendering, and refresh state live in pure TypeScript page behavior functions. The HTML string injects those same function sources with Function.prototype.toString(). Node tests call the functions with fake fetch and timer adapters, then assert state changes and requests directly. HTML substring checks may cover static markup but do not stand in for these behavior tests. A protected POST 403 changes page state to the reload/restart message from WEB-73.
 
-- **Purpose**: Translate the browser query into UsageQueryParams and return the CLI usage query result.
-- **Location**: src/web/usage-routes.ts
+### Usage query parameter builder
+
+- **Purpose**: Produce identical UsageQueryParams for the CLI and the web API from the same options, working directory, and clock value.
+- **Location**: src/core/usage-query.ts
 - **Interfaces**:
-  - createUsageHandler(fetchQuery): returns a GET /api/usage handler.
-  - parseUsageWebQuery(searchParams, cwd): maps the supported CLI filter names to UsageQueryParams.
-- **Dependencies**: An injected fetchUsageQuery function.
+  - buildUsageQueryParams(opts, cwd, now) returns UsageQueryParams.
+- **Dependencies**: UsageQueryParams and UsagePeriod from src/daemon/protocol.ts.
+- **Reuses**: The aggregation logic currently in src/cli/commands/usage.ts:129-164.
+
+The CLI passes parsed options, process.cwd(), and the current date. The web handler converts its query string to the same option shape and passes its working directory and current date to the builder. The builder keeps the existing precedence: --all, --today, --days, then default today when since is absent. It maps 3, 7, and 30 to named periods, other positive day counts to a local-midnight since value, lets --current override --repo, and passes through since, until, model, and agent.
+
+### Usage page and API
+
+- **Purpose**: Return aggregate usage for browser filters and display results with all available breakdowns.
+- **Page location**: src/web/usage-page.ts
+- **API location**: src/web/usage-routes.ts
+- **Interfaces**:
+  - USAGE_PAGE is a self-contained HTML string with inline CSS and injected usage page behavior.
+  - createUsageRoutes(dependencies) returns GET /usage and GET /api/usage handlers.
+  - parseUsageWebQuery(searchParams, cwd) maps the URL fields to the option shape for buildUsageQueryParams.
+- **Dependencies**: buildUsageQueryParams and injected fetchUsageQuery.
 - **Reuses**: UsageQueryParams, UsageQueryResult, UsageTotals, and UsageMetricBucket from src/daemon/protocol.ts.
 
-The handler does not import the CLI command module. Both codedeck usage --web and codedeck ui inject fetchUsageQuery, avoiding a web-to-CLI import cycle. The page checks for byOrigin at runtime so it still renders against results produced before the pending merge.
+The endpoint returns the same UsageQueryResult as the aggregate CLI. After feat/orchestrator-usage merges, byOrigin is required by the TypeScript type. The page reads result.byOrigin ?? [] at runtime because an older daemon over IPC may omit the property.
 
-Map aggregate query flags with the existing CLI precedence: --all, then --today, then --days, then the default today period when there is no since value. Map 3, 7, and 30 days to their period values; map another positive day count to a local-midnight since value. --current overrides --repo. Keep until, model, and agent filters.
+The page has controls for period, repo, model, agent, since, and until. A change to any control re-queries with the current filter set. The selected --by value is the initial highlighted breakdown; the page keeps every breakdown section accessible. It shows every UsageTotals field and the byDay, byRepository, byModel, byAgent, byRun, and when present byOrigin arrays.
+
+The page behavior functions own query state, filter changes, polling, render data, and error state. The HTML injects the same function source that Node tests import and call with fake fetch, timers, and render callbacks. Tests assert re-query-on-change, interval normalization, polling, origin-present and origin-absent results, and retention of the last good result after a failed query.
+
+Polling uses Math.max(1, Number(opts.interval) || 2). Commander supplies the default string "2", so the implementation cannot distinguish an omitted option from explicit --interval 2. Zero and NaN resolve to 2 seconds; negative values and positive values below 1 resolve to 1 second. For aggregate --web calls, the page refreshes itself; --watch does not select terminal rendering. A positional run ID or --run stays on usage.get and starts no server even with --web. --backfill also runs before web startup. --observe and --json retain their post-merge single-run behavior.
 
 ### CLI wiring
 
-- **Purpose**: Select the correct root route and keep existing command branches stable.
-- **Location**: src/cli/commands/ui.ts, src/cli/commands/review.ts, src/cli/commands/setup.ts, src/cli/commands/usage.ts, and src/cli/index.ts
+- **Purpose**: Select the matching command path and preserve existing non-web contracts.
+- **Locations**: src/cli/commands/ui.ts, src/cli/commands/review.ts, src/cli/commands/setup.ts, src/cli/commands/usage.ts, and src/cli/index.ts
 - **Interfaces**:
-  - codedeck ui opens the home page.
-  - codedeck review opens the review page at both / and /review.
-  - codedeck setup opens /setup unless --tui or batch options select an existing path.
-  - codedeck usage opens /usage only when --web is supplied and no run ID is present.
-- **Dependencies**: Shared server, page constants, and route handlers.
-- **Reuses**: Existing commander registration and command option parsing.
+  - codedeck ui starts the home route table.
+  - codedeck review keeps /, /review, and GET /api/review.
+  - Interactive codedeck setup with a TTY opens /setup unless --tui selects the frozen wizard. Without both TTYs, no-batch setup keeps its current exit code 1 and terminal message.
+  - Setup batch flags continue to call runSetupBatch with their current output and status contracts.
+  - Aggregate codedeck usage opens /usage only with --web.
+  - When --backfill is absent, positional or --run usage IDs keep usage.get and do not start the server, including usage <id> --web --json. --by origin remains aggregate-only.
+- **Dependencies**: Shared server, route factories, page constants, query builder, and existing CLI parser.
+- **Reuses**: Existing Commander registrations and branches.
 
-## Data Models
+## Data models
 
 ### Setup selection
 
@@ -178,82 +210,91 @@ Map aggregate query flags with the existing CLI precedence: --all, then --today,
 interface SetupSelection {
   agents: Partial<Record<Role, RoleBinding>>
   orchestrator: OrchestratorMode
-  defaultSandbox?: RunAgentConfig["defaultSandbox"]
+  sandbox?: RunAgentConfig["defaultSandbox"]
   autocompact?: RunAgentConfig["autocompact"]
 }
 ~~~
 
-Profile target is supplied by the CLI command and is not accepted from the browser request body. A selected profile updates the profile snapshot produced by the existing profile helpers.
+Missing role entries mean the user skipped that role. A profile name is supplied by CLI target resolution and is never accepted from the browser request body. A first-run config with no selected roles retains the agents: {} sentinel.
 
 ### Setup plan
 
 ~~~typescript
-interface SetupPlanInput {
-  configRead: SetupConfigRead
-  profile?: string
-  selections: SetupSelection
-  catalog: BatchModelsResult
-}
-
 interface SetupPlanResult {
   proposedConfig: RunAgentConfig
   diff: SetupDiff
-  validations: SetupValidations
 }
 ~~~
 
-SetupDiff and SetupValidations are the pure setup core's result types. The CLI adapts them into the current SetupEnvelope fields. The names can follow nearby code conventions during implementation, but the input and output responsibilities stay fixed. The planner is synchronous and has no file or network dependencies.
+The current config input is RunAgentConfig. Catalog validation and SetupConfigRead are not planner inputs. The CLI route adapts the result, separate validation result, and config status into the existing SetupEnvelope fields.
 
 ### Usage result
 
-The route returns the same UsageQueryResult as the CLI. After feat/orchestrator-usage merges, byOrigin is optional and uses UsageMetricBucket[]. Before that merge, the page must render the five current breakdowns without requiring that property.
+The route returns UsageQueryResult. In the post-merge type, byOrigin is required and contains UsageMetricBucket[]. At runtime, the page treats an absent field as an empty origin breakdown to support an older daemon process.
 
-## Error Handling Strategy
+## Error handling strategy
 
 | Error scenario | Handling | User impact |
 | --- | --- | --- |
 | Host, token, or Origin rejected | Return HTTP 403 before route handler invocation. | No protected action runs. |
-| Invalid port or listen failure | Print the error and exit with code 1. | No command claims that a server is available. |
-| Malformed or oversized setup body | Return HTTP 400 and do not write config. | The page can correct or retry the request. |
-| Setup selection validation fails | Return HTTP 422 with the existing validation code and saved=false. | The user sees the failed binding and can revise the selection. |
-| Config save fails | Return HTTP 500 with saved=false and the existing save error. | The proposal remains visible and the config is not reported as saved. |
-| One model harness cannot be discovered | Return its existing HarnessModels error with other catalog results. | The page can still show catalogs from other harnesses. |
-| Usage query fails | Return HTTP 500 with a JSON error; the page keeps the last successful result and shows the error. | Existing IPC and read-only SQLite fallback remain in use. |
-| One catalog harness fails discovery | Keep its HarnessModels error in the catalog response beside successful results from other harnesses. | The user can configure roles whose catalogs are available. |
+| Stale session after server restart | Return HTTP 403; page shows the reload/restart message. | The user opens the new token URL if reload does not restore the session. |
+| Invalid port or listen failure | Print the error and exit with code 1. | The command does not claim that a server is available. |
+| Malformed or oversized setup body | Return HTTP 400 and do not write config. | The user can correct or retry the request. |
+| Invalid setup config JSON | Return code 14 and do not write. | Existing invalid config remains available for repair. |
+| Setup config read error | Return code 15 and do not write. | The user sees the original read error. |
+| Changed binding validation fails | Return HTTP 422 with the existing validation code and saved=false. | The page can identify the changed binding that failed. |
+| Config save fails | Return HTTP 500 with saved=false and the existing save error. | The server does not report that the proposal was saved. |
+| Catalog discovery is incomplete or errors | Return getBatchModels fallback and discoveryError, without partial network results. | The page shows the actual cache or unavailable state. |
+| Usage query fails | Return HTTP 500 with JSON error; preserve the last successful page result. | A later poll or filter change can recover. |
 
-## Risks & Concerns
+## Risks & concerns
 
 | Concern | Location (file:line) | Impact | Mitigation |
 | --- | --- | --- | --- |
-| The review command currently combines server lifecycle, routing, port parsing, and browser opening. | src/cli/commands/review.ts:7-135 | A careless extraction can change the existing review URL or command behavior. | Keep review route tests and command tests in the same task that rewires the command. |
-| Setup selection and persistence currently live inside a long wizard function. | src/cli/commands/setup.ts:625-801 | Duplicated web planning could drift in merge, profile, or save behavior. | Extract a pure planner, reuse it from the wizard, and cover it with unit tests. |
-| The current review server has no Host, token, or Origin checks. | src/cli/commands/review.ts:49-87, :110-124 | Adding action endpoints without a shared guard could expose config writes to forged browser requests. | Guard all routes at the shared server before route dispatch; protect POST routes with token and Origin. |
-| Model discovery may take seconds and writes a model cache. | src/cli/commands/setup.ts:634-648; src/core/models.ts:151-190 | A refresh can look frozen or be triggered more than once. | Show a visible discovering state and coalesce concurrent refreshes. |
-| Usage origin data is not present at the current HEAD. | src/daemon/protocol.ts:199-211 | P5 will not compile or can hide current usage data if it assumes the pending field. | Sequence P5 after feat/orchestrator-usage merges and render byOrigin conditionally. |
-| There are no browser handler tests in the current test set. | tests/review.test.ts, tests/setup-cli-contract.test.ts, tests/usage-query.test.ts | New routes could diverge from CLI behavior without coverage. | Add scoped HTTP integration tests for setup and usage handlers and page tests for HTML behavior. |
+| The review command combines server lifecycle, routing, port parsing, and browser opening. | src/cli/commands/review.ts:7-135 | A careless extraction can change the current review behavior. | Keep review route and command tests in the rewiring task. |
+| Setup selection and persistence live in a long wizard command. | src/cli/commands/setup.ts:625-801 | Duplicated planning could change profiles, skips, or config merge behavior. | Extract one pure planner and test it against current setup behavior. |
+| loadConfig swallows read and parse errors. | src/config/config.ts:531-540 | Web apply could treat invalid config as defaults and overwrite it. | Use readConfigForSetup and test codes 14 and 15 before any write. |
+| The current review handler calls process.exit during shutdown. | src/cli/commands/review.ts:128-131 | Signal handling is hard to assert and can terminate a test runner. | Inject close and exit functions into the shared server. |
+| Model discovery can return incomplete results after network errors. | src/core/models.ts:329-389 | A UI that displays partial provider data would imply a complete catalog. | Use getBatchModels only and render its fallback plus discoveryError. |
+| The post-merge usage type requires byOrigin, but an older daemon can answer IPC without the field. | src/daemon/protocol.ts:220; feat/orchestrator-usage | Direct access can crash page rendering against that daemon. | Keep the type required and use a runtime fallback in the page. |
+| Page behavior currently has no DOM test dependency. | tests/review.test.ts, tests/setup-wizard.test.ts | Static markup checks cannot prove polling or state transitions. | Test exported pure page functions with fake fetch and timers in Node. |
 
-## Tech Decisions
+## Tech decisions
 
 | Decision | Choice | Rationale |
 | --- | --- | --- |
-| Home page command | codedeck ui | The home page gets a clear entry while codedeck review keeps its root route. |
-| Root routing | Route table has a command-specific root page. | codedeck review can keep / and /review as review pages while codedeck ui uses / for home. |
-| Token transport | HttpOnly host-only cookie with SameSite=Strict and Path=/. | Same-origin browser fetch sends it without exposing the token to page JavaScript. |
-| Action methods | Use POST for catalog refresh, dry-run, and apply. | Refresh can write the model cache; every action therefore receives the same token and Origin checks. |
-| Setup refresh state | The page displays “Discovering models...” while its refresh request is pending. | This uses a normal request and avoids a separate discovery job lifecycle. |
-| Usage refresh | Poll the current query every 2 seconds by default. | It matches the existing CLI watch default and replaces the need for --watch in a browser. |
-| Usage route dependency | Inject fetchUsageQuery into the web handler. | The same query and fallback logic serve the CLI and browser without a module cycle. |
-| Setup --refresh flag | Open /setup and start a protected refresh when the page loads. | This preserves the existing refresh option when setup becomes browser-first. |
-| --watch with --web | The browser refreshes itself; --interval changes its timer and --watch does not select terminal rendering. | The user gets a live browser view without the terminal watch loop. |
+| Home command | codedeck ui | It gives the route table a dedicated entry and keeps review at its current root. |
+| Home links | Build from registered page routes. | P1 must not advertise a page that is not registered until its phase is complete. |
+| Shared port | Default 3100; user values 1 through 65535; test seam may bind port 0. | This preserves review behavior while allowing ephemeral integration-test ports. |
+| Bound port | Read server.address().port after listen, then create security with that value. | Host checks and cookie names must use the actual bound port. |
+| Shutdown | Inject close and exit functions; close before exit. | Signal tests can assert both operations without terminating Vitest. |
+| Token | 32 cryptographically random bytes, sent only in the initial URL query. | The page does not need to embed the token in HTML or JavaScript. |
+| Token cookie | codedeck_ui_token_<port>, host-only, HttpOnly, SameSite=Strict, Path=/. | Cookie storage does not isolate by port, so each server port gets a distinct name. |
+| Token bootstrap | On valid token HTML GET, set the cookie and return HTTP 303 to the same route without t. | This removes the token from the visible URL after establishing the session. |
+| Action security | Host-check every route; require cookie and matching HTTP Origin on every POST. | Read routes remain locally constrained and all mutating routes share one rule. |
+| HTML framing | Add Content-Security-Policy: frame-ancestors 'none' to every HTML response. | Local pages should not be embedded by another origin. |
+| Catalog source | Use getBatchModels for both GET and refresh. | One helper defines cache, discovery timeout, incomplete-result, and fallback behavior. |
+| Planner boundary | Accept RunAgentConfig and selections; return proposed config and diff only. | Validation depends on the selected catalog and belongs in separate callers. |
+| Validation | Web validates changed harness/model pairs only; batch validates winning --bind entries; wizard adds no catalog validation. | This keeps unchanged off-catalog config and existing wizard behavior intact. |
+| Page tests | Export behavior functions from the page module and inject their source into HTML. | Vitest can test actual state logic under Node without a DOM package. |
+| Usage query params | Extract buildUsageQueryParams into src/core/usage-query.ts and call it from CLI and web. | A pure shared function makes filter mapping and parity testable. |
+| Usage origin | Require byOrigin in the post-merge type; handle a missing runtime field from an older daemon. | Compile-time post-merge contracts and runtime daemon compatibility both remain explicit. |
+| Aggregate usage --json | With --web, open /usage and print the token URL; retain JSON for aggregate calls without --web and for single-run calls. | The web option selects the aggregate interface while run-id callers retain their exact JSON path. |
+| Usage --by | Use --by as the initially highlighted breakdown and keep all sections accessible. | The browser can show other metrics without discarding the CLI preference. |
+| Usage polling | Use Math.max(1, Number(opts.interval) || 2); --watch does not select terminal output with --web. | This retains the current CLI normalization and default string behavior. |
+| Setup --refresh | Open /setup and start a protected catalog refresh on page load. | It retains the existing flag without adding a discovery job API. |
+| Setup --json with --port | Reject before starting a web server. | --json selects the batch interface and --port selects the web interface. |
+| Setup request size | Limit JSON bodies to 64 KiB. | The complete role selection is bounded and parseable before planning. |
+| Setup HTTP status | Use 400 for malformed input, 422 for validation failures, and 500 for save failures. | Browser callers receive stable transport statuses while resultado.code retains CLI codes. |
 
-## Phase Dependencies
+## Phase dependencies
 
 | Phase | Scope | Depends on |
 | --- | --- | --- |
 | P1 | Shared server, review compatibility, home page, and codedeck ui | None |
-| P2 | Host, token, and Origin enforcement | P1 |
+| P2 | Host, token, Origin, CSP, and server guard | P1 |
 | P3 | Pure setup planner and wizard reuse | P2 |
-| P4 | Setup page, handlers, and command wiring | P3 |
-| P5 | Usage page and handlers | P4 and merge of feat/orchestrator-usage |
+| P4 | Setup page, routes, command wiring, and README update | P3 |
+| P5 | Usage page, routes, command wiring, and query parity | P4 and merge of feat/orchestrator-usage into implementation HEAD |
 
-The required CodeDeck command and page behavior is specified in spec.md. These artifacts stop at planning; implementation and implementation-time verifier reports are outside this docs-only task.
+These artifacts stop at planning. They do not authorize source, test, plugin, or README changes during this documentation correction.
