@@ -17,8 +17,8 @@ Setup and usage analytics currently require the terminal, while review already s
 
 - Review owns its Node HTTP server, port parser, browser opener, and request handler in src/cli/commands/review.ts:1-135. It defaults to port 3100, accepts --port and --no-open, binds to 127.0.0.1, serves the same review page at GET / and GET /review, and serves read-only GET /api/review. Existing tests are in tests/review.test.ts:193-230 and tests/review-command.test.ts:5-27.
 - src/web/review-page.ts:8-662 exports one self-contained HTML string with inline CSS and JavaScript.
-- Usage option parsing and CLI branches are in src/cli/commands/usage.ts:13-30 and :79-214. fetchUsageQuery at :37-77 uses daemon IPC usage.query and falls back to read-only SQLite. The positional run-id path calls usage.get at :103-125.
-- At this worktree HEAD, src/daemon/protocol.ts:199-211 has totals and byDay, byRepository, byModel, byAgent, and byRun. The feat/orchestrator-usage change adds required byOrigin to UsageQueryResult, --backfill, --observe, and --by origin. The web implementation must be based on a HEAD that contains that change. An older daemon reached over IPC may still return a result without byOrigin at runtime, so the page handles that field defensively.
+- Usage option parsing and CLI branches are in src/cli/commands/usage.ts:108-130 and :131-261. fetchUsageQuery at :65-105 uses daemon IPC usage.query and falls back to read-only SQLite. The positional run-id path calls usage.get at :144-173.
+- src/daemon/protocol.ts:208-221 defines UsageQueryResult with byOrigin. Usage origin support, --backfill, --observe, and --by origin are already in main as squash commit 80ec486 (#103), so P5 has no pending branch dependency. An older daemon process reached over IPC may omit byOrigin, and the page handles that runtime case with an empty origin breakdown.
 - The setup command and wizard are in src/cli/commands/setup.ts:625-801 and :1560-1626. A non-batch invocation without both stdin and stdout TTYs exits with code 1 and prints “setup needs a terminal on both stdin and stdout”; it starts no discovery and writes no config. The behavior is covered by tests/setup-cli-contract.test.ts:315-334 and tests/setup-wizard.test.ts:1220-1243.
 - The setup wizard allows typed harness:model values through src/cli/picker-state.ts:113-141 and keeps configured models that are absent from the catalog in src/cli/commands/setup.ts:499-518. It also preserves a role's binding and effort when their screens are skipped; first-run skips produce an empty agents object sentinel. Tests are in tests/setup-wizard.test.ts:579-592, :757-764, and :1179-1183.
 - The setup command resolves explicit and active profiles in src/cli/commands/setup.ts:831-853. An active profile that does not exist raises SetupUsageError. An explicit profile without a saved snapshot starts from profile defaults with agents: {}.
@@ -66,11 +66,12 @@ Setup and usage analytics currently require the terminal, while review already s
 | Usage interval | Use a floor of 1 second and a numeric-conversion fallback of 2 seconds for web polling. | Commander supplies the default string "2", so the implementation cannot distinguish an omitted option from explicit --interval 2. | No |
 | Aggregate usage --web --json | Start the browser page and print the token URL; --json affects aggregate output only when --web is absent. | The browser is the selected aggregate interface, while the positional run-id JSON contract remains unchanged. | No |
 | Catalog refresh method | Use protected POST /api/setup/catalog/refresh with refresh:true, allowNetwork:true, and timeoutMs:12000. | Discovery may update the model cache, so it uses the guarded action path and the helper's current timeout. | No |
+| Web apply catalog validation | Validate changed harness:model bindings against the cached catalog with getBatchModels({allowNetwork:false}); reject an off-catalog model with HTTP 422 unless the request includes explicit confirmation for that role. | This keeps apply offline and mirrors the wizard's second-Enter confirmation for typed models absent from its catalog. | Yes |
 | Page behavior tests | Put state, rendering decisions, and polling transitions in TypeScript functions exported from each page module, then inject their source into its HTML string. | Node tests can exercise the same functions without installing a DOM implementation. | No |
-| Post-merge usage result | Use the merged required byOrigin type, with a runtime fallback when an older daemon omits the field. | The feature branch adds byOrigin to the type; IPC can still reach an older daemon process. | Yes |
+| Usage origin dependency | Use the required byOrigin type already present in main at 80ec486 (#103); tolerate an absent field only when an older daemon process answers over IPC. | The implementation branch has the usage changes already, while an older running daemon can still use the earlier protocol shape. | Yes |
 | Usage query failure | Return HTTP 500 with a JSON error, show the error in the page, and retain the last successful result. | A later poll can recover without removing the visible result. | No |
 | Usage run ID with --web | When --backfill is absent, preserve the usage.get single-run branch, including --observe and --json, and start no web server when a positional ID or --run is present; --by origin remains aggregate-only. | The branch is used by the statusline and is evaluated before aggregate web startup. | No |
-| Usage --backfill with --web | Run the existing backfill branch and start no web server. | The post-merge CLI checks --backfill before single-run and aggregate handling. | No |
+| Usage --backfill with --web | Run the existing backfill branch and start no web server. | The CLI checks --backfill before single-run and aggregate handling. | No |
 | --watch with --web | The browser polls; --watch does not select terminal rendering. The normalized --interval value controls browser polling. | The web page replaces terminal watch output for this invocation. | No |
 | Active profile missing | Surface the existing SetupUsageError and do not silently switch to a global target. | This preserves resolveSetupTarget behavior. | No |
 
@@ -135,11 +136,10 @@ Setup and usage analytics currently require the terminal, while review already s
 5. WHEN the selection contains an orchestrator mode THEN the planner SHALL put its parameter values in the proposed config without persisting a preset label. WEB-16
 6. WHEN the selection contains a sandbox value THEN the planner SHALL set defaultSandbox to workspace-write or danger-full-access as selected. WEB-17
 7. WHEN the selection turns autocompact on THEN the planner SHALL set autocompact.enabled to true and preserve other autocompact fields. WEB-18
-8. WHEN a setup response is assembled THEN it SHALL expose the exact top-level fields proposta, validacoes, mudancas, and resultado from SetupEnvelope. WEB-20
-9. WHEN setup receives an explicit --profile target THEN the planner SHALL update only that profile snapshot. WEB-19
-10. WHEN setup has no explicit --profile and an existing active profile THEN the planner SHALL use the resolved active profile snapshot. WEB-62
-11. WHEN the terminal wizard completes selections THEN it SHALL use the shared planner without adding catalog validation to the wizard path. WEB-22
-12. WHEN the selection turns autocompact off THEN the planner SHALL set enabled to false if the target config has an autocompact block and SHALL preserve the absent block otherwise. WEB-61
+8. WHEN setup receives an explicit --profile target THEN the planner SHALL update only that profile snapshot. WEB-19
+9. WHEN setup has no explicit --profile and an existing active profile THEN the planner SHALL use the resolved active profile snapshot. WEB-62
+10. WHEN the terminal wizard completes selections THEN it SHALL use the shared planner without adding catalog validation to the wizard path. WEB-22
+11. WHEN the selection turns autocompact off THEN the planner SHALL set enabled to false if the target config has an autocompact block and SHALL preserve the absent block otherwise. WEB-61
 **Independent Test**: Call the planner with global and profile RunAgentConfig values. Assert exact proposal and diff paths for each field, skipped role behavior, and absence of file, network, and catalog-validation calls. Run the existing setup wizard and CLI contract tests unchanged.
 
 ### P4: Browser setup
@@ -160,7 +160,7 @@ Setup and usage analytics currently require the terminal, while review already s
 7. WHEN the browser posts selections to /api/setup/dry-run THEN the handler SHALL return a JSON object with exact top-level fields proposta, validacoes, mudancas, and resultado. WEB-27
 8. WHEN the browser posts selections to /api/setup/dry-run THEN the handler SHALL leave the config file unchanged. WEB-28
 9. IF the proposal has a non-empty diff and all changed bindings validate THEN apply SHALL save it and return resultado.status=applied with saved=true. WEB-29
-10. IF the proposal diff is empty THEN apply SHALL return resultado.status=unchanged with saved=false and SHALL skip the config write. WEB-30
+10. IF the setup selection omits orchestrator and all other values match the resolved target THEN the planner SHALL preserve the target's orchestrator value or its absence and apply SHALL return resultado.status=unchanged with saved=false without writing config. WEB-30
 11. IF a setup POST body is malformed, larger than 64 KiB, or has an invalid shape THEN the handler SHALL return HTTP 400 without saving config. WEB-31
 12. IF changed binding validation fails THEN the handler SHALL return HTTP 422, include the existing validation code in resultado.code, and set saved=false. WEB-32
 13. IF saving the config fails THEN the handler SHALL return HTTP 500 with saved=false and the config error message. WEB-33
@@ -172,7 +172,7 @@ Setup and usage analytics currently require the terminal, while review already s
 19. WHEN the setup page is rendered THEN it SHALL offer harness and model choices for every role in ROLES. WEB-37
 20. WHEN the user enters harness:model text absent from the displayed catalog THEN the page SHALL allow that value in the selection and dry-run proposal. WEB-64
 21. IF an existing binding's harness and model are unchanged from the resolved target THEN web apply SHALL preserve it without catalog validation, even when it is off-catalog. WEB-85
-22. WHEN a binding's harness or model differs from the resolved target THEN web apply SHALL validate that binding and SHALL NOT validate bindings changed only by effort. WEB-21
+22. WHEN a binding's harness or model differs from the resolved target THEN web apply SHALL validate that binding against getBatchModels with allowNetwork:false and SHALL NOT validate bindings changed only by effort. WEB-21
 23. WHEN a role is skipped THEN setup SHALL keep its target binding unchanged or leave it unset when no binding exists. WEB-65
 24. WHEN all first-run role screens are skipped and no bindings exist THEN apply SHALL write the empty agents object sentinel. WEB-66
 25. WHEN the user skips an effort screen for an unchanged harness and model THEN the page logic SHALL preserve that binding's current effort. WEB-67
@@ -183,16 +183,24 @@ Setup and usage analytics currently require the terminal, while review already s
 30. WHEN the setup page is rendered THEN it SHALL offer autocompact on and off. WEB-41
 31. WHEN setup starts with --profile <name> THEN the state response SHALL identify that profile and apply its proposal only to that profile. WEB-42
 32. IF model discovery is incomplete or any requested harness returns an error THEN the refresh response SHALL return getBatchModels cache fallback and discoveryError without partial network results. WEB-59
-33. IF codedeck setup runs without batch flags and either stdin or stdout is not a TTY THEN it SHALL exit with code 1, print “setup needs a terminal on both stdin and stdout”, and start no server. WEB-69
+33. IF codedeck setup runs without batch flags and either stdin or stdout is not a TTY THEN it SHALL exit with code 1, print `${getCliName()} setup needs a terminal on both stdin and stdout.`, and start no server. WEB-69
 34. IF codedeck setup receives both --json and --port THEN it SHALL report a setup usage error and start no server. WEB-70
 35. WHEN setup guidance is updated THEN README.md lines 154 and 186 SHALL describe browser setup as the default, --tui as the picker entry, and --refresh as the catalog refresh option. WEB-82
-**Independent Test**: Request setup state and catalog, refresh, submit dry-run and apply, and assert exact envelope fields and writes. Cover changed and unchanged off-catalog bindings, profile targets, all role and effort skips, typed models, custom numeric parallelism, invalid config codes, and non-TTY command behavior.
+36. IF a changed binding's model is absent from the cached catalog THEN web apply SHALL return HTTP 422 with saved=false unless the request includes offCatalogConfirmed[role]=true for that binding's role. WEB-88
+37. IF a changed binding's model is absent from the cached catalog and the request includes offCatalogConfirmed[role]=true THEN web apply SHALL save that binding and return resultado.status=applied with saved=true. WEB-89
+38. IF catalog refresh returns status=unavailable THEN setup page logic SHALL retain the previously loaded catalog and show the response's discoveryError. WEB-90
+39. IF dry-run encounters invalid config JSON or a config read error THEN the handler SHALL return an error SetupEnvelope with resultado.code=14 for invalid JSON or 15 for a read error, and saved=false. WEB-91
+40. IF GET /api/setup/state encounters invalid config JSON or a config read error THEN the handler SHALL return a JSON error with code=14 for invalid JSON or code=15 for a read error. WEB-92
+41. IF apply cannot resolve the active profile because its saved snapshot is missing THEN it SHALL return resultado.code=14 with saved=false and SHALL NOT write config. WEB-93
+42. IF codedeck setup receives --port with --dry-run or --non-interactive THEN it SHALL report a setup usage error and start no server. WEB-94
+43. WHEN a setup response is assembled THEN it SHALL expose the exact top-level fields proposta, validacoes, mudancas, and resultado from SetupEnvelope. WEB-20
+**Independent Test**: Request setup state and catalog, refresh, submit dry-run and apply, and assert exact envelope fields and writes. Cover off-catalog apply with and without per-role confirmation, refresh failure with a previously loaded catalog, profile targets, all role and effort skips, typed models, custom numeric parallelism, invalid config and read-error codes on state and dry-run, missing active-profile apply, and conflicting port flags.
 
 ### P5: Browser usage analytics
 
 **User Story**: As a user reviewing agent costs, I want a browser dashboard with the CLI filters and available breakdowns so that I can inspect usage without the terminal.
 
-**Why P5**: The usage web must build on the merged orchestrator-usage contracts and retain compatibility with older daemons.
+**Why P5**: Usage origin support is already in main at 80ec486 (#103); the page must retain compatibility with an older running daemon.
 
 **Acceptance Criteria**:
 
@@ -205,18 +213,19 @@ Setup and usage analytics currently require the terminal, while review already s
 6. WHEN a usage query succeeds THEN the page logic SHALL expose byModel buckets for rendering. WEB-48
 7. WHEN a usage query succeeds THEN the page logic SHALL expose byAgent buckets for rendering. WEB-49
 8. WHEN a usage query succeeds THEN the page logic SHALL expose byRun buckets for rendering. WEB-50
-9. WHEN a post-merge result contains byOrigin THEN the page logic SHALL expose its buckets for rendering. WEB-51
-10. IF a result returned by an older daemon has no byOrigin field THEN the page logic SHALL render the other breakdowns without an error. WEB-52
+9. WHEN a usage result contains byOrigin THEN the page logic SHALL expose its buckets for rendering. WEB-51
+10. IF a result from an older running daemon over IPC has no byOrigin field THEN the page logic SHALL render the other breakdowns without an error. WEB-52
 11. WHILE the usage page is open THEN its state logic SHALL poll the active query using the normalized interval value. WEB-53
 12. WHEN codedeck usage runs with --web and no run ID THEN it SHALL open /usage with aggregate filters and the selected --by breakdown. WEB-54
-13. WHEN codedeck usage runs without --web THEN it SHALL preserve the snapshot, TUI, watch, plain, JSON, --by origin, --observe, and --backfill contracts from the CLI and feat/orchestrator-usage. WEB-55
+13. WHEN codedeck usage runs without --web THEN it SHALL preserve the snapshot, TUI, watch, plain, JSON, --by origin, --observe, and --backfill contracts from the CLI. WEB-55
 14. IF --backfill is absent and codedeck usage receives a positional run ID or --run THEN it SHALL call usage.get, preserve valid --observe data and --json output, ignore aggregate-only --by origin, and start no web server even if --web is present. WEB-56
 15. IF codedeck usage receives --backfill together with --web THEN it SHALL run backfill and start no web server. WEB-83
 16. WHEN usage web polling normalizes --interval with Math.max(1, Number(opts.interval) || 2) THEN zero and non-numeric values SHALL resolve to 2 seconds and negative or positive values below 1 SHALL resolve to 1 second. WEB-81
 17. WHEN a usage page filter for period, repo, model, agent, since, or until changes THEN the page logic SHALL issue a new query with the updated filters. WEB-78
 18. IF a usage query fails after a successful result THEN the page logic SHALL show the error and retain the last successful result. WEB-60
 19. WHEN codedeck usage receives --by origin THEN the page logic SHALL select origin as the initial breakdown while leaving all available sections reachable. WEB-80
-**Independent Test**: Use fixed options, cwd, and time to assert CLI and web query parameter parity. Test the page logic directly in Node for filters, polling, query errors, and results with and without byOrigin. Test CLI runs with --web, --by origin, --backfill, --observe, --json, and a single-run ID without starting an unintended server.
+20. IF codedeck usage receives --web and --tui THEN it SHALL report a usage error and start no web server. WEB-95
+**Independent Test**: Use fixed options, cwd, and time to assert CLI and /api/usage query parameter equality. Test the page logic directly in Node for filters, polling, query errors, and results with and without byOrigin. Test CLI runs with --web, --web --tui, --by origin, --backfill, --observe, --json, and a single-run ID without starting an unintended server.
 
 ## Edge Cases
 
@@ -255,7 +264,7 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-17 | P3: Shared setup planning | P3 | In Tasks | T8 |
 | WEB-18 | P3: Shared setup planning | P3 | In Tasks | T8 |
 | WEB-19 | P3: Shared setup planning | P3 | In Tasks | T8 |
-| WEB-20 | P3: Shared setup planning | P3 | In Tasks | T11 |
+| WEB-20 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-21 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-22 | P3: Shared setup planning | P3 | In Tasks | T9 |
 | WEB-23 | P4: Browser setup | P4 | In Tasks | T10 |
@@ -265,7 +274,7 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-27 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-28 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-29 | P4: Browser setup | P4 | In Tasks | T11 |
-| WEB-30 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-30 | P4: Browser setup | P4 | In Tasks | T8, T11 |
 | WEB-31 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-32 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-33 | P4: Browser setup | P4 | In Tasks | T11 |
@@ -307,7 +316,7 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-70 | P4: Browser setup | P4 | In Tasks | T12 |
 | WEB-71 | P2: Local request security | P2 | In Tasks | T6, T7 |
 | WEB-72 | P2: Local request security | P2 | In Tasks | T6, T7 |
-| WEB-73 | P2: Local request security | P2 | In Tasks | T7, T10 |
+| WEB-73 | P2: Local request security | P2 | In Tasks | T10 |
 | WEB-74 | P2: Local request security | P2 | In Tasks | T6, T7 |
 | WEB-75 | P1: Shared local server and home page | P1 | In Tasks | T1, T7 |
 | WEB-76 | P4: Browser setup | P4 | In Tasks | T11 |
@@ -321,8 +330,16 @@ Each acceptance criterion has one requirement ID and maps to the task that imple
 | WEB-85 | P4: Browser setup | P4 | In Tasks | T11 |
 | WEB-86 | P3: Shared setup planning | P3 | In Tasks | T8 |
 | WEB-87 | P3: Shared setup planning | P3 | In Tasks | T8 |
+| WEB-88 | P4: Browser setup | P4 | In Tasks | T10, T11 |
+| WEB-89 | P4: Browser setup | P4 | In Tasks | T10, T11 |
+| WEB-90 | P4: Browser setup | P4 | In Tasks | T10, T11 |
+| WEB-91 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-92 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-93 | P4: Browser setup | P4 | In Tasks | T11 |
+| WEB-94 | P4: Browser setup | P4 | In Tasks | T12 |
+| WEB-95 | P5: Browser usage analytics | P5 | In Tasks | T17 |
 
-**Coverage**: 85 total requirements, 85 mapped to tasks, 0 unmapped.
+**Coverage**: 93 total requirements, 93 mapped to tasks, 0 unmapped.
 ## External Dependencies
 
 None. The feature adds no external-system integration; catalog access reuses the repository's existing model-discovery code.
@@ -335,4 +352,4 @@ None. The feature adds no external-system integration; catalog access reuses the
 - [ ] Setup state pre-fills the resolved profile or global target, and dry-run never writes config.
 - [ ] Web apply validates only changed harness:model bindings and saves no invalid proposal.
 - [ ] Existing setup wizard, setup CLI contract, review, usage CLI, JSON, and statusline tests pass unchanged.
-- [ ] After the orchestrator-usage commit is an ancestor of implementation HEAD, usage query params match between CLI and web and page logic passes Node tests without a DOM dependency.
+- [ ] Usage query params match between CLI and /api/usage for equal inputs, and page logic passes Node tests without a DOM dependency.
