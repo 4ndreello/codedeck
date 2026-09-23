@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -22,6 +22,7 @@ import { registerProfileCommand } from "./commands/profile.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerReviewCommand } from "./commands/review.js";
+import { registerUiCommand } from "./commands/ui.js";
 import { getCliInvocation, getCliName } from "./cli-name.js";
 
 function getVersion(): string {
@@ -34,21 +35,22 @@ function getVersion(): string {
   }
 }
 
-const program = new Command();
+export function createCliProgram(): Command {
+  const program = new Command();
 
-// CODEDECK_CLI_NAME renames the tool (for example a `codedeck-dev`
-// alias), so the help below shows that name instead of `npx codedeck`.
-const cliName = getCliName();
-const cli = getCliInvocation();
+  // CODEDECK_CLI_NAME renames the tool (for example a `codedeck-dev`
+  // alias), so the help below shows that name instead of `npx codedeck`.
+  const cliName = getCliName();
+  const cli = getCliInvocation();
 
-program
-  .name(cliName)
-  .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
-  .version(getVersion())
-  .helpOption("-h, --help", "display help for command")
-  .showHelpAfterError("(add --help for details)")
-  .showSuggestionAfterError(true)
-  .addHelpText("after", `
+  program
+    .name(cliName)
+    .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
+    .version(getVersion())
+    .helpOption("-h, --help", "display help for command")
+    .showHelpAfterError("(add --help for details)")
+    .showSuggestionAfterError(true)
+    .addHelpText("after", `
 Examples:
   $ ${cli} run "implement authentication" --agent claude --worktree
   $ ${cli} run "fix the tests" --agent codex --bg
@@ -78,29 +80,44 @@ Run '${cli} <command> --help' for command-specific options.
 Docs: https://github.com/4ndreello/run-agent
 `);
 
-registerRunCommand(program);
-registerPsCommand(program);
-registerClaimsCommand(program);
-registerShowCommand(program);
-registerRenameCommand(program);
-registerLogsCommand(program);
-registerWaitCommand(program);
-registerSendCommand(program);
-registerStopCommand(program);
-registerDoneCommand(program);
-registerDiffCommand(program);
-registerDoctorCommand(program);
-registerModelsCommand(program);
-registerOpenCommand(program);
-registerProfileCommand(program);
-registerSetupCommand(program);
-registerUsageCommand(program);
-registerReviewCommand(program);
+  registerRunCommand(program);
+  registerPsCommand(program);
+  registerClaimsCommand(program);
+  registerShowCommand(program);
+  registerRenameCommand(program);
+  registerLogsCommand(program);
+  registerWaitCommand(program);
+  registerSendCommand(program);
+  registerStopCommand(program);
+  registerDoneCommand(program);
+  registerDiffCommand(program);
+  registerDoctorCommand(program);
+  registerModelsCommand(program);
+  registerOpenCommand(program);
+  registerProfileCommand(program);
+  registerSetupCommand(program);
+  registerUsageCommand(program);
+  registerReviewCommand(program);
+  registerUiCommand(program);
 
-// Make `codedeck help` behave like `codedeck --help`
-program.command("help", { hidden: true }).action(() => program.outputHelp());
+  // Make `codedeck help` behave like `codedeck --help`.
+  program.command("help", { hidden: true }).action(() => program.outputHelp());
+  return program;
+}
 
-program.parseAsync(process.argv).catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+function isCliEntryPoint(): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) return false;
+  try {
+    return realpathSync(entryPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return path.resolve(entryPath) === path.resolve(fileURLToPath(import.meta.url));
+  }
+}
+
+if (isCliEntryPoint()) {
+  createCliProgram().parseAsync(process.argv).catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

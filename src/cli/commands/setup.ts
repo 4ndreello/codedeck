@@ -20,15 +20,24 @@ import { getRegistry } from "../../drivers/registry.js";
 import { ROLES, type Role } from "../../core/roles.js";
 import { getPaths } from "../../config/paths.js";
 import {
+  buildSetupPlan,
+  diffConfig,
+  resolveSetupTarget,
+  SetupUsageError,
+  validateBindings,
+  type BindingValidation,
+  type JsonValue,
+  type SetupBinding,
+  type SetupEnvelope,
+  type SetupSelection,
+} from "../../config/setup.js";
+import {
   BALANCED_PRESET,
-  baseConfig,
   DISPATCHER_PRESET,
   EXPLORER_PRESET,
-  getProfileSnapshot,
   ORCHESTRATOR_PRESETS,
   createSetupConfigStore,
   DEFAULT_CONFIG,
-  extractProfileSnapshot,
   isOrchestratorMode,
   loadConfig,
   orchestratorModeLabel,
@@ -46,6 +55,11 @@ import {
   type RunAgentConfig,
   type SelfWorkMode,
 } from "../../config/config.js";
+import { SETUP_PAGE } from "../../web/setup-page.js";
+import { createSetupRoutes } from "../../web/setup-routes.js";
+import { DEFAULT_WEB_PORT, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
+export { diffConfig, SetupUsageError };
+export type { JsonValue, SetupEnvelope };
 
 const ORCHESTRATOR_SCREEN_ROLE = "orchestrator-mode";
 const ORCHESTRATOR_PICKER_GROUP = "orchestrator";
@@ -743,20 +757,20 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
     }
   }
 
-  const updatedConfig: RunAgentConfig = { ...config, agents };
-  if (orchestrator !== undefined) updatedConfig.orchestrator = orchestrator;
+  const selections: SetupSelection = { agents };
+  if (orchestrator !== undefined) selections.orchestrator = orchestrator;
   const sandboxSelection = answeredResults.find((result) => result.role === SANDBOX_SCREEN_ROLE);
   if (sandboxSelection?.kind === "picked") {
     if (sandboxSelection.id === SANDBOX_OFF || sandboxSelection.id === SANDBOX_ON) {
-      updatedConfig.defaultSandbox = sandboxSelection.id;
+      selections.sandbox = sandboxSelection.id;
     }
   }
   const autocompactSelection = answeredResults.find((result) => result.role === AUTOCOMPACT_SCREEN_ROLE);
   if (autocompactSelection?.kind === "picked") {
     if (autocompactSelection.id === AUTOCOMPACT_ON) {
-      updatedConfig.autocompact = { ...config.autocompact, enabled: true };
+      selections.autocompact = { enabled: true };
     } else if (autocompactSelection.id === AUTOCOMPACT_OFF && config.autocompact !== undefined) {
-      updatedConfig.autocompact = { ...config.autocompact, enabled: false };
+      selections.autocompact = { enabled: false };
     }
   }
 
@@ -770,13 +784,8 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
       agents[target] = { ...agents[target]!, effort: result.id as ReasoningEffort };
     }
   }
-  updatedConfig.agents = { ...agents };
-  const toSave: RunAgentConfig = profile === undefined
-    ? updatedConfig
-    : {
-        ...loaded,
-        profiles: { ...loaded.profiles, [profile]: extractProfileSnapshot(updatedConfig) },
-      };
+  const { proposedConfig: toSave } = buildSetupPlan(loaded, { profile, config }, selections);
+  const updatedConfig = profile === undefined ? toSave : resolveSetupTarget(toSave, profile).config;
   let saved = false;
   try {
     (options.save ?? saveConfig)(toSave);
@@ -801,56 +810,19 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   return updatedConfig;
 }
 
-export interface ParsedSetupBinding {
-  role: Role;
-  binding: RoleBinding;
-}
+export type ParsedSetupBinding = SetupBinding;
 
 export interface SetupCliOptions {
   refresh: boolean;
   nonInteractive: boolean;
   json: boolean;
   dryRun: boolean;
+  tui: boolean;
+  noOpen: boolean;
+  port?: string;
   binds: ParsedSetupBinding[];
   batch: boolean;
   profile?: string;
-}
-
-export class SetupUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SetupUsageError";
-  }
-}
-
-interface SetupTarget {
-  profile?: string;
-  config: RunAgentConfig;
-}
-
-function resolveSetupTarget(loaded: RunAgentConfig, explicitProfile?: string): SetupTarget {
-  const isExplicit = explicitProfile !== undefined;
-  const profile = isExplicit
-    ? parseProfileName(explicitProfile)
-    : loaded.activeProfile === undefined || loaded.activeProfile.trim() === ""
-      ? undefined
-      : parseProfileName(loaded.activeProfile);
-  const snapshot = profile === undefined ? undefined : getProfileSnapshot(loaded, profile);
-
-  if (!isExplicit && profile !== undefined && snapshot === undefined) {
-    throw new SetupUsageError(
-      `Active profile "${profile}" does not exist. Choose an existing profile with "codedeck profile use <name>" or pass --profile <name>.`,
-    );
-  }
-
-  return {
-    ...(profile === undefined ? {} : { profile }),
-    config: profile === undefined
-      ? loaded
-      : snapshot === undefined
-        ? { ...baseConfig(loaded), agents: {} }
-        : { ...baseConfig(loaded), ...snapshot },
-  };
 }
 
 function invalidBindMessage(value: string): string {
@@ -909,12 +881,36 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
   let refresh = false;
   let nonInteractive = false;
   let dryRun = false;
+  let tui = false;
+  let noOpen = false;
+  let port: string | undefined;
   let profile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--refresh") {
       refresh = true;
+      continue;
+    }
+    if (arg === "--tui") {
+      tui = true;
+      continue;
+    }
+    if (arg === "--no-open") {
+      noOpen = true;
+      continue;
+    }
+    if (arg === "--port") {
+      const value = args[index + 1];
+      if (value === undefined || isSetupFlag(value)) {
+        return parseError('Option "--port" expects a port.', json);
+      }
+      port = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--port=")) {
+      port = arg.slice("--port=".length);
       continue;
     }
     if (arg === "--profile") {
@@ -975,6 +971,12 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
     return parseError(`Unexpected argument "${arg}".`, json);
   }
 
+  const batch = nonInteractive || json || dryRun || binds.length > 0;
+  if (tui && batch) return parseError('Option "--tui" cannot be used with batch setup flags.', json);
+  if (port !== undefined && (json || dryRun || nonInteractive)) {
+    return parseError('Option "--port" cannot be used with --json, --dry-run, or --non-interactive.', json);
+  }
+
   return {
     ok: true,
     options: {
@@ -982,56 +984,13 @@ export function parseSetupArgs(args: readonly string[]): SetupParseResult {
       nonInteractive,
       json,
       dryRun,
+      tui,
+      noOpen,
+      ...(port === undefined ? {} : { port }),
       binds,
-      batch: nonInteractive || json || dryRun || binds.length > 0,
+      batch,
       ...(profile === undefined ? {} : { profile }),
     },
-  };
-}
-
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-export interface SetupEnvelope {
-  proposta: RunAgentConfig | null;
-  validacoes: {
-    config: {
-      status: "not-run" | "ok" | "missing" | "invalid";
-      source: "none" | "canonical" | "legacy";
-      path: string;
-      message: string | null;
-    };
-    catalogo: {
-      status: "not-needed" | "fresh" | "offline" | "unavailable";
-      source: "none" | "cache" | "network" | "stale-cache";
-      ageMs: number | null;
-      message: string | null;
-    };
-    bindings: Array<{
-      role: Role;
-      harness: AgentId;
-      model: string;
-      status: "accepted" | "unknown-model" | "harness-unavailable" | "unverified";
-      message: string;
-    }>;
-  };
-  mudancas: Array<{
-    path: string;
-    beforePresent: boolean;
-    before: JsonValue;
-    afterPresent: boolean;
-    after: JsonValue;
-  }>;
-  resultado: {
-    status: "applied" | "dry-run" | "unchanged" | "aborted" | "error";
-    code: 0 | 1 | 2 | 10 | 11 | 12 | 13 | 14 | 15 | 130;
-    saved: boolean;
-    message: string;
   };
 }
 
@@ -1082,241 +1041,6 @@ function emptyEnvelope(message: string, code: SetupEnvelope["resultado"]["code"]
     mudancas: [],
     resultado: { status: "error", code, saved: false, message },
   };
-}
-
-function jsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function jsonValue(value: unknown): JsonValue {
-  if (value === undefined) return null;
-  if (Array.isArray(value)) return value.map(jsonValue);
-  if (jsonObject(value)) {
-    return Object.fromEntries(
-      Object.keys(value).sort((left, right) => left.localeCompare(right)).map((key) => [key, jsonValue(value[key])]),
-    ) as {
-      [key: string]: JsonValue;
-    };
-  }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
-    return value;
-  }
-  return null;
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(jsonValue(left)) === JSON.stringify(jsonValue(right));
-}
-
-function pointerPart(value: string): string {
-  return value.replaceAll("~", "~0").replaceAll("/", "~1");
-}
-
-function diffAt(
-  output: SetupEnvelope["mudancas"],
-  pathValue: string,
-  beforePresent: boolean,
-  before: unknown,
-  afterPresent: boolean,
-  after: unknown,
-  expandObjectChildren = false,
-): void {
-  const beforeObject = beforePresent && jsonObject(before) ? before : undefined;
-  const afterObject = afterPresent && jsonObject(after) ? after : undefined;
-  if (beforeObject !== undefined && afterObject !== undefined) {
-    const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
-    if (keys.length === 0) return;
-    for (const key of keys) {
-      diffAt(
-        output,
-        `${pathValue}/${pointerPart(key)}`,
-        Object.hasOwn(beforeObject, key),
-        beforeObject[key],
-        Object.hasOwn(afterObject, key),
-        afterObject[key],
-      );
-    }
-    return;
-  }
-  if (!beforePresent && afterObject !== undefined) {
-    if (expandObjectChildren) {
-      const keys = Object.keys(afterObject).sort((left, right) => left.localeCompare(right));
-      if (keys.length === 0) {
-        output.push({
-          path: pathValue,
-          beforePresent: false,
-          before: null,
-          afterPresent: true,
-          after: jsonValue(afterObject),
-        });
-        return;
-      }
-      for (const key of keys) {
-        const value = afterObject[key];
-        const childPath = `${pathValue}/${pointerPart(key)}`;
-        if (jsonObject(value)) {
-          output.push({
-            path: childPath,
-            beforePresent: false,
-            before: null,
-            afterPresent: true,
-            after: jsonValue(value),
-          });
-        } else {
-          diffAt(output, childPath, false, undefined, true, value);
-        }
-      }
-      return;
-    }
-    output.push({
-      path: pathValue,
-      beforePresent: false,
-      before: null,
-      afterPresent: true,
-      after: jsonValue(afterObject),
-    });
-    return;
-  }
-  if (beforeObject !== undefined && !afterPresent) {
-    if (expandObjectChildren) {
-      const keys = Object.keys(beforeObject).sort((left, right) => left.localeCompare(right));
-      if (keys.length === 0) {
-        output.push({
-          path: pathValue,
-          beforePresent: true,
-          before: jsonValue(beforeObject),
-          afterPresent: false,
-          after: null,
-        });
-        return;
-      }
-      for (const key of keys) {
-        const value = beforeObject[key];
-        const childPath = `${pathValue}/${pointerPart(key)}`;
-        if (jsonObject(value)) {
-          output.push({
-            path: childPath,
-            beforePresent: true,
-            before: jsonValue(value),
-            afterPresent: false,
-            after: null,
-          });
-        } else {
-          diffAt(output, childPath, true, value, false, undefined);
-        }
-      }
-      return;
-    }
-    output.push({
-      path: pathValue,
-      beforePresent: true,
-      before: jsonValue(beforeObject),
-      afterPresent: false,
-      after: null,
-    });
-    return;
-  }
-  if (beforePresent === afterPresent && (!beforePresent || jsonEqual(before, after))) return;
-  output.push({
-    path: pathValue,
-    beforePresent,
-    before: jsonValue(before),
-    afterPresent,
-    after: jsonValue(after),
-  });
-}
-
-export function diffConfig(before: RunAgentConfig, after: RunAgentConfig): SetupEnvelope["mudancas"] {
-  const output: SetupEnvelope["mudancas"] = [];
-  const beforeObject = jsonObject(before) ? before : {};
-  const afterObject = jsonObject(after) ? after : {};
-  const keys = [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].sort((left, right) => left.localeCompare(right));
-  for (const key of keys) {
-    diffAt(
-      output,
-      `/${pointerPart(key)}`,
-      Object.hasOwn(beforeObject, key),
-      beforeObject[key],
-      Object.hasOwn(afterObject, key),
-      afterObject[key],
-      true,
-    );
-  }
-  return output.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function catalogContains(catalog: HarnessModels, model: string): boolean {
-  return catalog.providers.some((provider) =>
-    provider.models.some(
-      (candidate) =>
-        candidate.id === model || (candidate.aliases !== undefined && candidate.aliases.some((alias) => alias === model)),
-    ),
-  );
-}
-
-type BindingValidation = SetupEnvelope["validacoes"]["bindings"][number];
-
-function validateBindings(
-  bindings: readonly ParsedSetupBinding[],
-  catalog: Awaited<ReturnType<typeof getBatchModels>>,
-): { entries: BindingValidation[]; code?: 11 | 12 | 13; message: string | null } {
-  const byAgent = new Map(catalog.models.map((item) => [item.agent, item]));
-  const entries: BindingValidation[] = bindings.map(({ role, binding }) => {
-    const found = byAgent.get(binding.harness);
-    if (found?.available === false) {
-      return {
-        role,
-        harness: binding.harness,
-        model: binding.model,
-        status: "harness-unavailable",
-        message: `Cannot apply binding for role "${role}": harness "${binding.harness}" is unavailable.`,
-      };
-    }
-    if (catalog.status === "unavailable" || found === undefined) {
-      return {
-        role,
-        harness: binding.harness,
-        model: binding.model,
-        status: "unverified",
-        message: `Cannot validate model "${binding.model}" for harness "${binding.harness}": catalog unavailable.`,
-      };
-    }
-    if (catalog.status === "offline" && !catalogContains(found, binding.model)) {
-      return {
-        role,
-        harness: binding.harness,
-        model: binding.model,
-        status: "unverified",
-        message: `Cannot validate model "${binding.model}" for harness "${binding.harness}": the catalog is stale. Re-run with --refresh.`,
-      };
-    }
-    if (!catalogContains(found, binding.model)) {
-      return {
-        role,
-        harness: binding.harness,
-        model: binding.model,
-        status: "unknown-model",
-        message: `Model "${binding.model}" is not in the ${binding.harness} catalog for role "${role}".`,
-      };
-    }
-    return { role, harness: binding.harness, model: binding.model, status: "accepted", message: "" };
-  });
-
-  const failed = entries.find((entry) => entry.status !== "accepted");
-  const code = failed === undefined
-    ? undefined
-    : failed.status === "harness-unavailable"
-      ? 11
-      : failed.status === "unknown-model"
-        ? 12
-        : 13;
-  let message: string | null = null;
-  if (catalog.status === "offline") {
-    message = failed?.status === "unverified" ? failed.message : "Catalog is stale; using offline cache.";
-  } else if (catalog.status === "unavailable") {
-    message = failed?.message ?? "Catalog unavailable.";
-  }
-  return { entries, code, message };
 }
 
 function catalogValidation(
@@ -1388,12 +1112,9 @@ export async function runSetupBatch(
   }
 
   const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
-  let profile: string | undefined;
-  let target: RunAgentConfig;
+  let target: ReturnType<typeof resolveSetupTarget>;
   try {
-    const resolved = resolveSetupTarget(current, options.profile);
-    profile = resolved.profile;
-    target = resolved.config;
+    target = resolveSetupTarget(current, options.profile);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     writeLine(stderr, message);
@@ -1402,23 +1123,19 @@ export async function runSetupBatch(
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
-  const existingAgents = jsonObject(target.agents) ? target.agents : {};
-  const updatedAgents = {
-    ...existingAgents,
-    ...Object.fromEntries(winning.map(({ role, binding }) => [role, binding])),
-  };
-  const proposed: RunAgentConfig = options.binds.length === 0
-    ? { ...current }
-    : profile === undefined
-      ? { ...current, agents: updatedAgents }
-      : {
-          ...current,
-          profiles: {
-            ...current.profiles,
-            [profile]: { ...extractProfileSnapshot(target), agents: updatedAgents },
-          },
-        };
-  const changes = diffConfig(current, proposed);
+  const profile = target.profile;
+  let proposed: RunAgentConfig;
+  let changes: SetupEnvelope["mudancas"];
+  if (winning.length === 0) {
+    proposed = { ...current };
+    changes = diffConfig(current, proposed);
+  } else {
+    const agents: Partial<Record<Role, RoleBinding>> = {};
+    for (const { role, binding } of winning) agents[role] = binding;
+    const plan = buildSetupPlan(current, target, { agents });
+    proposed = plan.proposedConfig;
+    changes = plan.diff;
+  }
 
   let catalog: Awaited<ReturnType<typeof getBatchModels>> | undefined;
   let bindingValidations: BindingValidation[] = [];
@@ -1534,12 +1251,17 @@ export interface SetupCommandDependencies extends SetupBatchDependencies {
   stdout?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
   isTTY?: boolean;
   wizardDiscoverModels?: ModelWizardOptions["discoverModels"];
+  runWizard?: typeof runModelSetupWizard;
   saveConfig?: (config: RunAgentConfig) => void;
+  startServer?: typeof startWebServer;
 }
 
 function commandTokens(opts: Record<string, unknown>, command: Command): string[] {
   const tokens: string[] = [];
   if (opts.refresh) tokens.push("--refresh");
+  if (opts.tui) tokens.push("--tui");
+  if (opts.open === false) tokens.push("--no-open");
+  if (typeof opts.port === "string") tokens.push("--port", opts.port);
   if (opts.nonInteractive) tokens.push("--non-interactive");
   if (opts.json) tokens.push("--json");
   if (opts.dryRun) tokens.push("--dry-run");
@@ -1555,6 +1277,24 @@ function commandTokens(opts: Record<string, unknown>, command: Command): string[
 export interface SetupActionResult {
   code: SetupEnvelope["resultado"]["code"];
   envelope?: SetupEnvelope;
+}
+
+function createSetupCommandRoutes(options: SetupCliOptions): WebRoute[] {
+  const routes = createSetupRoutes({ profile: options.profile });
+  if (!options.refresh) return routes;
+
+  return routes.map((route) => route.path === "/setup"
+    ? {
+        ...route,
+        handler: (_request, response) => {
+          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          response.end(SETUP_PAGE.replace(
+            "</body>",
+            "<script>globalThis.setupPageReady.then(() => globalThis.setupPage.refreshCatalog());</script>\n</body>",
+          ));
+        },
+      }
+    : route);
 }
 
 export async function executeSetupAction(
@@ -1579,19 +1319,42 @@ export async function executeSetupAction(
       writeError(message);
       return { code: 1 };
     }
+    if (parsed.options.tui) {
+      try {
+        await (dependencies.runWizard ?? runModelSetupWizard)({
+          registry: dependencies.registry,
+          input: dependencies.input,
+          output: dependencies.stdout,
+          refresh: parsed.options.refresh,
+          discoverModels: dependencies.wizardDiscoverModels,
+          save: dependencies.saveConfig,
+          isTTY: tty,
+          ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
+        });
+      } catch (error) {
+        writeError(error instanceof Error ? error.message : String(error));
+        return { code: 1 };
+      }
+      return { code: 0 };
+    }
+
+    let port: number;
     try {
-      await runModelSetupWizard({
-        registry: dependencies.registry,
-        input: dependencies.input,
-        output: dependencies.stdout,
-        refresh: parsed.options.refresh,
-        discoverModels: dependencies.wizardDiscoverModels,
-        save: dependencies.saveConfig,
-        isTTY: tty,
-        ...(parsed.options.profile === undefined ? {} : { profile: parsed.options.profile }),
-      });
+      port = parseWebPort(parsed.options.port ?? String(DEFAULT_WEB_PORT));
     } catch (error) {
       writeError(error instanceof Error ? error.message : String(error));
+      return { code: 1 };
+    }
+    try {
+      await (dependencies.startServer ?? startWebServer)({
+        routes: createSetupCommandRoutes(parsed.options),
+        port,
+        initialPath: "/setup",
+        title: "CodeDeck setup",
+        open: !parsed.options.noOpen,
+      });
+    } catch (error) {
+      writeError(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
       return { code: 1 };
     }
     return { code: 0 };
@@ -1609,6 +1372,9 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .allowUnknownOption(true)
     .allowExcessArguments(true)
     .option("--refresh", "ignore the cached catalog and rediscover")
+    .option("--tui", "use the frozen terminal setup wizard")
+    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--no-open", "serve setup without opening a browser")
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")
     .option("--dry-run", "show the proposed config without writing it")

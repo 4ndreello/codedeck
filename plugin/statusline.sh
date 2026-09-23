@@ -65,26 +65,6 @@ const role =
   tail(payload.agent?.name) ??
   tail(payload.session_name);
 
-const taskName = (() => {
-  const sessionFile = text(process.env.CODEDECK_SESSION_FILE);
-  const sessionId = payload.session_id;
-  if (
-    !sessionFile ||
-    typeof sessionId !== "string" ||
-    !/^[0-9a-fA-F-]{8,}$/.test(sessionId)
-  ) return undefined;
-
-  try {
-    const value = readFileSync(`${sessionFile}.${sessionId}.name`, "utf8")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 30);
-    return value || undefined;
-  } catch {
-    return undefined;
-  }
-})();
-
 const cwd = firstText(payload.workspace?.current_dir, payload.cwd) ?? process.cwd();
 const project = text(basename(cwd)) ?? (cwd === "/" ? "/" : undefined);
 
@@ -280,8 +260,12 @@ const localField = () => {
   return costAmount(local);
 };
 
+const collapsedProjectBranch = project && branch &&
+  (branch === project || branch === `worktree-${project}`);
 const projectBranch = project && branch
-  ? paint(TEXT, clean(project)) + paint(MUTED, "/") + paint(BLOOD, clean(branch))
+  ? collapsedProjectBranch
+    ? paint(BLOOD, clean(branch))
+    : paint(TEXT, clean(project)) + paint(MUTED, "/") + paint(BLOOD, clean(branch))
   : project
     ? paint(TEXT, clean(project))
     : branch
@@ -289,7 +273,6 @@ const projectBranch = project && branch
       : undefined;
 
 const fields = [
-  taskName && paint(EMBER, clean(taskName)),
   role && paint(EMBER, clean(role)),
   projectBranch,
   contextField(),

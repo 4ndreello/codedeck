@@ -1,5 +1,9 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildUsageQueryParams } from "../src/core/usage-query.js";
+import { normalizeUsageInterval } from "../src/web/usage-page.js";
+import type { WebServerHandle, WebServerOptions } from "../src/web/server.js";
+import type { UsageCommandDependencies } from "../src/cli/commands/usage.js";
 
 const ensureDaemonStarted = vi.fn(async () => {});
 const request = vi.fn();
@@ -70,6 +74,13 @@ function runProgram(argv: string[]): Promise<unknown> {
   return program.parseAsync(["node", "codedeck", "usage", ...argv], { from: "node" });
 }
 
+function runProgramWithDependencies(argv: string[], dependencies: UsageCommandDependencies): Promise<unknown> {
+  const program = new Command();
+  program.exitOverride();
+  registerUsageCommand(program, dependencies);
+  return program.parseAsync(["node", "codedeck", "usage", ...argv], { from: "node" });
+}
+
 beforeEach(() => {
   process.exitCode = undefined;
   logs = [];
@@ -81,8 +92,62 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
+});
+
+describe("buildUsageQueryParams", () => {
+  const now = new Date(2026, 8, 22, 12, 0, 0, 0);
+
+  it("applies all, today, then days precedence", () => {
+    expect(buildUsageQueryParams({ all: true, today: true, days: "7" }, "/repo", now).period).toBe("all");
+    expect(buildUsageQueryParams({ today: true, days: "7" }, "/repo", now).period).toBe("today");
+    expect(buildUsageQueryParams({ days: "7" }, "/repo", now).period).toBe("7d");
+  });
+
+  it.each([
+    ["3", "3d"],
+    ["7", "7d"],
+    ["30", "30d"],
+  ])("maps %s days to the %s period", (days, period) => {
+    expect(buildUsageQueryParams({ days }, "/repo", now).period).toBe(period);
+  });
+
+  it("maps other positive day counts to a local-midnight since value", () => {
+    const expectedSince = new Date(2026, 8, 18, 0, 0, 0, 0).toISOString();
+
+    expect(buildUsageQueryParams({ days: "5" }, "/repo", now)).toEqual({
+      period: undefined,
+      since: expectedSince,
+      until: undefined,
+      repository: undefined,
+      model: undefined,
+      agent: undefined,
+    });
+  });
+
+  it("defaults to today when since is absent", () => {
+    expect(buildUsageQueryParams({}, "/repo", now).period).toBe("today");
+  });
+
+  it("passes through explicit filters and lets current override repo", () => {
+    expect(buildUsageQueryParams({
+      since: "2026-09-01T00:00:00.000Z",
+      until: "2026-09-20T23:59:59.999Z",
+      repo: "/selected/repo",
+      current: true,
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    }, "/current/repo", now)).toEqual({
+      period: undefined,
+      since: "2026-09-01T00:00:00.000Z",
+      until: "2026-09-20T23:59:59.999Z",
+      repository: "/current/repo",
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    });
+  });
 });
 
 describe("usage CLI", () => {
@@ -202,5 +267,67 @@ describe("usage CLI", () => {
     expect(logs[0]).toContain("Usage by origin");
     expect(logs[0]).toContain("orchestrator: 1 sessions");
     expect(logs[0]).toContain("cost $0.25");
+  });
+
+  it("sends aggregate filters built with the CLI cwd and current date", async () => {
+    request.mockResolvedValue(usageResult);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 22, 12, 0, 0, 0));
+    vi.spyOn(process, "cwd").mockReturnValue("/current/repo");
+
+    await runProgram([
+      "--days", "5",
+      "--since", "2026-09-01T00:00:00.000Z",
+      "--until", "2026-09-20T23:59:59.999Z",
+      "--repo", "/selected/repo",
+      "--current",
+      "--model", "gpt-5.6-luna",
+      "--agent", "codex",
+    ]);
+
+    expect(request).toHaveBeenCalledWith("usage.query", {
+      period: undefined,
+      since: new Date(2026, 8, 18, 0, 0, 0, 0).toISOString(),
+      until: "2026-09-20T23:59:59.999Z",
+      repository: "/current/repo",
+      model: "gpt-5.6-luna",
+      agent: "codex",
+    });
+  });
+});
+
+describe("usage web options", () => {
+  it("runs backfill before web startup", async () => {
+    const backfill = vi.fn(async () => ({ imported: 2, skipped: 1 }));
+    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+
+    await runProgramWithDependencies(["--backfill", "--web"], {
+      backfillUsage: backfill,
+      startServer,
+    });
+
+    expect(backfill).toHaveBeenCalledOnce();
+    expect(startServer).not.toHaveBeenCalled();
+    expect(logs).toEqual(["Usage backfill: imported 2, skipped 1"]);
+  });
+
+  it("forwards the web polling interval and applies its normalization rule", async () => {
+    let captured: WebServerOptions | undefined;
+    const startServer: NonNullable<UsageCommandDependencies["startServer"]> = async (options) => {
+      captured = options;
+      return {} as WebServerHandle;
+    };
+
+    await runProgramWithDependencies(["--web", "--interval", "0"], { startServer });
+
+    const pageRoute = captured?.routes.find((route) => route.path === "/usage");
+    const response = { writeHead: vi.fn(), end: vi.fn() };
+    pageRoute?.handler({} as never, response as never);
+    expect(String(response.end.mock.calls[0]?.[0])).toContain('"interval":"0"');
+    expect(normalizeUsageInterval("0")).toBe(2);
+    expect(normalizeUsageInterval("not-a-number")).toBe(2);
+    expect(normalizeUsageInterval("-0.5")).toBe(1);
+    expect(normalizeUsageInterval("0.5")).toBe(1);
+    expect(normalizeUsageInterval("3")).toBe(3);
   });
 });

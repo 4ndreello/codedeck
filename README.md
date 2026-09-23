@@ -130,7 +130,7 @@ npx codedeck run "review the diff on this branch" --agent codex --role reviewer
 
 ### What the session looks like
 
-`open` hands Claude Code a settings payload built at launch, not a file on disk. It carries five things: the `codedeck-ultra` theme, the fullscreen renderer, a spinner vocabulary of its own, CodeDeck's tips in place of the built-in ones, and a startup line naming the role, the model, the effort and whether permissions are bypassed. The status line under the prompt reads `▌ULTRA <role> · <model> · <branch> · ctx <remaining> · $<cost>`, dropping any field the session cannot answer.
+`open` hands Claude Code a settings payload built at launch, not a file on disk. It carries five things: the `codedeck-ultra` theme, the fullscreen renderer, a spinner vocabulary of its own, CodeDeck's tips in place of the built-in ones, and a startup line naming the role, the model, the effort and whether permissions are bypassed. The status line under the prompt reads `<role> · <project>/<branch> · ctx <remaining> · <tokens> tok · run $<cost>` (or `$<cost>` for local usage), showing only the branch when it matches the project name or `worktree-<project>`, and dropping any field the session cannot answer.
 
 The payload is generated rather than shipped because of `${CLAUDE_PLUGIN_ROOT}`. Claude Code expands it only for hooks declared in a plugin's `hooks/hooks.json`, never for `statusLine.command`, and the failure is silent: no status line, no error, not even under `--debug`. `open` knows the real plugin directory, so it writes the resolved path.
 
@@ -150,8 +150,16 @@ A launch carrying `-p`/`--print` answers once and exits, so it never asks anythi
 
 Launching never asks. Which harness and model each of the four agents should run on is a question worth answering deliberately, not one to greet someone with, so it lives in its own command:
 
+In an interactive terminal, setup opens the local web console in your browser:
+
 ```bash
-npx codedeck setup
+npx codedeck setup # opens the setup web console
+```
+
+The frozen terminal wizard remains available with `--tui`:
+
+```bash
+npx codedeck setup --tui
 ```
 
 ```
@@ -183,7 +191,7 @@ An id the catalog does not list can still be typed, with its harness as a prefix
 
 The prefix is required, because a bare id names half a binding and there is no honest way to guess the other half. Enter asks once to confirm, and a second Enter writes it.
 
-The catalog is cached for four hours. `codedeck setup --refresh` ignores the cache and rediscovers.
+The catalog is cached for four hours. `codedeck setup --refresh` rediscovers it when the web console opens. Add `--tui` to use the frozen terminal picker instead.
 
 `codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model, rather than hand one harness another's id.
 

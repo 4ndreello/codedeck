@@ -2,8 +2,8 @@ import fs from "node:fs";
 import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 import type { RunUsageSummary } from "../../core/run-usage.js";
-import type { AgentId } from "../../core/session.js";
-import type { UsagePeriod, UsageQueryParams, UsageQueryResult } from "../../daemon/protocol.js";
+import { buildUsageQueryParams } from "../../core/usage-query.js";
+import type { UsageQueryParams, UsageQueryResult } from "../../daemon/protocol.js";
 import { getPaths } from "../../config/paths.js";
 import { SESSION_ID_PATTERN } from "../../open/runtime.js";
 import { Database } from "../../store/database.js";
@@ -11,6 +11,8 @@ import { SessionStore, resolveUsageDateRange } from "../../store/sessions.js";
 import { renderSnapshot } from "../usage/snapshot.js";
 import { runDashboard, type DashboardFetcher } from "../usage/dashboard.js";
 import { backfillUsage } from "./usage-backfill.js";
+import { DEFAULT_WEB_PORT, parseWebPort, startWebServer } from "../../web/server.js";
+import { createUsageRoutes } from "../../web/usage-routes.js";
 
 export interface UsageCommandOptions {
   json?: boolean;
@@ -32,6 +34,15 @@ export interface UsageCommandOptions {
   observe?: string;
   transcript?: string;
   backfill?: boolean;
+  web?: boolean;
+  port?: string;
+  open?: boolean;
+}
+
+export interface UsageCommandDependencies {
+  fetchUsageQuery?: typeof fetchUsageQuery;
+  backfillUsage?: typeof backfillUsage;
+  startServer?: typeof startWebServer;
 }
 
 function parseUsageObservation(value: string | undefined): { nativeId: string; costUsd: number } | undefined {
@@ -117,7 +128,10 @@ export async function fetchUsageQuery(params: UsageQueryParams): Promise<UsageQu
   }
 }
 
-export function registerUsageCommand(program: Command): void {
+export function registerUsageCommand(program: Command, dependencies: UsageCommandDependencies = {}): void {
+  const queryUsage = dependencies.fetchUsageQuery ?? fetchUsageQuery;
+  const runBackfill = dependencies.backfillUsage ?? backfillUsage;
+
   program
     .command("usage")
     .description("Show token usage, costs, and analytics across sessions or for a run")
@@ -136,6 +150,9 @@ export function registerUsageCommand(program: Command): void {
     .option("--observe <nativeId=cost>", "report live orchestrator cost")
     .option("--transcript <nativeId=path>", "report live orchestrator transcript tokens")
     .option("--backfill", "import historical orchestrator usage")
+    .option("--web", "open aggregate usage in the browser")
+    .option("--port <n>", "port to listen on (default: 3100)", String(DEFAULT_WEB_PORT))
+    .option("--no-open", "serve usage without opening a browser")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
     .option("--interval <seconds>", "refresh interval for --watch (default: 2)", "2")
@@ -144,13 +161,19 @@ export function registerUsageCommand(program: Command): void {
     .action(async (runId: string | undefined, opts: UsageCommandOptions) => {
       if (opts.backfill) {
         try {
-          const summary = await backfillUsage();
+          const summary = await runBackfill();
           if (opts.json) console.log(JSON.stringify(summary));
           else console.log(`Usage backfill: imported ${summary.imported}, skipped ${summary.skipped}`);
         } catch (error) {
           console.error(`Failed to backfill usage: ${error instanceof Error ? error.message : String(error)}`);
           process.exitCode = 3;
         }
+        return;
+      }
+
+      if (opts.web && opts.tui) {
+        console.error("Options --web and --tui cannot be used together.");
+        process.exitCode = 2;
         return;
       }
 
@@ -188,42 +211,48 @@ export function registerUsageCommand(program: Command): void {
       }
 
       // 2. Aggregate Analytics Branch
-      let period: UsagePeriod | undefined;
-      let since = opts.since;
-      const until = opts.until;
+      const cwd = process.cwd();
+      const queryParams = buildUsageQueryParams(opts, cwd, new Date());
 
-      if (opts.all) {
-        period = "all";
-      } else if (opts.today) {
-        period = "today";
-      } else if (opts.days) {
-        const d = parseInt(opts.days, 10);
-        if (d === 3) period = "3d";
-        else if (d === 7) period = "7d";
-        else if (d === 30) period = "30d";
-        else if (!isNaN(d) && d > 0) {
-          const now = new Date();
-          const sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (d - 1), 0, 0, 0, 0);
-          since = sinceDate.toISOString();
+      if (opts.web) {
+        let port: number;
+        try {
+          port = parseWebPort(opts.port);
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : String(error));
+          process.exitCode = 1;
+          return;
         }
-      } else if (!since) {
-        // Default to today if no temporal flags provided
-        period = "today";
-      }
 
-      let repository = opts.repo;
-      if (opts.current) {
-        repository = process.cwd();
+        try {
+          await (dependencies.startServer ?? startWebServer)({
+            routes: createUsageRoutes({
+              fetchUsageQuery: queryUsage,
+              cwd,
+              page: {
+                by: opts.by,
+                interval: opts.interval,
+                filters: {
+                  period: queryParams.period ?? "",
+                  repo: queryParams.repository ?? "",
+                  model: queryParams.model ?? "",
+                  agent: queryParams.agent ?? "",
+                  since: queryParams.since ?? "",
+                  until: queryParams.until ?? "",
+                },
+              },
+            }),
+            port,
+            initialPath: "/usage",
+            title: "CodeDeck usage",
+            open: opts.open,
+          });
+        } catch (error) {
+          console.error(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
+          process.exitCode = 1;
+        }
+        return;
       }
-
-      const queryParams: UsageQueryParams = {
-        period,
-        since,
-        until,
-        repository,
-        model: opts.model,
-        agent: opts.agent as AgentId | undefined,
-      };
 
       // Interactive TUI Mode
       if (opts.tui) {
@@ -233,7 +262,7 @@ export function registerUsageCommand(program: Command): void {
           return;
         }
         const fetcher: DashboardFetcher = {
-          fetch: async (p) => fetchUsageQuery({ ...queryParams, period: p }),
+          fetch: async (p) => queryUsage({ ...queryParams, period: p }),
         };
         await runDashboard(fetcher, { input: process.stdin, output: process.stdout });
         return;
@@ -243,7 +272,7 @@ export function registerUsageCommand(program: Command): void {
       if (opts.watch) {
         const intervalSec = Math.max(1, Number(opts.interval) || 2);
         const printLive = async () => {
-          const res = await fetchUsageQuery(queryParams);
+          const res = await queryUsage(queryParams);
           const snap = renderUsageSnapshot(res, { plain: false, by: opts.by });
           process.stdout.write(`\x1b[H\x1b[2J${snap}\n\n  \x1b[2mUpdating every ${intervalSec}s... (Ctrl+C to quit)\x1b[0m\n`);
         };
@@ -259,7 +288,7 @@ export function registerUsageCommand(program: Command): void {
       // Standard Fetch
       let result: UsageQueryResult;
       try {
-        result = await fetchUsageQuery(queryParams);
+        result = await queryUsage(queryParams);
       } catch (error) {
         console.error(`Failed to fetch usage: ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 3;

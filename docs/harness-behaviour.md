@@ -228,6 +228,15 @@ not turned into a prompt: each queued item carries its mode
 that `.trim().startsWith("/")`. The rename therefore executes when the turn
 ends.
 
+The queue path assumes the input box is empty when it receives `/rename`.
+The pty wrapper now waits for a clean input box and 300 ms without keys before
+typing the name, so a half-typed prompt stays in the user's line.
+
+On 2026-09-22, Claude Code 2.1.280 measured in tmux submitted the typed prompt
+when Enter was pressed with its `@` menu open; Tab accepted a suggestion, and
+Down then Enter accepted one without submitting. At startup, DCS, DA1, and
+DECRPM terminal replies arrived on stdin before the first prompt.
+
 `scripts/rename-gate.sh` is the end-to-end check for exactly this half: it
 submits a first prompt to a real session and then greps the transcript for the
 matching `custom-title`.
