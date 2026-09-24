@@ -463,6 +463,61 @@ describe("pty input gate", () => {
     expect(inject).toHaveBeenCalledOnce();
   });
 
+  it("ignores a complete SGR mouse report without dirtying the input box", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+    vi.advanceTimersByTime(quietMs - 1);
+    gate.observe(Buffer.from("\u001b[<35;40;12M"));
+    vi.advanceTimersByTime(1);
+    expect(inject).toHaveBeenCalledOnce();
+  });
+
+  it("does not guard the next Enter after an SGR mouse report", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("prompt"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\r"));
+    gate.observe(Buffer.from("\u001b[<65;40;12m"));
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("still marks typed text beside an SGR mouse report as dirty", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b[<35;40;12Mtyped"));
+    expectHeldAfterQuiet(inject);
+  });
+
+  it("ignores an SGR mouse report split across chunks", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("\u001b[<35;40;"));
+    gate.observe(Buffer.from("12M"));
+    gate.offer("/rename nome\r");
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("guards Enter when an SGR mouse prefix breaks its grammar", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b[<35x"));
+    gate.observe(Buffer.from("\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("still guards Enter after the Up arrow escape", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("prompt"));
+    gate.offer("/rename nome\r");
+    gate.observe(Buffer.from("\u001b[A"));
+    gate.observe(Buffer.from("\r"));
+    expectHeldAfterQuiet(inject);
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
   it.each([
     {
       name: "separate chunks",

@@ -35,6 +35,8 @@ const FALLBACK_COLUMNS = 80;
 const QUIET_MS = 300;
 const BRACKETED_PASTE_START = "\u001b[200~";
 const BRACKETED_PASTE_END = "\u001b[201~";
+const SGR_MOUSE_START = "\u001b[<";
+const SGR_MOUSE_REPORT = /^\u001b\[<[0-9]+;[0-9]+;[0-9]+[Mm]$/;
 // Matching terminal replies needs ESC and BEL in the pattern.
 const TERMINAL_REPLY = /^(?:(?:\u001bP[^\u001b]*\u001b\\)|(?:\u001b\][^\u001b\u0007]*(?:\u0007|\u001b\\))|(?:\u001b\[[?>][0-?]*[ -/]*(?:c|\$y|u|R|n)))+$/; // NOSONAR
 
@@ -61,6 +63,9 @@ export function createInputGate(options: InputGateOptions) {
   let disposed = false;
   let inPaste = false;
   let escapeCandidate = "";
+  let sgrMouseCandidate = false;
+  let dirtyBeforeEscape = false;
+  let previousByteBeforeEscape: number | undefined;
   let guardNextEnter = false;
   let previousByte: number | undefined;
   let lastActivity = now();
@@ -99,7 +104,35 @@ export function createInputGate(options: InputGateOptions) {
     guardNextEnter = false;
   };
 
-  const observeByte = (byte: number): void => {
+  const isSgrMousePrefix = (candidate: string): boolean => {
+    if (!candidate.startsWith(SGR_MOUSE_START)) return false;
+    const body = candidate.slice(SGR_MOUSE_START.length);
+    if (SGR_MOUSE_REPORT.test(candidate)) return true;
+    if (!/^[0-9;]*$/.test(body)) return false;
+    const fields = body.split(";");
+    return fields.length <= 3 && fields.slice(0, -1).every(Boolean);
+  };
+
+  const flushUnknownEscape = (byte: number): void => {
+    // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
+    if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
+    const candidate = Buffer.from(escapeCandidate);
+    const retryEscape = byte === 0x1b;
+    const flush = retryEscape ? candidate.subarray(0, -1) : candidate;
+    for (const candidateByte of flush) {
+      if (isSubmit(candidateByte, previousByte, inPaste)) observeEnter();
+      else markDirty();
+      previousByte = candidateByte;
+    }
+    escapeCandidate = retryEscape ? String.fromCharCode(byte) : "";
+    sgrMouseCandidate = false;
+    if (retryEscape) {
+      dirtyBeforeEscape = dirty;
+      previousByteBeforeEscape = previousByte;
+    }
+  };
+
+  const observeByte = (byte: number): boolean => {
     const char = String.fromCharCode(byte);
     if (escapeCandidate !== "") {
       escapeCandidate += char;
@@ -109,31 +142,44 @@ export function createInputGate(options: InputGateOptions) {
         inPaste = true;
         escapeCandidate = "";
         markDirty();
+        return true;
       } else if (escapeCandidate === BRACKETED_PASTE_END) {
         inPaste = false;
         escapeCandidate = "";
         markDirty();
-      } else if (!isStart && !isEnd) {
-        // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
-        if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
-        const candidate = Buffer.from(escapeCandidate);
-        const retryEscape = byte === 0x1b;
-        const flush = retryEscape ? candidate.subarray(0, -1) : candidate;
-        for (const candidateByte of flush) {
-          if (isSubmit(candidateByte, previousByte, inPaste)) observeEnter();
-          else markDirty();
-          previousByte = candidateByte;
+        return true;
+      } else if (escapeCandidate === SGR_MOUSE_START && !inPaste) {
+        sgrMouseCandidate = true;
+      } else if (sgrMouseCandidate) {
+        if (SGR_MOUSE_REPORT.test(escapeCandidate)) {
+          escapeCandidate = "";
+          sgrMouseCandidate = false;
+          dirty = dirtyBeforeEscape;
+          previousByte = previousByteBeforeEscape;
+          return false;
         }
-        escapeCandidate = retryEscape ? char : "";
+        if (isSgrMousePrefix(escapeCandidate)) {
+          previousByte = byte;
+          return false;
+        }
+        flushUnknownEscape(byte);
+        previousByte = byte;
+        return true;
+      } else if (!isStart && !isEnd) {
+        flushUnknownEscape(byte);
+        previousByte = byte;
+        return true;
       }
       previousByte = byte;
-      return;
+      return false;
     }
     if (byte === 0x1b) {
+      dirtyBeforeEscape = dirty;
+      previousByteBeforeEscape = previousByte;
       escapeCandidate = char;
       markDirty();
       previousByte = byte;
-      return;
+      return false;
     }
     if (isSubmit(byte, previousByte, inPaste)) {
       observeEnter();
@@ -145,6 +191,7 @@ export function createInputGate(options: InputGateOptions) {
       }
     }
     previousByte = byte;
+    return true;
   };
 
   return {
@@ -155,8 +202,10 @@ export function createInputGate(options: InputGateOptions) {
         chunk.equals(Buffer.from("\u001b[O")) ||
         TERMINAL_REPLY.test(chunk.toString("latin1"))
       ) return;
-      lastActivity = now();
-      for (const byte of chunk) observeByte(byte);
+      const observedAt = now();
+      let hasActivity = false;
+      for (const byte of chunk) hasActivity = observeByte(byte) || hasActivity;
+      if (hasActivity) lastActivity = observedAt;
       scheduleQuiet();
     },
     offer(keystrokes: string): void {

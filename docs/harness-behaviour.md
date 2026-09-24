@@ -241,6 +241,10 @@ DECRPM terminal replies arrived on stdin before the first prompt.
 submits a first prompt to a real session and then greps the transcript for the
 matching `custom-title`.
 
+Claude Code 2.1.281, launched from a trusted directory, enables the alternate
+screen (`ESC[?1049h`), any-event mouse tracking (`ESC[?1003h`), and SGR mouse
+encoding (`ESC[?1006h`), so mouse reports arrive on stdin during a session.
+
 ### `script(1)` hands over a pty with no size
 
 `script` only dimensions its pty when its own stdin is a terminal. CodeDeck
