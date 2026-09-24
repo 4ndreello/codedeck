@@ -78,6 +78,16 @@ to own the terminal.
   guess is a rename that lands one prompt later.
 - Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
   mark the box dirty.
+- An SGR mouse report (`ESC[<` followed by three digit fields separated by
+  semicolons and terminated by `M` or `m`) SHALL NOT mark the input box dirty.
+- An SGR mouse report SHALL NOT guard the next Enter.
+- WHEN an SGR mouse report shares a chunk with typed text, THEN the typed text
+  SHALL still mark the box dirty (the report alone is neutral, and the rest of
+  the chunk is processed as before).
+- WHEN an SGR mouse report is split across two chunks, THEN it SHALL still be
+  neutral.
+- IF a sequence starts with `ESC[<` but breaks the SGR mouse grammar, THEN it
+  SHALL be handled like any other unrecognised escape (dirty and guard).
 - The rename SHALL be typed at most once per session, and a held name SHALL be
   dropped when the session is disposed (no timer fires after dispose).
 
