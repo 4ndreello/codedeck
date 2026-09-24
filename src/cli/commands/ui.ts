@@ -5,6 +5,7 @@ import { renderHomePage } from "../../web/home-page.js";
 import { createSetupRoutes, type SetupRoutesDependencies } from "../../web/setup-routes.js";
 import { DEFAULT_WEB_PORT, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
 import { createUsageRoutes, type UsageRoutesOptions } from "../../web/usage-routes.js";
+import type { WebPageLink } from "../../web/brand.js";
 
 export interface UiCommandOptions {
   port?: string;
@@ -19,14 +20,18 @@ export interface UiCommandDependencies {
 
 export function createUiRoutes(dependencies: Pick<UiCommandDependencies, "setup" | "usage"> = {}): WebRoute[] {
   const reviewRoutes = createReviewRoutes().filter((route) => route.path !== "/");
-  const setupRoutes = createSetupRoutes(dependencies.setup);
+  const pages: WebPageLink[] = [];
+  const setupRoutes = createSetupRoutes({ ...dependencies.setup, pages });
+  const routes = [...reviewRoutes, ...setupRoutes];
   const usageOptions = dependencies.usage ?? { fetchUsageQuery };
   const labeledUsageRoutes = createUsageRoutes(usageOptions).map((route) =>
     route.path === "/usage" ? { ...route, label: "Usage" } : route,
   );
-  const routes = [...reviewRoutes, ...setupRoutes];
-  const pages = [...routes, ...labeledUsageRoutes].flatMap((route) =>
-    route.kind === "page" && route.label ? [{ label: route.label, path: route.path }] : [],
+  pages.push(
+    { label: "Home", path: "/" },
+    ...[...routes, ...labeledUsageRoutes].flatMap((route) =>
+      route.kind === "page" && route.label ? [{ label: route.label, path: route.path }] : [],
+    ),
   );
   const usageRoutes = createUsageRoutes({ ...usageOptions, pages }).map((route) =>
     route.path === "/usage" ? { ...route, label: "Usage" } : route,
@@ -36,7 +41,7 @@ export function createUiRoutes(dependencies: Pick<UiCommandDependencies, "setup"
     kind: "page",
     handler: (_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end(renderHomePage(pages));
+      response.end(renderHomePage(pages.filter((page) => page.path !== "/")));
     },
   };
   return [home, ...routes, ...usageRoutes];

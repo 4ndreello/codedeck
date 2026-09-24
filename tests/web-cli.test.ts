@@ -108,6 +108,7 @@ describe("ui CLI command", () => {
     const rootResponse = await fetch(`${started?.baseUrl}/`);
     const rootHtml = await rootResponse.text();
     expect(rootResponse.status).toBe(200);
+    expect(rootHtml).not.toContain('href="/"');
     expect(rootHtml).toContain('href="/review"');
     expect(rootHtml).toContain('href="/setup"');
     expect(rootHtml).toContain('href="/usage"');
@@ -118,8 +119,14 @@ describe("ui CLI command", () => {
     expect(await reviewResponse.text()).toContain("Review local");
 
     const setupResponse = await fetch(`${started?.baseUrl}/setup`);
+    const setupHtml = await setupResponse.text();
     const usageResponse = await fetch(`${started?.baseUrl}/usage`);
+    const setupNav = setupHtml.split('<nav aria-label="Main navigation">')[1]?.split("</nav>")[0] ?? "";
     expect(setupResponse.status).toBe(200);
+    expect(setupNav).toContain('href="/">Home</a>');
+    expect(setupNav).toContain('href="/review">Review</a>');
+    expect(setupNav).toContain('href="/setup" aria-current="page" class="active">Setup</a>');
+    expect(setupNav).toContain('href="/usage">Usage</a>');
     expect(usageResponse.status).toBe(200);
   });
 
