@@ -463,59 +463,84 @@ describe("pty input gate", () => {
     expect(inject).toHaveBeenCalledOnce();
   });
 
-  it("ignores a complete SGR mouse report without dirtying the input box", () => {
+  type InputGateStep =
+    | "offer"
+    | { observe: string }
+    | { advance: number }
+    | { assert: "held" | "injected" | "called" };
+  it.each([
+    [
+      "ignores a complete SGR mouse report without dirtying the input box",
+      [
+        "offer",
+        { advance: quietMs - 1 },
+        { observe: "\u001b[<35;40;12M" },
+        { advance: 1 },
+        { assert: "called" },
+      ],
+    ],
+    [
+      "does not guard the next Enter after an SGR mouse report",
+      [
+        { observe: "prompt" },
+        "offer",
+        { observe: "\r" },
+        { observe: "\u001b[<65;40;12m" },
+        { observe: "\r" },
+        { assert: "injected" },
+      ],
+    ],
+    [
+      "still marks typed text beside an SGR mouse report as dirty",
+      [
+        "offer",
+        { observe: "\u001b[<35;40;12Mtyped" },
+        { assert: "held" },
+      ],
+    ],
+    [
+      "ignores an SGR mouse report split across chunks",
+      [
+        { observe: "\u001b[<35;40;" },
+        { observe: "12M" },
+        "offer",
+        { assert: "injected" },
+      ],
+    ],
+    [
+      "guards Enter when an SGR mouse prefix breaks its grammar",
+      [
+        "offer",
+        { observe: "\u001b[<35x" },
+        { observe: "\r" },
+        { assert: "held" },
+        { observe: "\r" },
+        { assert: "injected" },
+      ],
+    ],
+    [
+      "still guards Enter after the Up arrow escape",
+      [
+        { observe: "prompt" },
+        "offer",
+        { observe: "\u001b[A" },
+        { observe: "\r" },
+        { assert: "held" },
+        { observe: "\r" },
+        { assert: "injected" },
+      ],
+    ],
+  ] satisfies Array<[string, InputGateStep[]]>)("%s", (_name, steps) => {
     const { gate, inject } = setup();
-    gate.offer("/rename nome\r");
-    vi.advanceTimersByTime(quietMs - 1);
-    gate.observe(Buffer.from("\u001b[<35;40;12M"));
-    vi.advanceTimersByTime(1);
-    expect(inject).toHaveBeenCalledOnce();
-  });
-
-  it("does not guard the next Enter after an SGR mouse report", () => {
-    const { gate, inject } = setup();
-    gate.observe(Buffer.from("prompt"));
-    gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\r"));
-    gate.observe(Buffer.from("\u001b[<65;40;12m"));
-    gate.observe(Buffer.from("\r"));
-    expectInjectedAfterQuiet(inject);
-  });
-
-  it("still marks typed text beside an SGR mouse report as dirty", () => {
-    const { gate, inject } = setup();
-    gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\u001b[<35;40;12Mtyped"));
-    expectHeldAfterQuiet(inject);
-  });
-
-  it("ignores an SGR mouse report split across chunks", () => {
-    const { gate, inject } = setup();
-    gate.observe(Buffer.from("\u001b[<35;40;"));
-    gate.observe(Buffer.from("12M"));
-    gate.offer("/rename nome\r");
-    expectInjectedAfterQuiet(inject);
-  });
-
-  it("guards Enter when an SGR mouse prefix breaks its grammar", () => {
-    const { gate, inject } = setup();
-    gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\u001b[<35x"));
-    gate.observe(Buffer.from("\r"));
-    expectHeldAfterQuiet(inject);
-    gate.observe(Buffer.from("\r"));
-    expectInjectedAfterQuiet(inject);
-  });
-
-  it("still guards Enter after the Up arrow escape", () => {
-    const { gate, inject } = setup();
-    gate.observe(Buffer.from("prompt"));
-    gate.offer("/rename nome\r");
-    gate.observe(Buffer.from("\u001b[A"));
-    gate.observe(Buffer.from("\r"));
-    expectHeldAfterQuiet(inject);
-    gate.observe(Buffer.from("\r"));
-    expectInjectedAfterQuiet(inject);
+    for (const step of steps) {
+      if (step === "offer") gate.offer("/rename nome\r");
+      else if ("observe" in step) gate.observe(Buffer.from(step.observe));
+      else if ("advance" in step) vi.advanceTimersByTime(step.advance);
+      else if (step.assert === "held") expectHeldAfterQuiet(inject);
+      else if (step.assert === "injected") expectInjectedAfterQuiet(inject);
+      else if (step.assert === "called") expect(inject).toHaveBeenCalledOnce();
+      else throw new Error("Unhandled input gate step");
+    }
   });
 
   it.each([
