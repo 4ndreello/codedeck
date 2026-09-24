@@ -142,6 +142,11 @@ describe("setup page and state route", () => {
     expect(page.status).toBe(200);
     expect(page.headers["content-type"]).toBe("text/html; charset=utf-8");
     expect(page.headers["content-security-policy"]).toBe("frame-ancestors 'none'");
+    expect(page.body).toContain('href="/setup" aria-label="CodeDeck home"');
+    expect(page.body).toContain('href="/setup" aria-current="page" class="active">Setup</a>');
+    expect(page.body).not.toContain('href="/review"');
+    expect(page.body).not.toContain('href="/usage"');
+    expect(page.body).not.toContain('href="/"');
     expect(payload.target).toEqual({ kind: "global" });
     expect(payload.bindings).toEqual({ general: { harness: "claude", model: "top-level" } });
     expect(payload.efforts).toEqual({});

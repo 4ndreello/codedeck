@@ -25,13 +25,15 @@ import {
 } from "../config/setup.js";
 import { getPaths } from "../config/paths.js";
 import { getRegistry } from "../drivers/registry.js";
-import { SETUP_PAGE } from "./setup-page.js";
+import { renderSetupPage } from "./setup-page.js";
+import type { WebPageLink } from "./brand.js";
 import type { WebRoute } from "./server.js";
 
 const MAX_SETUP_BODY_BYTES = 64 * 1024;
 const MODEL_PATTERN = /^[^\p{White_Space}\p{Cc}\p{Cf}=]+$/u;
 
 export interface SetupRoutesDependencies {
+  pages?: WebPageLink[];
   readConfig?: () => SetupConfigRead;
   saveConfig?: (config: RunAgentConfig) => void | boolean;
   registry?: DriverRegistry;
@@ -396,7 +398,7 @@ export function createSetupRoutes(dependencies: SetupRoutesDependencies = {}): W
 
   function page(_request: IncomingMessage, response: ServerResponse): void {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(SETUP_PAGE);
+    response.end(renderSetupPage({ pages: dependencies.pages ?? [{ label: "Setup", path: "/setup" }] }));
   }
 
   function stateRoute(_request: IncomingMessage, response: ServerResponse): void {
