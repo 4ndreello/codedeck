@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeBuildId } from "../src/daemon/build-id.js";
-import { runWebChild, type RunWebChildOptions } from "../src/web/child.js";
+import { parseWebChildArgs, runWebChild, type RunWebChildOptions } from "../src/web/child.js";
 
 vi.mock("../src/daemon/build-id.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/daemon/build-id.js")>();
@@ -17,6 +17,8 @@ import type { ListeningWebServer, WebRoute } from "../src/web/server.js";
 interface Handshake { port: number; token: string; build: string }
 
 const cleanups: (() => void)[] = [];
+const TOKEN = "e".repeat(64);
+const resolveToken = () => TOKEN;
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -39,7 +41,7 @@ async function startChild(overrides: Partial<RunWebChildOptions> = {}) {
   const signalTarget = new EventEmitter();
   const exit = vi.fn();
   const line = firstLine(stdout);
-  await runWebChild({ port: 0, stdin, stdout, exit, signalTarget, build: "build-1", ...overrides });
+  await runWebChild({ port: 0, stdin, stdout, exit, signalTarget, build: "build-1", resolveToken, ...overrides });
   const handshake = JSON.parse(await line) as Record<string, unknown>;
   cleanups.push(() => stdin.end());
   return { stdin, stdout, signalTarget, exit, handshake };
@@ -104,16 +106,36 @@ describe("runWebChild", () => {
     expect(handshake.build).toBe("own-tree");
   });
 
-  it("asks for the ephemeral fallback only when no port was given", async () => {
+  it("listens on the preferred port with fallback, on an explicit port without, and on 7777 with fallback by default", async () => {
     const listen = vi.fn(async () => fakeListening());
 
+    await startChild({ port: undefined, preferredPort: 7788, listen, routes: () => [] });
+    await startChild({ port: 7788, listen, routes: () => [] });
     await startChild({ port: undefined, listen, routes: () => [] });
-    await startChild({ port: 4567, listen, routes: () => [] });
 
     expect(listen.mock.calls.map(([options]) => [options.port, options.fallbackToEphemeral])).toEqual([
-      [undefined, true],
-      [4567, false],
+      [7788, true],
+      [7788, false],
+      [7777, true],
     ]);
+  });
+
+  it("serves with the resolved console token and reports it in the handshake", async () => {
+    const listen = vi.fn(async () => fakeListening());
+
+    const { handshake: served } = await startChild({ resolveToken: () => "f".repeat(64), routes: () => [] });
+    await startChild({ listen, resolveToken: () => "f".repeat(64), routes: () => [] });
+
+    expect(served.token).toBe("f".repeat(64));
+    expect(listen.mock.calls[0][0].token).toBe("f".repeat(64));
+  });
+
+  it.each([
+    [["node", "child.js", "--web-child", "--preferred-port", "7788"], { preferredPort: 7788 }],
+    [["node", "child.js", "--web-child", "--port", "7788"], { port: 7788 }],
+    [["node", "child.js", "--web-child"], {}],
+  ])("parses the port arguments of %j", (argv, expected) => {
+    expect(parseWebChildArgs(argv)).toEqual(expected);
   });
 
   it("prints an error handshake and exits 1 when listening fails", async () => {
@@ -122,7 +144,7 @@ describe("runWebChild", () => {
     const exit = vi.fn();
     const line = firstLine(stdout);
 
-    await runWebChild({ port: 4567, stdin: new PassThrough(), stdout, exit, listen, routes: () => [], build: "b" });
+    await runWebChild({ port: 4567, stdin: new PassThrough(), stdout, exit, listen, routes: () => [], build: "b", resolveToken });
 
     expect(JSON.parse(await line)).toEqual({
       error: { message: "listen EADDRINUSE: address already in use 127.0.0.1:4567", port: 4567 },
@@ -163,7 +185,7 @@ describe("runWebChild", () => {
     const stdin = new PassThrough();
     const exit = vi.fn();
 
-    await runWebChild({ port: 0, stdin, stdout, exit, signalTarget: new EventEmitter(), build: "b", routes: () => [] });
+    await runWebChild({ port: 0, stdin, stdout, exit, signalTarget: new EventEmitter(), build: "b", routes: () => [], resolveToken });
     await new Promise((resolve) => setImmediate(resolve));
     stdin.end();
 

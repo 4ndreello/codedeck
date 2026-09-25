@@ -168,14 +168,15 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] `--preferred-port 7788` → listen called with port 7788 and fallback on
-- [ ] `--port 7788` → port 7788, fallback off (unchanged)
-- [ ] Neither → port 7777, fallback on
-- [ ] The handshake token equals the injected token resolver's value, and the server was given that token
-- [ ] Gate check passes: `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
+- [x] `--preferred-port 7788` → listen called with port 7788 and fallback on
+- [x] `--port 7788` → port 7788, fallback off (unchanged)
+- [x] Neither → port 7777, fallback on
+- [x] The handshake token equals the injected token resolver's value, and the server was given that token
+- [x] Gate check passes: `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Start the web child on the preferred port`
 

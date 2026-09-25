@@ -3,10 +3,15 @@ import type { Readable, Writable } from "node:stream";
 import { createUiRoutes } from "../cli/commands/ui.js";
 import { computeBuildId, distRootFor } from "../daemon/build-id.js";
 import { DEFAULT_WEB_PORT, listenWebServer, type WebRoute } from "./server.js";
+import { resolveWebToken } from "./web-token.js";
 
 export interface RunWebChildOptions {
-  /** Explicit port; when omitted the child tries the default port and falls back to an ephemeral one. */
+  /** Explicit port (`--port`): no fallback. */
   port?: number;
+  /** Preferred port (`--preferred-port`): an OS-assigned port on any listen error. Defaults to 7777. */
+  preferredPort?: number;
+  /** Seam for the shared console token; defaults to `~/.run-agent/web-token`. */
+  resolveToken?: () => string;
   stdin: Readable;
   stdout: Writable;
   listen?: typeof listenWebServer;
@@ -28,17 +33,19 @@ export async function runWebChild(options: RunWebChildOptions): Promise<void> {
   const build = options.build ?? computeBuildId(options.distRoot ?? distRootFor(import.meta.url));
   // The daemon may close the pipe after the handshake; a failed write must not crash the child.
   options.stdout.on("error", () => {});
+  const port = options.port ?? options.preferredPort ?? DEFAULT_WEB_PORT;
 
   let listening: Awaited<ReturnType<typeof listenWebServer>>;
   try {
     listening = await (options.listen ?? listenWebServer)({
       routes: (options.routes ?? (() => createUiRoutes()))(),
-      port: options.port,
+      port,
       fallbackToEphemeral: options.port === undefined,
+      token: (options.resolveToken ?? resolveWebToken)(),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const line = JSON.stringify({ error: { message, port: options.port ?? DEFAULT_WEB_PORT } });
+    const line = JSON.stringify({ error: { message, port } });
     options.stdout.write(`${line}\n`, () => exit(1));
     return;
   }
@@ -59,8 +66,20 @@ export async function runWebChild(options: RunWebChildOptions): Promise<void> {
   options.stdout.write(`${JSON.stringify({ port: listening.port, token: listening.security.token, build })}\n`);
 }
 
+/** `--port <n>` is explicit; `--preferred-port <n>` may fall back; neither means 7777 with fallback. */
+export function parseWebChildArgs(argv: readonly string[]): { port?: number; preferredPort?: number } {
+  const valueOf = (flag: string): number | undefined => {
+    const index = argv.indexOf(flag);
+    return index >= 0 ? Number(argv[index + 1]) : undefined;
+  };
+  const port = valueOf("--port");
+  const preferredPort = valueOf("--preferred-port");
+  return {
+    ...(port === undefined ? {} : { port }),
+    ...(preferredPort === undefined ? {} : { preferredPort }),
+  };
+}
+
 if (process.argv.includes("--web-child")) {
-  const portIndex = process.argv.indexOf("--port");
-  const port = portIndex >= 0 ? Number(process.argv[portIndex + 1]) : undefined;
-  void runWebChild({ port, stdin: process.stdin, stdout: process.stdout });
+  void runWebChild({ ...parseWebChildArgs(process.argv), stdin: process.stdin, stdout: process.stdout });
 }
