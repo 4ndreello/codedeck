@@ -1,6 +1,7 @@
-<!-- Source: ~/.claude/skills/pr-writer/SKILL.md (vendored full text). Adaptations: (1) the create-branch skill reference is a one-line main/master rule, the skill itself is not vendored; (2) the sentry-skills:commit reference below points to the Commits section in this prompt; (3) Co-Authored-By names the harness that did the work, not Claude. -->
-
-## Pull requests
+---
+name: pr-writer
+description: ALWAYS use this skill when creating or updating pull requests — never create or edit a PR directly without it. Follows Sentry conventions for PR titles, descriptions, and issue references. Trigger on any create PR, open PR, submit PR, make PR,...
+---
 
 # PR Writer
 
@@ -10,14 +11,14 @@ Create pull requests following Sentry's engineering practices.
 
 ## Prerequisites
 
-Before creating a PR, ensure all changes are committed. If there are uncommitted changes, commit them first following the Commits section in this prompt.
+Before creating a PR, ensure all changes are committed. If there are uncommitted changes, run the `sentry-skills:commit` skill first to commit them properly.
 
 ```bash
 # Check for uncommitted changes
 git status --porcelain
 ```
 
-If the output shows any uncommitted changes (modified, added, or untracked files that should be included), commit them first following the Commits section in this prompt before proceeding.
+If the output shows any uncommitted changes (modified, added, or untracked files that should be included), invoke the `sentry-skills:commit` skill before proceeding.
 
 ## Process
 
@@ -195,14 +196,10 @@ gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER -f body="$(cat <<'EOF'
 Updated description here
 EOF
 )"
-```
 
-```bash
 # Update PR title
 gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER -f title='new: Title here'
-```
 
-```bash
 # Update both
 gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER \
   -f title='new: Title' \

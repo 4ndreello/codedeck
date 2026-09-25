@@ -62,6 +62,7 @@ Daemon (src/daemon/daemon.ts)  ── auto-spawned by IpcClient.ensureDaemonStar
 - `${CLAUDE_PLUGIN_ROOT}` is expanded only in `hooks/hooks.json`, never in `statusLine.command`, and fails silently. That is why `open` writes resolved paths.
 - Function hooks / mods (`plugin/hooks/register.tsx`, `plugin/mods/`) need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` (set in `sanitizeEnv`, `src/open/runtime.ts`) and claude >= 2.1.269. See `docs/mods.md`.
 - Many tests pin prompt and manifest text (`prompt-layers`, `orchestrator-prose`, `plugin-manifest`, `tlc-spec-driven`, `roles`). Changing prose usually means updating those tests.
+- The `commit` and `pr-writer` sections of the general agent are rendered from `skills/commit` and `skills/pr-writer` by `SKILL_PARTIALS` in `scripts/copy-plugin.mjs`, which swaps references to skills the prompt cannot load. Edit the skill; the build fails if an adaptation stops matching.
 - Top-level `skills/` holds standalone skills. `skills/use-codedeck` also has an installed copy under `~/.claude`; edit both or the `/use-codedeck` command does not change.
 
 ## Testing notes

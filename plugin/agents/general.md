@@ -26,7 +26,7 @@ description: Do CodeDeck work directly in the current workspace, with evidence.
 
 - Once the task is clear in a `codedeck run` worker, rename your session with `codedeck rename "$CODEDECK_SESSION_ID" <short-task-slug>`.
 
-<!-- Source: ~/.claude/skills/commit/SKILL.md (vendored full text). Adaptations: (1) the create-branch skill reference is a one-line main/master rule below, the skill itself is not vendored; (2) any sentry-skills:commit reference points to the Commits section in this prompt; (3) Co-Authored-By names the harness that did the work, not Claude. -->
+<!-- Generated from skills/commit/SKILL.md by scripts/copy-plugin.mjs. Edit the skill, not the agent file. -->
 
 ## Commits
 
@@ -172,7 +172,7 @@ Reason: Caused performance regression in production.
 
 - [Sentry Commit Messages](https://develop.sentry.dev/engineering-practices/commit-messages/)
 
-<!-- Source: ~/.claude/skills/pr-writer/SKILL.md (vendored full text). Adaptations: (1) the create-branch skill reference is a one-line main/master rule, the skill itself is not vendored; (2) the sentry-skills:commit reference below points to the Commits section in this prompt; (3) Co-Authored-By names the harness that did the work, not Claude. -->
+<!-- Generated from skills/pr-writer/SKILL.md by scripts/copy-plugin.mjs. Edit the skill, not the agent file. -->
 
 ## Pull requests
 
@@ -369,14 +369,10 @@ gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER -f body="$(cat <<'EOF'
 Updated description here
 EOF
 )"
-```
 
-```bash
 # Update PR title
 gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER -f title='new: Title here'
-```
 
-```bash
 # Update both
 gh api -X PATCH repos/{owner}/{repo}/pulls/PR_NUMBER \
   -f title='new: Title' \
