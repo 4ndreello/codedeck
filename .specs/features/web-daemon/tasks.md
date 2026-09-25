@@ -341,23 +341,24 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] First `ensure` spawns once and resolves `{ baseUrl, port, token }` from the fake handshake
-- [ ] Same build again → no spawn; no build → no spawn; two concurrent calls → one spawn, same result
-- [ ] Explicit port → `--port <n>` in args; error line → `WEB_LISTEN_FAILED` with `details.port`
-- [ ] Exit before handshake → `WEB_START_FAILED`; no line in `startTimeoutMs` (fake timers) → child killed and `WEB_START_FAILED`
-- [ ] Handshake split across two stdout chunks parses; non-JSON first line or a line missing `token` → child killed and `WEB_START_FAILED`
-- [ ] After the handshake, further stdout data is consumed (the stream is flowing)
-- [ ] `entry` spawned as the script; relative entry, entry not ending in `/web/child.js`, or missing entry → `WEB_BAD_ENTRY`, no spawn
-- [ ] Same build with a different `entry` → old child stopped, new child spawned from the new entry
-- [ ] Default spawn opens `logs/web-child.log` in append mode for stderr (checked via the injected spawn options factory or a spawn spy)
-- [ ] Child exit after handshake → log `web child exited code=<code>`; next `ensure` spawns again
-- [ ] Different build → SIGTERM to the old child, SIGKILL after `stopTimeoutMs` if it has not exited, then the new child's result
-- [ ] Log gets `web listening port=<port>` and never the token
-- [ ] Static check: `src/daemon/web-supervisor.ts` and `src/daemon/daemon.ts` import nothing from `../web/` or `../cli/`
-- [ ] Gate check passes: `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
+- [x] First `ensure` spawns once and resolves `{ baseUrl, port, token }` from the fake handshake
+- [x] Same build again → no spawn; no build → no spawn; two concurrent calls → one spawn, same result
+- [x] Explicit port → `--port <n>` in args; error line → `WEB_LISTEN_FAILED` with `details.port`
+- [x] Exit before handshake → `WEB_START_FAILED`; no line in `startTimeoutMs` (fake timers) → child killed and `WEB_START_FAILED`
+- [x] Handshake split across two stdout chunks parses; non-JSON first line or a line missing `token` → child killed and `WEB_START_FAILED`
+- [x] After the handshake, further stdout data is consumed (the stream is flowing)
+- [x] `entry` spawned as the script; relative entry, entry not ending in `/web/child.js`, or missing entry → `WEB_BAD_ENTRY`, no spawn
+- [x] Same build with a different `entry` → old child stopped, new child spawned from the new entry
+- [x] Default spawn opens `logs/web-child.log` in append mode for stderr (checked via the injected spawn options factory or a spawn spy)
+- [x] Child exit after handshake → log `web child exited code=<code>`; next `ensure` spawns again
+- [x] Different build → SIGTERM to the old child, SIGKILL after `stopTimeoutMs` if it has not exited, then the new child's result
+- [x] Log gets `web listening port=<port>` and never the token
+- [x] Static check: `src/daemon/web-supervisor.ts` and `src/daemon/daemon.ts` import nothing from `../web/` or `../cli/`
+- [x] Gate check passes: `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(daemon): Supervise a web child process`
 
