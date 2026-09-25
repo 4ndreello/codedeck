@@ -9,6 +9,7 @@ import { EventStore } from "../store/events.js";
 import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
+import { acquireInstanceLock, type InstanceLock } from "./instance-lock.js";
 import type { IpcRequest, IpcResponse, UsageQueryParams, WebEnsureParams, WebEnsureResult } from "./protocol.js";
 import { WebEnsureError, WebSupervisor, type WebSupervisorOptions } from "./web-supervisor.js";
 import { getRegistry } from "../drivers/registry.js";
@@ -2025,8 +2026,20 @@ class Daemon {
   }
 }
 
+// Held for the process lifetime (module scope so it is never collected); the
+// kernel drops it on exit, so shutdown does not release it early.
+let instanceLock: InstanceLock | null = null;
+
 // Entry
 if (process.argv.includes("--daemon")) {
+  // Take the lock before opening run-agent.db: a losing daemon must not
+  // migrate, recover or bind the socket. Exit 0 so the spawning CLI keeps
+  // polling and connects to the daemon that already runs.
+  instanceLock = acquireInstanceLock(getPaths().daemonLock);
+  if (!instanceLock) {
+    appendDaemonLog(`pid ${process.pid}: another daemon holds ${getPaths().daemonLock}; exiting`);
+    process.exit(0);
+  }
   const d = new Daemon();
   d.start().then(
     () => d.autostartWeb(),

@@ -43,6 +43,7 @@ export function getPaths() {
     db: path.join(base, "run-agent.db"),
     daemonSock: path.join(base, "daemon.sock"),
     daemonPid: path.join(base, "daemon.pid"),
+    daemonLock: path.join(base, "daemon.lock"),
     daemonLog: path.join(base, "daemon.log"),
     logsDir: path.join(base, "logs"),
     worktreesDir: path.join(base, "worktrees"),
