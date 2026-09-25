@@ -35,6 +35,7 @@ const FALLBACK_COLUMNS = 80;
 const QUIET_MS = 300;
 const BRACKETED_PASTE_START = "\u001b[200~";
 const BRACKETED_PASTE_END = "\u001b[201~";
+const KITTY_ESC = "\u001b[27u";
 const SGR_MOUSE_START = "\u001b[<";
 const SGR_MOUSE_REPORT = /^\u001b\[<[0-9]+;[0-9]+;[0-9]+[Mm]$/;
 // Matching terminal replies needs ESC and BEL in the pattern.
@@ -53,8 +54,8 @@ export interface InputGateOptions {
  * can arrive while someone is typing, turning "Bora tamb" into
  * "Bora tamb/rename XPto xyz" and submitting both as one prompt. Hold the
  * rename until the input is clean and the user has been quiet for 300 ms.
- * Set `CODEDECK_PTY_DEBUG` to an absolute path to append a trace of input bytes
- * and gate decisions for one session.
+ * Tracing is on by default under `sessionsDir()`. Set `CODEDECK_PTY_DEBUG` to
+ * an absolute path to choose another file, or to `off` or `0` to disable it.
  */
 export function createInputGate(options: InputGateOptions) {
   const schedule = options.setTimeout ?? globalThis.setTimeout;
@@ -77,6 +78,7 @@ export function createInputGate(options: InputGateOptions) {
   let dirtyBeforeEscape = false;
   let previousByteBeforeEscape: number | undefined;
   let guardNextEnter = false;
+  let previousInputWasKittyEsc = false;
   let previousByte: number | undefined;
   let lastActivity = now();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -158,6 +160,7 @@ export function createInputGate(options: InputGateOptions) {
   ): void => {
     // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
     if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
+    previousInputWasKittyEsc = false;
     const candidate = Buffer.from(escapeCandidate);
     const retryEscape = byte === 0x1b;
     const flush = retryEscape ? candidate.subarray(0, -1) : candidate;
@@ -181,6 +184,7 @@ export function createInputGate(options: InputGateOptions) {
       escapeCandidate += char;
       const isStart = BRACKETED_PASTE_START.startsWith(escapeCandidate);
       const isEnd = BRACKETED_PASTE_END.startsWith(escapeCandidate);
+      const isKittyEsc = KITTY_ESC.startsWith(escapeCandidate);
       if (escapeCandidate === "\u001b[I" || escapeCandidate === "\u001b[O") {
         if (chunkState.escapeStartedInChunk) {
           escapeCandidate = "";
@@ -194,11 +198,19 @@ export function createInputGate(options: InputGateOptions) {
       } else if (escapeCandidate === BRACKETED_PASTE_START) {
         inPaste = true;
         escapeCandidate = "";
+        previousInputWasKittyEsc = false;
         markDirty();
         return true;
       } else if (escapeCandidate === BRACKETED_PASTE_END) {
         inPaste = false;
         escapeCandidate = "";
+        previousInputWasKittyEsc = false;
+        markDirty();
+        return true;
+      } else if (escapeCandidate === KITTY_ESC) {
+        escapeCandidate = "";
+        if (previousInputWasKittyEsc) guardNextEnter = true;
+        previousInputWasKittyEsc = !previousInputWasKittyEsc;
         markDirty();
         return true;
       } else if (escapeCandidate === SGR_MOUSE_START && !inPaste) {
@@ -218,7 +230,7 @@ export function createInputGate(options: InputGateOptions) {
         flushUnknownEscape(byte, chunkState);
         previousByte = byte;
         return true;
-      } else if (!isStart && !isEnd) {
+      } else if (!isStart && !isEnd && !isKittyEsc) {
         flushUnknownEscape(byte, chunkState);
         previousByte = byte;
         return true;
@@ -236,8 +248,10 @@ export function createInputGate(options: InputGateOptions) {
       return false;
     }
     if (isSubmit(byte, previousByte, inPaste)) {
+      previousInputWasKittyEsc = false;
       observeEnter();
     } else {
+      previousInputWasKittyEsc = false;
       markDirty();
       if (byte < 0x20 && byte !== 0x08 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
         // An unknown control may drive a suggestion menu, so treat it like an unknown escape.
@@ -480,7 +494,12 @@ export interface PtySession {
 
 export function startPtySession(options: PtyStartOptions): PtySession {
   const startedAt = process.hrtime.bigint();
-  const debugFile = options.debugFile ?? process.env.CODEDECK_PTY_DEBUG;
+  const traceSetting = options.debugFile ?? process.env.CODEDECK_PTY_DEBUG;
+  const sessions = sessionsDir();
+  const traceEnabled = traceSetting !== "off" && traceSetting !== "0";
+  const debugFile = traceSetting === undefined || traceSetting === ""
+    ? path.join(sessions, `pty-trace-${process.pid}-${Date.now().toString(36)}.ndjson`)
+    : traceSetting;
   let traceFd: number | undefined;
   const closeTrace = (): void => {
     if (traceFd === undefined) return;
@@ -494,7 +513,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   const stdout = options.stdout ?? process.stdout;
   // In the private directory rather than the shared one: a peer that can
   // connect to this socket can resize the session's terminal.
-  const control = path.join(sessionsDir(), `codedeck-pty-${process.pid}-${Date.now().toString(36)}.sock`);
+  const control = path.join(sessions, `codedeck-pty-${process.pid}-${Date.now().toString(36)}.sock`);
   // A terminal that reports 0 is a terminal whose size nobody set: passing the
   // zero down would leave the inner pty exactly as unusable as script leaves it.
   const rows = stdout.rows || FALLBACK_ROWS;
@@ -520,8 +539,9 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  if (debugFile && path.isAbsolute(debugFile)) {
+  if (traceEnabled && debugFile && path.isAbsolute(debugFile)) {
     try {
+      prunePtyTraces(sessions);
       traceFd = fs.openSync(
         debugFile,
         fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NONBLOCK,
@@ -627,4 +647,18 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   };
 
   return { child, inject, dispose };
+}
+
+function prunePtyTraces(directory: string): void {
+  try {
+    const traces = fs.readdirSync(directory, { withFileTypes: true })
+      .filter((file) => file.isFile() && /^pty-trace-.*\.ndjson$/.test(file.name))
+      .map((file) => ({
+        tracePath: path.join(directory, file.name),
+        mtimeMs: fs.statSync(path.join(directory, file.name)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(9);
+    for (const { tracePath } of traces) fs.rmSync(tracePath, { force: true });
+  } catch {}
 }

@@ -715,18 +715,63 @@ describe("pty input gate", () => {
     expect(inject).not.toHaveBeenCalled();
   });
 
-  it("keeps kitty Esc guarded so the following Enter cannot submit", () => {
+  it("releases a held name after a single Esc interrupt", () => {
     const events: Record<string, unknown>[] = [];
     const { gate, inject } = setup((event) => events.push(event));
     gate.offer("/rename nome\r");
 
-    gate.observe(Buffer.from("\u001b[27u"));
+    gate.observe(Buffer.from("\x1b[27u"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
+    gate.observe(Buffer.from("na verdade"));
+    gate.observe(Buffer.from("\r"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: false, guard: false });
+    vi.advanceTimersByTime(quietMs - 1);
+    expect(inject).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(inject).toHaveBeenCalledOnce();
+    expect(inject).toHaveBeenCalledWith("/rename nome\r");
+  });
+
+  it.each([
+    { name: "separate chunks", chunks: ["\x1b[27u", "\x1b[27u"] },
+    { name: "one chunk", chunks: ["\x1b[27u\x1b[27u"] },
+    {
+      name: "neutral focus and mouse input between them",
+      chunks: ["\x1b[27u", "\x1b[I\x1b[<35;48;1M", "\x1b[?1;1R", "\x1b[27u"],
+    },
+  ])("guards Enter after two kitty Esc keys in $name", ({ chunks }) => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    for (const chunk of chunks) gate.observe(Buffer.from(chunk));
     expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: true });
     gate.observe(Buffer.from("\r"));
     expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
     vi.advanceTimersByTime(quietMs);
 
     expect(inject).not.toHaveBeenCalled();
+  });
+
+  it("does not guard Enter when typed text breaks a kitty Esc pair", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\x1b[27u"));
+    gate.observe(Buffer.from("a"));
+    gate.observe(Buffer.from("\x1b[27u"));
+    gate.observe(Buffer.from("\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("keeps kitty Esc sequences with modifiers on the unknown-escape guard path", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\x1b[27;2u"));
+    gate.observe(Buffer.from("\r"));
+    expectHeldAfterQuiet(inject);
   });
 
   it("types a held name after focus and mouse reports, typing, and submit", () => {
@@ -861,7 +906,12 @@ describe("pty input gate", () => {
 });
 
 describe("startPtySession", () => {
-  beforeEach(() => vi.stubEnv("CODEDECK_PTY_DEBUG", ""));
+  beforeEach(() => {
+    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-pty-run-agent-"));
+    tempDirs.push(runAgentDir);
+    vi.stubEnv("RUN_AGENT_DIR", runAgentDir);
+    vi.stubEnv("CODEDECK_PTY_DEBUG", "");
+  });
 
   // Enough of a child to exercise the wire: what the parent typed lands in
   // `written`, and `writable` is the flag the EPIPE guard reads.
@@ -922,15 +972,65 @@ describe("startPtySession", () => {
   it.each([
     ["unset", undefined],
     ["empty", ""],
-  ])("does not open a trace file when CODEDECK_PTY_DEBUG is %s", (_label, value) => {
+  ])("creates a default trace under sessionsDir when CODEDECK_PTY_DEBUG is %s", (_label, value) => {
     vi.stubEnv("CODEDECK_PTY_DEBUG", value ?? "");
     if (value === undefined) delete process.env.CODEDECK_PTY_DEBUG;
-    const open = vi.spyOn(fs, "openSync");
     const { session } = start();
 
     session.dispose();
 
-    expect(open).not.toHaveBeenCalled();
+    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    const traces = fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"));
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toMatch(new RegExp(`^pty-trace-${process.pid}-[0-9a-z]+\\.ndjson$`));
+    expect(fs.statSync(path.join(sessions, traces[0])).mode & 0o777).toBe(0o600);
+  });
+
+  it.each(["off", "0"])("does not create a trace when CODEDECK_PTY_DEBUG is %s", (value) => {
+    vi.stubEnv("CODEDECK_PTY_DEBUG", value);
+    const { session } = start();
+
+    session.dispose();
+
+    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    expect(fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"))).toEqual([]);
+  });
+
+  it("prunes old session traces and keeps the nine newest plus the new trace", () => {
+    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
+    const existing = Array.from({ length: 12 }, (_, index) => {
+      const file = `pty-trace-old-${index}.ndjson`;
+      const fullPath = path.join(sessions, file);
+      fs.writeFileSync(fullPath, "old\n");
+      const mtime = new Date(Date.now() - (12 - index) * 1_000);
+      fs.utimesSync(fullPath, mtime, mtime);
+      return file;
+    });
+    const newestNine = existing.slice(-9);
+
+    const { session } = start();
+    session.dispose();
+
+    const traces = fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"));
+    expect(traces).toHaveLength(10);
+    expect(traces.some((file) => new RegExp(`^pty-trace-${process.pid}-[0-9a-z]+\\.ndjson$`).test(file))).toBe(true);
+    expect(traces).toEqual(expect.arrayContaining(newestNine));
+    expect(traces).not.toEqual(expect.arrayContaining(existing.slice(0, 3)));
+  });
+
+  it("opens the trace when pruning the sessions directory fails", () => {
+    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    vi.spyOn(fs, "readdirSync").mockImplementation(() => {
+      throw new Error("prune failed");
+    });
+
+    const { session } = start();
+    session.dispose();
+    vi.restoreAllMocks();
+
+    const traces = fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"));
+    expect(traces).toHaveLength(1);
   });
 
   it("does not create a trace file when spawning the pty fails", () => {
@@ -997,10 +1097,8 @@ describe("startPtySession", () => {
   it("creates the trace file with mode 0600 and stamps each event", () => {
     const sessionFile = tempSessionFile();
     const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
-    const { session, terminal } = start({
-      debugFile,
-      launch: { shim: SHIM, sessionFile },
-    });
+    vi.stubEnv("CODEDECK_PTY_DEBUG", debugFile);
+    const { session, terminal } = start({ launch: { shim: SHIM, sessionFile } });
     terminal.stdin.emit("data", Buffer.from("typed"));
 
     session.dispose();
