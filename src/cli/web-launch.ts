@@ -2,14 +2,17 @@ import { fileURLToPath } from "node:url";
 import { IpcClient } from "../daemon/ipc.js";
 import { computeBuildId, distRootFor } from "../daemon/build-id.js";
 import type { WebEnsureParams, WebEnsureResult } from "../daemon/protocol.js";
-import { DEFAULT_WEB_PORT, openBrowser, startWebServer } from "../web/server.js";
+import { loadConfig } from "../config/config.js";
+import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
+import { openBrowser, startWebServer } from "../web/server.js";
+import { resolveWebToken } from "../web/web-token.js";
 import { createUiRoutes } from "./commands/ui.js";
 
 export interface LaunchWebPageOptions {
   path: string;
   query?: Record<string, string>;
   title: string;
-  /** Explicit `--port`; omitted means the daemon picks 3100 or an ephemeral port. */
+  /** Explicit `--port`; omitted means the preferred port (`web.port`, else 7777) or an ephemeral one. */
   port?: number;
   open: boolean;
 }
@@ -22,6 +25,8 @@ export interface LaunchWebPageDependencies {
   startServer?: typeof startWebServer;
   build?: string;
   entry?: string;
+  loadConfig?: () => { web?: unknown };
+  resolveToken?: () => string;
 }
 
 /**
@@ -32,16 +37,19 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
   const client = deps.client ?? new IpcClient();
   const log = deps.log ?? ((message: string) => console.log(message));
   const error = deps.error ?? ((message: string) => console.error(message));
+  const { port: preferredPort, invalid } = resolveWebPort((deps.loadConfig ?? loadConfig)());
+  if (invalid !== undefined) error(invalidWebPortMessage(invalid));
+  const askedPort = options.port ?? preferredPort;
 
   try {
     await client.ensureDaemonStarted();
   } catch {
     error("CodeDeck daemon is unavailable; serving from this process.");
-    return serveInProcess(options, deps, error);
+    return serveInProcess(options, askedPort, deps, error);
   }
 
   const params: WebEnsureParams = {
-    ...(options.port === undefined ? {} : { port: options.port }),
+    ...(options.port === undefined ? { preferredPort } : { port: options.port }),
     build: deps.build ?? computeBuildId(distRootFor(import.meta.url)),
     entry: deps.entry ?? fileURLToPath(new URL("../web/child.js", import.meta.url)),
   };
@@ -51,16 +59,14 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
   } catch (failure) {
     const { code, message, details } = failure as Error & { code?: string; details?: { port?: number } };
     if (code === "WEB_LISTEN_FAILED") {
-      error(`Failed to listen on 127.0.0.1:${details?.port ?? options.port ?? DEFAULT_WEB_PORT}: ${message}`);
+      error(`Failed to listen on 127.0.0.1:${details?.port ?? askedPort}: ${message}`);
       return 1;
     }
     error(`CodeDeck daemon cannot host the web console (${code ?? "UNKNOWN"}); serving from this process.`);
-    return serveInProcess(options, deps, error);
+    return serveInProcess(options, askedPort, deps, error);
   }
 
-  if (options.port !== undefined && web.port !== options.port) {
-    log(`CodeDeck web is already running on port ${web.port}`);
-  }
+  if (web.port !== askedPort) log(`CodeDeck web is running on port ${web.port} instead of ${askedPort}`);
   const url = new URL(options.path, web.baseUrl);
   for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
   url.searchParams.set("t", web.token);
@@ -76,16 +82,18 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
 
 async function serveInProcess(
   options: LaunchWebPageOptions,
+  port: number,
   deps: LaunchWebPageDependencies,
   error: (message: string) => void,
 ): Promise<number> {
   const query = new URLSearchParams(options.query ?? {}).toString();
-  const port = options.port ?? DEFAULT_WEB_PORT;
   try {
     await (deps.startServer ?? startWebServer)({
       routes: createUiRoutes(),
       port,
       fallbackToEphemeral: options.port === undefined,
+      // The same token as the daemon's web child, so neither server's cookie locks out the other.
+      token: (deps.resolveToken ?? resolveWebToken)(),
       initialPath: query ? `${options.path}?${query}` : options.path,
       title: options.title,
       open: options.open,

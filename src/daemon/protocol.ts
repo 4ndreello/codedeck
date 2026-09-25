@@ -232,7 +232,10 @@ export interface QueryUsageRequest {
 }
 
 export interface WebEnsureParams {
+  /** Explicit port (`--port`): used only when a child has to start, never a fallback. */
   port?: number;
+  /** The caller's resolved preferred port (`web.port` or 7777), sent when there is no explicit port. */
+  preferredPort?: number;
   build?: string;
   /** Absolute path of the caller's `dist/web/child.js`; the daemon spawns it as the web child. */
   entry?: string;

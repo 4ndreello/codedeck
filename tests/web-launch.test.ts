@@ -13,16 +13,19 @@ vi.mock("../src/daemon/build-id.js", async (importOriginal) => {
 
 const REPO_ROOT = path.join(import.meta.dirname, "..");
 
-const BASE = { baseUrl: "http://127.0.0.1:3100", port: 3100, token: "tok" };
+const BASE = { baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" };
 
 function ipcError(code: string, message: string, details?: unknown): Error {
   return Object.assign(new Error(message), { code, details });
 }
 
+const TOKEN = "9".repeat(64);
+
 function setup(overrides: {
   ensure?: () => Promise<unknown>;
   start?: () => Promise<void>;
   opener?: boolean;
+  config?: { web?: unknown };
 } = {}) {
   const request = vi.fn(async (_method: string, _params: unknown) => (overrides.ensure ?? (async () => BASE))());
   const ensureDaemonStarted = vi.fn(overrides.start ?? (async () => {}));
@@ -37,6 +40,8 @@ function setup(overrides: {
     log: (message) => logs.push(message),
     error: (message) => errors.push(message),
     build: "build-1",
+    loadConfig: () => overrides.config ?? {},
+    resolveToken: () => TOKEN,
   };
   const launch = (options: Partial<LaunchWebPageOptions> = {}) =>
     launchWebPage({ path: "/review", query: { repo: "/work/app" }, title: "CodeDeck review", open: true, ...options }, deps);
@@ -49,7 +54,7 @@ describe("launchWebPage", () => {
 
     const code = await t.launch();
 
-    const url = "http://127.0.0.1:3100/review?repo=%2Fwork%2Fapp&t=tok";
+    const url = "http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok";
     expect(code).toBe(0);
     expect(t.openBrowser).toHaveBeenCalledWith(url);
     expect(t.logs).toEqual([`CodeDeck review on ${url}`]);
@@ -76,7 +81,7 @@ describe("launchWebPage", () => {
     expect(await t.launch({ open: false })).toBe(0);
 
     expect(t.openBrowser).not.toHaveBeenCalled();
-    expect(t.logs).toEqual(["CodeDeck review on http://127.0.0.1:3100/review?repo=%2Fwork%2Fapp&t=tok"]);
+    expect(t.logs).toEqual(["CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok"]);
   });
 
   it("prints the manual-visit line when the browser cannot open", async () => {
@@ -84,19 +89,61 @@ describe("launchWebPage", () => {
 
     expect(await t.launch()).toBe(0);
 
-    expect(t.logs).toEqual(["Could not open a browser, visit http://127.0.0.1:3100/review?repo=%2Fwork%2Fapp&t=tok manually."]);
+    expect(t.logs).toEqual(["Could not open a browser, visit http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok manually."]);
   });
 
-  it("sends an explicit port, omits a missing one, and notices a different running port", async () => {
-    const t = setup();
+  it("sends an explicit port without preferredPort, and the preferred port without port otherwise", async () => {
+    const t = setup({ config: { web: { port: 7788 } } });
 
     await t.launch({ port: 4200, open: false });
     await t.launch({ open: false });
 
-    expect(t.request.mock.calls[0][1]).toMatchObject({ port: 4200 });
-    expect(t.request.mock.calls[1][1]).not.toHaveProperty("port");
-    expect(t.logs[0]).toBe("CodeDeck web is already running on port 3100");
-    expect(t.logs.filter((line) => line.startsWith("CodeDeck web is already running"))).toHaveLength(1);
+    const [explicit, preferred] = t.request.mock.calls.map(([, params]) => params);
+    expect(explicit).toMatchObject({ port: 4200 });
+    expect(explicit).not.toHaveProperty("preferredPort");
+    expect(preferred).toMatchObject({ preferredPort: 7788, build: "build-1" });
+    expect(preferred).not.toHaveProperty("port");
+  });
+
+  it("prefers 7777 when the config has no web.port", async () => {
+    const t = setup();
+
+    await t.launch({ open: false });
+
+    expect(t.request.mock.calls[0][1]).toMatchObject({ preferredPort: 7777 });
+  });
+
+  it("notices a console on another port than the one asked for, before the page line", async () => {
+    const t = setup({ config: { web: { port: 7788 } } });
+
+    await t.launch({ port: 4200, open: false });
+    await t.launch({ open: false });
+
+    const url = "http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok";
+    expect(t.logs).toEqual([
+      "CodeDeck web is running on port 7777 instead of 4200",
+      `CodeDeck review on ${url}`,
+      "CodeDeck web is running on port 7777 instead of 7788",
+      `CodeDeck review on ${url}`,
+    ]);
+  });
+
+  it("prints no port notice when the console runs on the asked port", async () => {
+    const t = setup();
+
+    await t.launch({ open: false });
+    await t.launch({ port: 7777, open: false });
+
+    expect(t.logs.filter((line) => line.startsWith("CodeDeck web is running on port"))).toEqual([]);
+  });
+
+  it("warns once about an invalid web.port and asks for 7777", async () => {
+    const t = setup({ config: { web: { port: "7788" } } });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual(['Ignoring invalid web.port in config: "7788"']);
+    expect(t.request.mock.calls[0][1]).toMatchObject({ preferredPort: 7777 });
   });
 
   it("reports WEB_LISTEN_FAILED, returns 1 and does not fall back", async () => {
@@ -123,7 +170,18 @@ describe("launchWebPage", () => {
     expect(initial.pathname).toBe("/review");
     expect(initial.searchParams.get("repo")).toBe("/work/my app&co");
     expect(options.fallbackToEphemeral).toBe(true);
-    expect(options.port).toBe(3100);
+    expect(options.port).toBe(7777);
+  });
+
+  it("serves the fallback on the preferred port with ephemeral fallback and the shared token", async () => {
+    const t = setup({ config: { web: { port: 7788 } }, ensure: async () => { throw ipcError("UNKNOWN_METHOD", "nope"); } });
+
+    await t.launch();
+
+    const options = (t.startServer.mock.calls[0] as unknown as [Record<string, any>])[0];
+    expect(options.port).toBe(7788);
+    expect(options.fallbackToEphemeral).toBe(true);
+    expect(options.token).toBe(TOKEN);
   });
 
   it("keeps an explicit port in the fallback and adds no ? for an empty query", async () => {
@@ -135,6 +193,7 @@ describe("launchWebPage", () => {
     expect(options.initialPath).toBe("/setup");
     expect(options.port).toBe(4200);
     expect(options.fallbackToEphemeral).toBe(false);
+    expect(options.token).toBe(TOKEN);
   });
 
   it("serves in-process when the daemon cannot start", async () => {

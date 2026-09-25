@@ -1,7 +1,9 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Daemon, type WebHost } from "../src/daemon/daemon.js";
 import { getPaths } from "../src/config/paths.js";
 import { WebEnsureError, WebSupervisor, type WebChildProcess } from "../src/daemon/web-supervisor.js";
@@ -117,5 +119,77 @@ describe("daemon web.ensure", () => {
 
     expect(children).toHaveLength(2);
     expect(seam(daemon).sessions.get("s1")).toEqual(before);
+  });
+});
+
+describe("daemon web autostart", () => {
+  const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const configDirs: string[] = [];
+  afterEach(() => {
+    if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
+    else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+    for (const dir of configDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function useConfig(config: unknown): void {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-web-autostart-"));
+    configDirs.push(dir);
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(config));
+    process.env.RUN_AGENT_CONFIG_DIR = dir;
+  }
+
+  const daemonLog = () => fs.readFileSync(getPaths().daemonLog, "utf8");
+
+  it("asks the supervisor once for the preferred port from config, with no port, entry or build", async () => {
+    useConfig({ web: { port: 7788 } });
+    const host = fakeHost();
+    daemon = new Daemon({ webSupervisor: host });
+
+    daemon.autostartWeb();
+
+    expect(host.ensure).toHaveBeenCalledTimes(1);
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7788 });
+  });
+
+  it("logs a failed autostart and keeps serving web.ensure", async () => {
+    useConfig({});
+    const hostEnsure = vi.fn()
+      .mockRejectedValueOnce(new WebEnsureError("WEB_START_FAILED", "web child exited before its handshake (code=1)"))
+      .mockResolvedValue({ baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" });
+    daemon = new Daemon({ webSupervisor: fakeHost({ ensure: hostEnsure }) });
+
+    daemon.autostartWeb();
+
+    await vi.waitFor(() => expect(daemonLog()).toMatch(/\] web autostart failed: web child exited before its handshake \(code=1\)\n/));
+    expect(hostEnsure).toHaveBeenNthCalledWith(1, { preferredPort: 7777 });
+    expect((await ensure({})).result).toEqual({ baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" });
+  });
+
+  it("logs an invalid web.port and falls back to 7777", async () => {
+    useConfig({ web: { port: "7788" } });
+    const host = fakeHost();
+    daemon = new Daemon({ webSupervisor: host });
+
+    daemon.autostartWeb();
+
+    expect(daemonLog()).toMatch(/\] Ignoring invalid web.port in config: "7788"\n/);
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777 });
+  });
+
+  it("does not start the web child from start()", async () => {
+    const host = fakeHost();
+    daemon = new Daemon({ webSupervisor: host });
+    (daemon as unknown as { maybeSpawnInhibit: () => void }).maybeSpawnInhibit = () => {};
+
+    await daemon.start();
+
+    expect(host.ensure).not.toHaveBeenCalled();
+  });
+
+  it("autostarts the web console from the --daemon entry after start() resolves", () => {
+    const source = fs.readFileSync(path.join(import.meta.dirname, "..", "src", "daemon", "daemon.ts"), "utf8");
+    const entry = source.slice(source.indexOf('if (process.argv.includes("--daemon"))'));
+
+    expect(entry).toMatch(/d\.start\(\)\.then\(\s*\(\) => d\.autostartWeb\(\),/);
   });
 });

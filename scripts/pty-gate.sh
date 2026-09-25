@@ -18,7 +18,9 @@ WORK="$(mktemp -d)"
 CONFIG_DIR="$(mktemp -d)"
 STATE_DIR="$(mktemp -d)"
 CAPTURE="$WORK/capture"
-trap 'rm -rf "$WORK" "$CONFIG_DIR" "$STATE_DIR"' EXIT
+# The daemon `open` starts outlives this script and would keep holding the
+# console port with a token nobody has, so stop it before removing its state.
+trap 'kill "$(cat "$STATE_DIR/daemon.pid" 2>/dev/null)" 2>/dev/null || true; rm -rf "$WORK" "$CONFIG_DIR" "$STATE_DIR"' EXIT
 
 ROWS="${PTY_GATE_ROWS:-41}"
 COLS="${PTY_GATE_COLS:-137}"

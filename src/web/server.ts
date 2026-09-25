@@ -5,7 +5,9 @@ import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
 import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
-export const DEFAULT_WEB_PORT = 3100;
+import { DEFAULT_WEB_PORT } from "../config/web-port.js";
+
+export { DEFAULT_WEB_PORT };
 
 export interface WebRoute {
   path: string;
@@ -24,6 +26,8 @@ export interface WebServerOptions {
   log?: (message: string) => void;
   serverFactory?: (handler: RequestListener) => Server;
   fallbackToEphemeral?: boolean;
+  /** Token the server accepts; a fresh random one when omitted. */
+  token?: string;
   signalTarget?: EventEmitter;
   closeServer?: () => Promise<void> | void;
   exit?: (code: number) => void;
@@ -38,7 +42,10 @@ export interface CreateWebServerOptions {
 export interface ListenWebServerOptions {
   routes: readonly WebRoute[];
   port?: number;
+  /** Retry on an OS-assigned port after any listen error on `port`. */
   fallbackToEphemeral?: boolean;
+  /** Token the server accepts; a fresh random one when omitted. */
+  token?: string;
   serverFactory?: (handler: RequestListener) => Server;
 }
 
@@ -123,7 +130,7 @@ export async function listenWebServer(options: ListenWebServerOptions): Promise<
   try {
     await listen(server, requestedPort);
   } catch (error) {
-    if (!options.fallbackToEphemeral || (error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    if (!options.fallbackToEphemeral) throw error;
     await listen(server, 0);
   }
 
@@ -133,7 +140,7 @@ export async function listenWebServer(options: ListenWebServerOptions): Promise<
     throw new Error("Web server did not return a TCP address");
   }
 
-  security = createWebSecurity(address.port);
+  security = createWebSecurity(address.port, options.token);
   let closing: Promise<void> | undefined;
   return {
     server,
@@ -169,6 +176,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     routes: options.routes,
     port: options.port,
     fallbackToEphemeral: options.fallbackToEphemeral,
+    token: options.token,
     serverFactory: options.serverFactory,
   });
   const { server, address, security, baseUrl } = listening;

@@ -55,7 +55,7 @@ export function registerUiCommand(program: Command, dependencies: UiCommandDepen
   program
     .command("ui")
     .description("Open the local CodeDeck console")
-    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--port <n>", "port for a new console (default: web.port from config, else 7777)")
     .option("--no-open", "print the console URL without opening a browser")
     .action(async (opts: UiCommandOptions) => {
       let port: number | undefined;

@@ -93,7 +93,7 @@ export function registerReviewCommand(program: Command, dependencies: ReviewComm
   program
     .command("review")
     .description("Open a local review of the current git changes")
-    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--port <n>", "port for a new console (default: web.port from config, else 7777)")
     .option("--no-open", "print the review URL without opening a browser")
     .action(async (opts: ReviewCommandOptions) => {
       let port: number | undefined;

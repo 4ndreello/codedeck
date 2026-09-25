@@ -16,7 +16,9 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CAPTURE="$(mktemp)"
 CONFIG_DIR="$(mktemp -d)"
 STATE_DIR="$(mktemp -d)"
-trap 'rm -rf "$CAPTURE" "$CONFIG_DIR" "$STATE_DIR"' EXIT
+# Stop the daemon this run started before removing its state; left running, it
+# would keep holding the console port with a token nobody has.
+trap 'kill "$(cat "$STATE_DIR/daemon.pid" 2>/dev/null)" 2>/dev/null || true; rm -rf "$CAPTURE" "$CONFIG_DIR" "$STATE_DIR"' EXIT
 
 # Same reason as the theme gate: an empty `models` key means the wizard never
 # opens, so the session paints instead of waiting on a question.

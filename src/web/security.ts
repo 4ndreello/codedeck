@@ -13,10 +13,11 @@ export interface WebRoutePolicy {
 }
 
 export const WEB_FORBIDDEN_MESSAGE = "forbidden";
-export const WEB_PAGE_FORBIDDEN_MESSAGE = "open this page with codedeck ui";
+export const WEB_PAGE_FORBIDDEN_MESSAGE = 'Run "codedeck ui" once in a terminal to open CodeDeck in this browser.';
+/** One year: a bookmark keeps working as long as the page is opened at least once a year. */
+export const WEB_COOKIE_MAX_AGE_SECONDS = 31_536_000;
 
-export function createWebSecurity(port: number): WebSecurity {
-  const token = randomBytes(32).toString("hex");
+export function createWebSecurity(port: number, token = randomBytes(32).toString("hex")): WebSecurity {
   return {
     port,
     token,
@@ -60,11 +61,13 @@ export function checkWebRequest(
   if (policy.htmlPage) {
     response.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
     if (request.method === "GET") {
+      if (redirectToCanonicalHost(request, response, security)) return false;
       if (redirectWithSessionCookie(request, response, security)) return false;
       if (!hasSessionCookie(request, security)) {
         reject(response, WEB_PAGE_FORBIDDEN_MESSAGE);
         return false;
       }
+      response.setHeader("Set-Cookie", sessionCookie(security));
     }
   }
 
@@ -114,11 +117,31 @@ function redirectWithSessionCookie(
   if (tokens.length !== 1 || tokens[0] !== security.token) return false;
 
   url.searchParams.delete("t");
-  response.setHeader(
-    "Set-Cookie",
-    `${security.cookieName}=${security.token}; Path=/; HttpOnly; SameSite=Strict`,
-  );
+  response.setHeader("Set-Cookie", sessionCookie(security));
   response.writeHead(303, { Location: `${url.pathname}${url.search}` });
+  response.end();
+  return true;
+}
+
+function sessionCookie(security: WebSecurity): string {
+  return `${security.cookieName}=${security.token}; Path=/; Max-Age=${WEB_COOKIE_MAX_AGE_SECONDS}; HttpOnly; SameSite=Strict`;
+}
+
+// A cookie set for 127.0.0.1 is never sent to localhost (RFC 6265 5.1.3), so
+// pages live on 127.0.0.1 only and a localhost bookmark is sent there.
+function redirectToCanonicalHost(
+  request: IncomingMessage,
+  response: ServerResponse,
+  security: WebSecurity,
+): boolean {
+  if (request.headers.host?.toLowerCase() !== `localhost:${security.port}`) return false;
+  let url: URL;
+  try {
+    url = new URL(request.url || "/", `http://127.0.0.1:${security.port}`);
+  } catch {
+    return false;
+  }
+  response.writeHead(302, { Location: `http://127.0.0.1:${security.port}${url.pathname}${url.search}` });
   response.end();
   return true;
 }

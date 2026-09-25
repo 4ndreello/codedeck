@@ -6,6 +6,7 @@ import { createCliProgram } from "../src/cli/index.js";
 import { createUiRoutes, registerUiCommand } from "../src/cli/commands/ui.js";
 import { registerSetupCommand } from "../src/cli/commands/setup.js";
 import { registerUsageCommand } from "../src/cli/commands/usage.js";
+import { registerReviewCommand } from "../src/cli/commands/review.js";
 import { DEFAULT_CONFIG, serializeConfig, type SetupConfigRead } from "../src/config/config.js";
 import type { BatchModelsOptions, BatchModelsResult } from "../src/core/models.js";
 import type { UsageQueryResult } from "../src/daemon/protocol.js";
@@ -292,5 +293,22 @@ describe("setup and usage web commands", () => {
     expect(usageIpc.request).toHaveBeenCalledWith("usage.get", { runId: "run-web" });
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(summary);
     expect(launch).not.toHaveBeenCalled();
+  });
+});
+
+describe("web command --port help", () => {
+  it.each([
+    ["review", registerReviewCommand],
+    ["setup", registerSetupCommand],
+    ["usage", registerUsageCommand],
+    ["ui", registerUiCommand],
+  ] as const)("%s describes the console port", (name, register) => {
+    const program = new Command();
+    register(program);
+    const command = program.commands.find((candidate) => candidate.name() === name)!;
+
+    const option = command.options.find((candidate) => candidate.long === "--port")!;
+
+    expect(option.description).toBe("port for a new console (default: web.port from config, else 7777)");
   });
 });

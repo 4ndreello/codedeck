@@ -35,19 +35,26 @@ Persistência: `sessions` + `events(seq)` monotônico, `raw_payload` preservado.
 
 ## Console web (`web.ensure`)
 
-O daemon não abre porta HTTP. Ele supervisiona um processo filho
+O daemon não abre porta HTTP. Ele sobe, logo depois de iniciar, um processo filho
 (`dist/web/child.js --web-child`) que serve o console inteiro: `/`, `/review`,
 `/setup`, `/usage` e as rotas `/api/*`. `codedeck ui`, `review`, `setup` e
 `usage --web` pedem esse filho ao daemon, abrem ou imprimem a URL e voltam para
-o shell.
+o shell. Se o start junto com o daemon falhar, o `daemon.log` recebe
+`web autostart failed: <message>` e o próximo `web.ensure` tenta de novo.
 
 Request:
 ```json
-{ "id": "w1", "method": "web.ensure", "params": { "port": 3100, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
+{ "id": "w1", "method": "web.ensure", "params": { "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
 ```
 
-- `port` (opcional): porta explícita (`--port`). Sem ela, o filho tenta 3100 e
-  cai numa porta efêmera se 3100 estiver ocupada.
+- `port` (opcional): porta explícita (`--port`). Só vale quando um filho
+  precisa subir, e nunca cai para outra porta. Um filho já rodando é
+  reaproveitado em qualquer porta.
+- `preferredPort` (opcional): a porta preferida de quem chamou, `web.port` do
+  `config.json` ou 7777. O filho escuta nela e cai numa porta efêmera com
+  qualquer erro de listen. Um pedido com `preferredPort` e sem `port` reinicia
+  o filho que não subiu para essa mesma porta preferida. Sem nenhum dos dois, o
+  filho atual é reaproveitado.
 - `build` (opcional): identidade do build do chamador, o maior `mtime` dos
   `.js` na árvore `dist/` dele.
 - `entry` (opcional): caminho absoluto do `dist/web/child.js` do chamador. Sem
@@ -55,12 +62,20 @@ Request:
 
 Response:
 ```json
-{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:3100", "port": 3100, "token": "..." } }
+{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:7777", "port": 7777, "token": "..." } }
 ```
 
 A página abre em `<baseUrl><path>?<query>&t=<token>`. O token vira cookie
-(`303` sem `t`), e toda rota `/api/*` exige esse cookie. Uma página aberta sem
-token nem cookie responde `403 open this page with codedeck ui`. O review
+(`303` sem `t`, `Max-Age` de 365 dias, renovado a cada página servida), e toda
+rota `/api/*` exige esse cookie. Uma página aberta sem token nem cookie responde
+`403 Run "codedeck ui" once in a terminal to open CodeDeck in this browser.`
+Uma página pedida em `localhost:<port>` responde `302` para `127.0.0.1:<port>`,
+porque o cookie de `127.0.0.1` não vai para `localhost`.
+
+O token fica em `~/.run-agent/web-token` (modo 0600) e vale para todo servidor
+do console, inclusive o fallback no próprio processo, então um bookmark
+sobrevive a restarts do filho e do daemon. Para trocar o token, apague o arquivo:
+o próximo filho que subir grava um novo. O review
 recebe o repositório em `?repo=<cwd>`, porque o filho não roda no cwd de quem
 chamou.
 
@@ -74,7 +89,10 @@ Erros:
 
 Ciclo de vida do filho:
 
-- Existe no máximo um filho. Pedidos simultâneos compartilham o mesmo start.
+- Existe no máximo um filho e no máximo um start por vez. Um pedido que chega
+  durante um start espera ele terminar e decide pelos próprios parâmetros.
+- Argumentos do filho: `--port <n>` (explícita, sem fallback),
+  `--preferred-port <n>` (fallback efêmero) ou nenhum (7777 com fallback).
 - Handshake: a primeira linha do stdout do filho é `{ port, token, build }` ou
   `{ error: { message, port } }`. O stderr vai para `~/.run-agent/logs/web-child.log`.
 - Se `build` ou `entry` do pedido diferem do filho atual, o daemon manda

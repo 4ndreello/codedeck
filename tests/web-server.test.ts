@@ -41,9 +41,9 @@ function testRoutes(seen: string[]): WebRoute[] {
 }
 
 describe("parseWebPort", () => {
-  it("defaults to 3100 and accepts integer ports in range", () => {
-    expect(DEFAULT_WEB_PORT).toBe(3100);
-    expect(parseWebPort(undefined)).toBe(3100);
+  it("defaults to 7777 and accepts integer ports in range", () => {
+    expect(DEFAULT_WEB_PORT).toBe(7777);
+    expect(parseWebPort(undefined)).toBe(7777);
     expect(parseWebPort("8080")).toBe(8080);
     expect(parseWebPort("65535")).toBe(65535);
   });
@@ -257,6 +257,58 @@ describe("listenWebServer", () => {
 
     expect(listening.port).not.toBe(port);
     expect(listening.port).toBeGreaterThan(0);
+  });
+
+  it("falls back to another port after a listen error other than EADDRINUSE when fallback is on", async () => {
+    const serverFactory = (handler: http.RequestListener) => {
+      const server = http.createServer({ requireHostHeader: false }, handler);
+      const realListen = server.listen.bind(server) as (...args: unknown[]) => http.Server;
+      let refused = false;
+      server.listen = ((...args: unknown[]) => {
+        if (refused) return realListen(...args);
+        refused = true;
+        process.nextTick(() => server.emit("error", Object.assign(new Error("listen EACCES: permission denied"), { code: "EACCES" })));
+        return server;
+      }) as typeof server.listen;
+      return server;
+    };
+
+    const listening = await listenWebServer({ routes: testRoutes([]), port: 80, fallbackToEphemeral: true, serverFactory });
+    listeners.push(listening);
+
+    expect(listening.port).not.toBe(80);
+    expect(listening.port).toBeGreaterThan(0);
+  });
+
+  it("serves with an injected token and draws a random one otherwise", async () => {
+    const token = "c".repeat(64);
+    const injected = await listenWebServer({ routes: testRoutes([]), port: 0, token });
+    const drawn = await listenWebServer({ routes: testRoutes([]), port: 0 });
+    listeners.push(injected, drawn);
+
+    expect(injected.security.token).toBe(token);
+    expect(drawn.security.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(drawn.security.token).not.toBe(token);
+    const accepted = await fetch(`${injected.baseUrl}/api/test`, { headers: { cookie: `codedeck_ui_token_${injected.port}=${token}` } });
+    expect(accepted.status).toBe(200);
+  });
+
+  it("passes an injected token through startWebServer", async () => {
+    const token = "d".repeat(64);
+    const handle = await startWebServer({
+      routes: testRoutes([]),
+      port: 0,
+      token,
+      initialPath: "/",
+      open: false,
+      log: vi.fn(),
+      signalTarget: new EventEmitter(),
+      exit: vi.fn(),
+    });
+    handles.push(handle);
+
+    expect(handle.security.token).toBe(token);
+    expect(new URL(handle.initialUrl).searchParams.get("t")).toBe(token);
   });
 
   it("rejects with the listen error when the port is busy and fallback is off", async () => {
