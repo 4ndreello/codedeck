@@ -4,24 +4,15 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Readable, Writable } from "node:stream";
 import { getPaths } from "../config/paths.js";
+import type { WebEnsureParams, WebEnsureResult } from "./protocol.js";
 
 // The daemon never imports the web server itself (WD-28): it only spawns and watches
 // the child that serves the console, so an HTTP failure cannot take the daemon down.
 
+export type { WebEnsureParams, WebEnsureResult };
+
 export const WEB_START_TIMEOUT_MS = 5000;
 export const WEB_STOP_TIMEOUT_MS = 3000;
-
-export interface WebEnsureParams {
-  port?: number;
-  build?: string;
-  entry?: string;
-}
-
-export interface WebEnsureResult {
-  baseUrl: string;
-  port: number;
-  token: string;
-}
 
 export type WebEnsureErrorCode = "WEB_LISTEN_FAILED" | "WEB_START_FAILED" | "WEB_BAD_ENTRY";
 

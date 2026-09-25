@@ -379,14 +379,15 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `web.ensure` via the seam with an injected supervisor returns its result
-- [ ] Supervisor `WebEnsureError` → IPC error with the same `code`, `message`, `details`
-- [ ] `handleShutdown` calls `close()` on the supervisor before marking sessions
-- [ ] A seeded `working` session is unchanged after `web.ensure` calls that restart the child
-- [ ] Gate check passes: `npx vitest run tests/daemon-web.test.ts`, `npx vitest run tests/web-supervisor.test.ts`, `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
+- [x] `web.ensure` via the seam with an injected supervisor returns its result
+- [x] Supervisor `WebEnsureError` → IPC error with the same `code`, `message`, `details`
+- [x] `handleShutdown` calls `close()` on the supervisor before marking sessions
+- [x] A seeded `working` session is unchanged after `web.ensure` calls that restart the child
+- [x] Gate check passes: `npx vitest run tests/daemon-web.test.ts`, `npx vitest run tests/web-supervisor.test.ts`, `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `feat(daemon): Host the web console through web.ensure`
 

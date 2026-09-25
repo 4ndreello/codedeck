@@ -9,7 +9,8 @@ import { EventStore } from "../store/events.js";
 import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
-import type { IpcRequest, IpcResponse, UsageQueryParams } from "./protocol.js";
+import type { IpcRequest, IpcResponse, UsageQueryParams, WebEnsureParams, WebEnsureResult } from "./protocol.js";
+import { WebEnsureError, WebSupervisor } from "./web-supervisor.js";
 import { getRegistry } from "../drivers/registry.js";
 import { isActiveStatus, isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
@@ -93,6 +94,21 @@ function livePidIdentity(s: Session): boolean {
   );
 }
 
+export interface WebHost {
+  ensure(params: WebEnsureParams): Promise<WebEnsureResult>;
+  close(): void;
+}
+
+export interface DaemonOptions {
+  webSupervisor?: WebHost;
+}
+
+function appendDaemonLog(line: string): void {
+  try {
+    fs.appendFileSync(getPaths().daemonLog, `[${new Date().toISOString()}] ${line}\n`);
+  } catch {}
+}
+
 class Daemon {
   private db: Database;
   private sessions: SessionStore;
@@ -114,6 +130,8 @@ class Daemon {
   // Best-effort delay-lock child (systemd-inhibit), alive for the daemon's
   // whole life when the binary exists; killed after TRUNCATE in the drain.
   private inhibitChild: ChildProcess | null = null;
+  // Supervisor of the web console child, created on the first web.ensure.
+  private web?: WebHost;
   private inhibitExitHookInstalled = false;
   private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
   private inFlightOpenUsageReconciliations = new Map<string, Promise<boolean>>();
@@ -291,7 +309,8 @@ class Daemon {
     return promise;
   }
 
-  constructor() {
+  constructor(options: DaemonOptions = {}) {
+    this.web = options.webSupervisor;
     ensureDirs();
     this.db = new Database();
     const handle = this.db.getHandle();
@@ -1349,6 +1368,21 @@ class Daemon {
         break;
       }
 
+      case "web.ensure": {
+        const p = (params || {}) as WebEnsureParams;
+        this.web ??= new WebSupervisor({ log: appendDaemonLog });
+        try {
+          send({ result: await this.web.ensure(p) });
+        } catch (error) {
+          if (error instanceof WebEnsureError) {
+            send({ error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) } });
+          } else {
+            send({ error: { code: "WEB_START_FAILED", message: error instanceof Error ? error.message : String(error) } });
+          }
+        }
+        break;
+      }
+
       case "daemon.stop": {
         send({ result: { ok: true } });
         void this.handleShutdown("daemon.stop").finally(() => process.exit(0));
@@ -1852,6 +1886,8 @@ class Daemon {
   }
 
   private async runShutdown(reason: string): Promise<void> {
+    // SIGTERM only; the web child holds no state worth waiting for.
+    try { this.web?.close(); } catch {}
     const handle = this.db.getHandle();
     // Never close mid-transaction: roll back a stale BEGIN (best-effort)
     // BEFORE persisting, so the interrupted writes below stay durable.
