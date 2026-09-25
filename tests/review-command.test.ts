@@ -8,8 +8,8 @@ import { EventEmitter } from "node:events";
 afterEach(() => vi.restoreAllMocks());
 
 describe("parseReviewPort", () => {
-  it("defaults to 3100", () => {
-    expect(parseReviewPort(undefined)).toBe(3100);
+  it("defaults to 7777", () => {
+    expect(parseReviewPort(undefined)).toBe(7777);
   });
 
   it("accepts a valid port", () => {

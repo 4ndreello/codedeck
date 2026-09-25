@@ -123,7 +123,7 @@ describe("launchWebPage", () => {
     expect(initial.pathname).toBe("/review");
     expect(initial.searchParams.get("repo")).toBe("/work/my app&co");
     expect(options.fallbackToEphemeral).toBe(true);
-    expect(options.port).toBe(3100);
+    expect(options.port).toBe(7777);
   });
 
   it("keeps an explicit port in the fallback and adds no ? for an empty query", async () => {

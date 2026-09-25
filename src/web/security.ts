@@ -17,8 +17,7 @@ export const WEB_PAGE_FORBIDDEN_MESSAGE = 'Run "codedeck ui" once in a terminal 
 /** One year: a bookmark keeps working as long as the page is opened at least once a year. */
 export const WEB_COOKIE_MAX_AGE_SECONDS = 31_536_000;
 
-export function createWebSecurity(port: number): WebSecurity {
-  const token = randomBytes(32).toString("hex");
+export function createWebSecurity(port: number, token = randomBytes(32).toString("hex")): WebSecurity {
   return {
     port,
     token,

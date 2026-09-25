@@ -114,21 +114,22 @@ T8 → T9 → T10
 ### T3: Accept an injected token and fall back on any listen error
 
 **What**: `listenWebServer` / `startWebServer` take an optional `token`; `createWebSecurity(port, token?)` keeps a random default. With `fallbackToEphemeral`, any listen error retries on port 0. `DEFAULT_WEB_PORT` becomes 7777.
-**Where**: `src/web/server.ts`, `src/web/security.ts`
+**Where**: `src/web/server.ts`, `src/web/security.ts`; the 3100 pins in `tests/review-command.test.ts` and `tests/web-launch.test.ts` move with the constant
 **Depends on**: T2
 **Reuses**: existing `listen` helper
 **Requirement**: WA-01, WA-18, WA-21
 
 **Done when**:
 
-- [ ] Injected token → served and required by the cookie check; omitted → random 64-hex token
-- [ ] `fallbackToEphemeral` + `EADDRINUSE` and + a non-`EADDRINUSE` listen error (injected server factory) → listens on an OS port
-- [ ] No fallback → the listen error propagates
-- [ ] `DEFAULT_WEB_PORT` is 7777
-- [ ] Gate check passes: `npx vitest run tests/web-server.test.ts`; `npx vitest run tests/web-security.test.ts`; `npx tsc --noEmit`
+- [x] Injected token → served and required by the cookie check; omitted → random 64-hex token
+- [x] `fallbackToEphemeral` + `EADDRINUSE` and + a non-`EADDRINUSE` listen error (injected server factory) → listens on an OS port
+- [x] No fallback → the listen error propagates
+- [x] `DEFAULT_WEB_PORT` is 7777
+- [x] Gate check passes: `npx vitest run tests/web-server.test.ts`; `npx vitest run tests/web-security.test.ts`; `npx tsc --noEmit`
 
 **Tests**: integration
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Serve on 7777 with an injectable token`
 
@@ -264,7 +265,6 @@ T8 → T9 → T10
 **Done when**:
 
 - [ ] Each command's help contains the WA-23 text
-- [ ] `parseReviewPort(undefined)` is 7777
 - [ ] Gate check passes: `npx vitest run tests/web-cli.test.ts`; `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
