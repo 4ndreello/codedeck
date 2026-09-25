@@ -269,11 +269,12 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] Each command's help contains the WA-23 text
-- [ ] Gate check passes: `npx vitest run tests/web-cli.test.ts`; `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
+- [x] Each command's help contains the WA-23 text
+- [x] Gate check passes: `npx vitest run tests/web-cli.test.ts`; `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(cli): Describe the console port in --port help`
 

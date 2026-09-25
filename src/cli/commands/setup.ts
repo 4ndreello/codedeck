@@ -1301,7 +1301,7 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .allowExcessArguments(true)
     .option("--refresh", "ignore the cached catalog and rediscover")
     .option("--tui", "use the frozen terminal setup wizard")
-    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--port <n>", "port for a new console (default: web.port from config, else 7777)")
     .option("--no-open", "print the setup URL without opening a browser")
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")

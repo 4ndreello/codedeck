@@ -213,7 +213,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-20 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-21 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-22 | P2: Fixed, configurable port | Tasks | Verified |
-| WA-23 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-23 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-24 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-25 | P2: Fixed, configurable port | Tasks | Verified |
 

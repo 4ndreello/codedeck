@@ -151,7 +151,7 @@ export function registerUsageCommand(program: Command, dependencies: UsageComman
     .option("--transcript <nativeId=path>", "report live orchestrator transcript tokens")
     .option("--backfill", "import historical orchestrator usage")
     .option("--web", "open aggregate usage in the browser")
-    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--port <n>", "port for a new console (default: web.port from config, else 7777)")
     .option("--no-open", "print the usage URL without opening a browser")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
