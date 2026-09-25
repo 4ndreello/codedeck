@@ -359,7 +359,8 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
       return;
     }
     target.textContent = text;
-    if (!ui.rendered) {
+    // The first ready render replaces skeleton text, so it fades in too.
+    if (state.loading || !state.target) {
       target.className = base;
       return;
     }
@@ -492,6 +493,14 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
   function supportedEfforts(harness: string, model: string): string[] | undefined {
     const listed = catalogModel(harness, model)?.reasoningEfforts?.filter((effort) => efforts.includes(effort));
     return listed && listed.length > 0 ? listed : undefined;
+  }
+
+  // The catalog name reads better than the id, but the id is what the harness
+  // receives, so it stays visible next to the name.
+  function modelText(harness: string, model: string, titleClass: string, idClass: string): string {
+    const name = catalogModel(harness, model)?.name;
+    if (!name || name === model) return `<span class="${titleClass} mono">${escapeHtml(model)}</span>`;
+    return `<span class="${titleClass}">${escapeHtml(name)}</span><span class="${idClass} mono">${escapeHtml(model)}</span>`;
   }
 
   function isOffCatalog(harness: string, model: string): boolean {
@@ -791,11 +800,11 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
   }
 
   function bindingHtml(role: Role): string {
-    if (state.loading || !state.target) return `<span class="model-empty">Loading</span>${icon("chevron-down", "chev")}`;
+    if (state.loading || !state.target) return `<span class="model-sk"><span class="sr-only">Loading</span></span>${icon("chevron-down", "chev")}`;
     const current = draft.agents[role];
     if (!current) return `<span class="model-body"><span class="model-empty">Choose a model</span></span>${icon("chevron-down", "chev")}`;
     const off = modelChanged(role, savedDraft()) && isOffCatalog(current.harness, current.model);
-    return `<span class="model-body">${chip(current.harness)}<span class="model-name mono">${escapeHtml(current.model)}</span>${off ? '<span class="tag warn">not in catalog</span>' : ""}</span>${icon("chevron-down", "chev")}`;
+    return `<span class="model-body">${chip(current.harness)}<span class="model-text">${modelText(current.harness, current.model, "model-title", "model-id")}</span>${off ? '<span class="tag warn">not in catalog</span>' : ""}</span>${icon("chevron-down", "chev")}`;
   }
 
   function roleStateHtml(role: Role, saved: SetupDraft): string {
@@ -807,9 +816,9 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     const was = !previous
       ? "not set"
       : modelChanged(role, saved)
-        ? previous.model
+        ? catalogModel(previous.harness, previous.model)?.name || previous.model
         : `${previous.effort || "default"} effort`;
-    return `<span class="was">was <span class="mono">${escapeHtml(was)}</span></span><button type="button" class="link-btn" data-act="revert" data-role="${role}">${icon("undo-2")}Undo</button>`;
+    return `<span class="was">was <span class="was-value">${escapeHtml(was)}</span></span><button type="button" class="link-btn" data-act="revert" data-role="${role}">${icon("undo-2")}Undo</button>`;
   }
 
   function pickerEntries() {
@@ -817,7 +826,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     const query = ui.pickerQuery.trim().toLowerCase();
     const current = role ? draft.agents[role] : undefined;
     const saved = role ? savedDraft().agents[role] : undefined;
-    const groups: Array<{ harness: string; note: string; off: boolean; items: Array<{ harness: string; model: string; name: string; saved: boolean; selected: boolean; custom: boolean }> }> = [];
+    const groups: Array<{ harness: string; note: string; off: boolean; items: Array<{ harness: string; model: string; saved: boolean; selected: boolean; custom: boolean }> }> = [];
     for (const harness of harnesses) {
       const entry = harnessEntry(harness);
       if (!entry || !entry.available) {
@@ -845,7 +854,6 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
         items: matching.map((model) => ({
           harness,
           model: model.id,
-          name: model.name && model.name !== model.id ? model.name : "",
           saved: saved?.harness === harness && saved.model === model.id,
           selected: current?.harness === harness && current.model === model.id,
           custom: false,
@@ -858,7 +866,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
         harness: typed[1]!,
         note: "",
         off: false,
-        items: [{ harness: typed[1]!, model: typed[2]!.trim(), name: "", saved: false, selected: false, custom: true }],
+        items: [{ harness: typed[1]!, model: typed[2]!.trim(), saved: false, selected: false, custom: true }],
       });
     }
     return { groups, items: groups.flatMap((group) => group.items) };
@@ -880,7 +888,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
       const head = `<div class="pk-head${group.off ? " off" : ""}">${chip(group.harness)}<span class="pk-note">${escapeHtml(group.note)}</span></div>`;
       const options = group.items.map((item) => {
         const id = index++;
-        return `<button type="button" id="picker-opt-${id}" class="pk-item${item.selected ? " sel" : ""}${id === ui.pickerIndex ? " kbd" : ""}" role="option" aria-selected="${item.selected}" data-act="pick" data-harness="${escapeHtml(item.harness)}" data-model="${escapeHtml(item.model)}"><span class="pk-model mono">${escapeHtml(item.model)}</span>${item.name ? `<span class="pk-name">${escapeHtml(item.name)}</span>` : ""}${item.saved ? '<span class="tag">saved</span>' : ""}${item.selected ? icon("check", "pk-check") : ""}</button>`;
+        return `<button type="button" id="picker-opt-${id}" class="pk-item${item.selected ? " sel" : ""}${id === ui.pickerIndex ? " kbd" : ""}" role="option" aria-selected="${item.selected}" data-act="pick" data-harness="${escapeHtml(item.harness)}" data-model="${escapeHtml(item.model)}">${modelText(item.harness, item.model, "pk-title", "pk-id")}${item.saved ? '<span class="tag">saved</span>' : ""}${item.selected ? icon("check", "pk-check") : ""}</button>`;
       }).join("");
       return `<div class="pk-group">${head}${options}</div>`;
     }).join("");
@@ -1556,7 +1564,7 @@ function renderRoleRow(role: Role): string {
     `<button id="effort-${role}-${effort}" class="seg" type="button" role="radio" aria-checked="false" aria-label="${effort}" title="${effort}" data-act="effort" data-role="${role}" data-value="${effort}" disabled></button>`).join("");
   return `<div id="role-row-${role}" class="r-row" role="row">
         <div class="r-role" role="cell"><span class="r-dot" aria-hidden="true"></span><div><div class="r-name">${capitalize(role)}</div><div class="r-desc">${ROLE_COPY[role]}</div></div></div>
-        <div class="r-model" role="cell"><button id="binding-${role}" class="model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" data-act="open-picker" data-role="${role}" disabled><span class="model-empty">Loading</span>${icon("chevron-down", "chev")}</button></div>
+        <div class="r-model" role="cell"><button id="binding-${role}" class="model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" data-act="open-picker" data-role="${role}" disabled><span class="model-sk"><span class="sr-only">Loading</span></span>${icon("chevron-down", "chev")}</button></div>
         <div class="r-effort" role="cell"><div id="effort-${role}" class="meter lvl-0" role="radiogroup" aria-label="Reasoning effort for ${role}"><span class="meter-segs">${segments}</span><span id="effort-label-${role}" class="meter-label"></span><span id="effort-note-${role}" class="meter-note"></span></div></div>
         <div id="role-state-${role}" class="r-state" role="cell"></div>
       </div>`;
@@ -1739,7 +1747,12 @@ h1,h2,h3,p{margin:0}h1,h2{text-wrap:balance}
 .model-trigger[aria-expanded="true"]{border-color:var(--blue)}
 .model-trigger:disabled{opacity:.6}
 .model-body{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
-.model-name{flex:1;min-width:0;font-size:12px;overflow-wrap:anywhere}
+.model-text{display:flex;align-items:baseline;gap:8px;flex:1;min-width:0}
+.model-title{flex:none;max-width:100%;overflow:hidden;color:var(--text);font-size:12.5px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.model-title.mono{flex:0 1 auto;font-size:12px;font-weight:400;white-space:normal;overflow-wrap:anywhere}
+.model-id{flex:0 1 auto;min-width:0;overflow:hidden;color:var(--text-faint);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.model-sk{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.model-sk::before{content:"";flex:none;width:22px;height:22px;border-radius:6px}.model-sk::after{content:"";width:min(46%,220px);height:10px;border-radius:4px}
 .model-empty{flex:1;color:var(--text-faint);font-size:12px}
 .chev{width:14px;height:14px;color:var(--text-faint);transition:transform .2s var(--ease)}.model-trigger[aria-expanded="true"] .chev{transform:rotate(180deg)}
 .ready .model-body,.ready .r-state>*{animation:cd-in-a .26s var(--ease)}
@@ -1758,7 +1771,7 @@ ${LEVEL_RULES}
 .meter.unbound .meter-note{margin-left:8px}
 .r-state{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;font-size:12px}
 .state-note{display:inline-flex;align-items:center;gap:5px;color:var(--text-faint)}.state-note .ico{width:13px;height:13px}
-.was{color:var(--text-faint);overflow-wrap:anywhere}.was .mono{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--text-faint)}
+.was{color:var(--text-faint);overflow-wrap:anywhere}.was-value{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--text-faint)}
 .link-btn{display:inline-flex;align-items:center;gap:4px;padding:2px 4px;margin-left:-4px;border:0;border-radius:4px;background:none;color:var(--text-muted);font-size:12px}
 .link-btn .ico{width:13px;height:13px}.link-btn:hover{color:var(--text)}
 .bottom{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:48px}
@@ -1876,8 +1889,9 @@ ${PICK_RULES}
 .pk-note{min-width:0;color:var(--text-faint);font-size:11px;text-align:right;overflow-wrap:anywhere}
 .pk-item{display:flex;align-items:center;gap:8px;width:100%;padding:7px 8px 7px 34px;border:0;border-radius:5px;background:none;color:var(--text-muted);font-size:12px;text-align:left}
 .pk-item:hover,.pk-item.kbd{background:var(--surface-raised);color:var(--text)}
-.pk-model{min-width:0;overflow-wrap:anywhere}.pk-name{flex:1;min-width:64px;overflow:hidden;color:var(--text-faint);font-size:11px;text-align:right;text-overflow:ellipsis;white-space:nowrap}
-.pk-item .tag{margin-left:auto}.pk-name+.tag{margin-left:0}
+.pk-title{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pk-title.mono{flex:0 1 auto;max-width:none;white-space:normal;overflow-wrap:anywhere}
+.pk-id{flex:1;min-width:40px;overflow:hidden;color:var(--text-faint);font-size:11px;text-align:right;text-overflow:ellipsis;white-space:nowrap}
+.pk-item .tag{margin-left:auto}.pk-id+.tag{margin-left:0}
 .pk-item.sel{color:var(--text)}.pk-check{width:14px;height:14px;color:var(--blue-text)}
 .pk-custom{justify-content:space-between;padding-left:8px}
 .pk-empty{margin:0;padding:12px;color:var(--text-faint);font-size:12px}
@@ -1889,6 +1903,16 @@ ${PICK_RULES}
 @keyframes cd-in-b{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @keyframes cd-spin{to{transform:rotate(360deg)}}
 @keyframes cd-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+.loading .model-sk::before,.loading .model-sk::after,.loading .seg::before,.loading .r-state::before,.loading .rt-copy::before,.loading .rt-copy::after,.loading .switch,.loading .num,.loading #setup-config-path,.loading .catalog-text,.loading .policy-caption,.loading .cmp-custom-label,.loading .sb-status{color:transparent!important;background:linear-gradient(90deg,#141414 0%,#232323 50%,#141414 100%);background-size:200% 100%;animation:cd-shimmer 1.4s linear infinite;user-select:none}
+.loading #setup-config-path,.loading .catalog-text,.loading .policy-caption,.loading .cmp-custom-label,.loading .sb-status{border-radius:4px}
+.loading .policy-caption{width:min(100%,420px)}
+.loading .seg:disabled::before,.loading .switch:disabled,.loading .num:disabled{opacity:1}
+.loading .r-state::before{content:"";width:52px;height:10px;border-radius:4px}
+.loading .rt-copy::before,.loading .rt-copy::after{content:"";display:block;width:min(100%,300px);height:10px;margin-top:5px;border-radius:4px}.loading .rt-copy::after{width:min(70%,190px)}
+.loading .switch,.loading .num{border-color:transparent}.loading .switch::after{opacity:0}.loading .num::placeholder{color:transparent}
+.loading .cmp-hl,.loading .pick-thumb{opacity:0}.loading .cmp-picks .cmp-pick{color:var(--border-strong)!important}.loading .cmp-custom-label{min-width:60px}
+.ready .meter-segs,.ready .switch,.ready .num,.ready .seg-ctl,.ready .cmp-picks,.ready .cmp-hl{animation:cd-fade .3s var(--ease)}
+@keyframes cd-fade{from{opacity:0}to{opacity:1}}
 .setup-root:not(.settled) *,.setup-root:not(.settled) *::before,.setup-root:not(.settled) *::after{transition:none!important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition-duration:0s!important;transition-delay:0s!important}}
 @media (max-width:1080px){

@@ -214,7 +214,8 @@ describe("setup page controller", () => {
     expect(el("setup-config-path").textContent).toBe(STATE.config!.path);
     expect(el("catalog-status").textContent).toBe("Catalog updated 5 min ago");
     expect(el("binding-reviewer").innerHTML).toContain('data-h="claude"');
-    expect(el("binding-reviewer").innerHTML).toContain("claude-sonnet-5");
+    expect(el("binding-reviewer").innerHTML).toContain('<span class="model-title">Claude Sonnet 5</span><span class="model-id mono">claude-sonnet-5</span>');
+    expect(el("binding-orchestrator").innerHTML).toContain('<span class="model-title">Qwen</span><span class="model-id mono">qwen</span>');
     expect(el("binding-general").innerHTML).toContain("Choose a model");
     expect(el("role-state-reviewer").innerHTML).toContain("Saved");
     expect(el("role-state-general").innerHTML).toContain("Not set");
@@ -265,7 +266,7 @@ describe("setup page controller", () => {
     controller.setEffort("reviewer", "low");
     expect(controller.changeNames()).toEqual(["Reviewer"]);
     expect(el("effort-reviewer").className).toBe("meter lvl-1 changed");
-    expect(el("role-state-reviewer").innerHTML).toContain("was <span class=\"mono\">high effort</span>");
+    expect(el("role-state-reviewer").innerHTML).toContain("was <span class=\"was-value\">high effort</span>");
     expect(el("setup-action-status").textContent).toBe("1 unsaved change");
     expect(el("setup-change-list").textContent).toBe("Reviewer");
     expect(el("setup-review").disabled).toBe(false);
@@ -281,6 +282,11 @@ describe("setup page controller", () => {
         general: { harness: "codex", model: "gpt-known" },
       },
     });
+
+    controller.selectBinding("reviewer", "claude", "claude-opus-5-5");
+    expect(el("role-state-reviewer").innerHTML).toContain('was <span class="was-value">Claude Sonnet 5</span>');
+    controller.selectBinding("reviewer", "claude", "claude-sonnet-5");
+    controller.setEffort("reviewer", "low");
 
     controller.revertRole("general");
     expect(controller.changeNames()).toEqual(["Reviewer"]);
@@ -358,7 +364,7 @@ describe("setup page controller", () => {
     expect(el("setup-picker-list").innerHTML).toContain("Unavailable: not installed");
 
     controller.setPickerQuery("opus");
-    expect(el("setup-picker-list").innerHTML).toContain('data-model="claude-opus-5-5"');
+    expect(el("setup-picker-list").innerHTML).toContain('data-model="claude-opus-5-5"><span class="pk-title">Claude Opus 5.5</span><span class="pk-id mono">claude-opus-5-5</span>');
     expect(el("setup-picker-list").innerHTML).not.toContain('data-model="claude-sonnet-5"');
 
     controller.setPickerQuery("codex:my-local<model>");
@@ -487,6 +493,8 @@ describe("setup page controller", () => {
     const starting = controller.start();
     expect(el("setup-action-status").textContent).toBe("Loading setup");
     expect(el("binding-reviewer").disabled).toBe(true);
+    expect(el("binding-reviewer").innerHTML).toContain('<span class="model-sk">');
+    expect(el("setup-root").className).toBe("setup-root loading");
     finishState?.(response(STATE));
     await starting;
     expect(el("binding-reviewer").disabled).toBe(false);
