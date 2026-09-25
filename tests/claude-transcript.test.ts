@@ -207,7 +207,7 @@ describe("Claude transcript usage", () => {
       endedAt: "2026-09-21T10:03:00.000Z",
       cwd: "/tmp/final",
     });
-    expect(usage.cost).toBeCloseTo(0.0014661, 15);
+    expect(usage.cost).toBeCloseTo(0.001305, 15);
   });
 
   it("omits cost when any model is unpriced", async () => {
@@ -228,7 +228,7 @@ describe("Claude transcript usage", () => {
       cachedTokens: 30,
       model: "claude-opus-5",
     });
-    expect(usage.cost).toBeCloseTo(0.005295, 12);
+    expect(usage.cost).toBeCloseTo(0.001765, 12);
   });
 
   it("finds a transcript in a direct project subdirectory and tolerates missing paths", () => {

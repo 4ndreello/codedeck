@@ -51,7 +51,7 @@ describe("SessionStore.queryUsage", () => {
   });
 
   it("aggregates tokens, calculated costs, and reported costs accurately", () => {
-    // Session with static pricing model (gpt-5.6-luna: input 1, output 5)
+    // Session with static pricing model (gpt-5.6-luna: input 0.2, output 1.2)
     store.create(
       makeSession("s1", {
         agent: "codex",
@@ -75,15 +75,15 @@ describe("SessionStore.queryUsage", () => {
     expect(result.totals.sessionCount).toBe(2);
     expect(result.totals.inputTokens).toBe(1_050_000);
     expect(result.totals.outputTokens).toBe(210_000);
-    // Cost: (1M * 1 + 200k * 5)/1M = $2.00 + $0.45 = $2.45
-    expect(result.totals.costUsd).toBeCloseTo(2.45, 2);
+    // Cost: (1M * 0.2 + 200k * 1.2)/1M = $0.44, plus $0.45 reported = $0.89
+    expect(result.totals.costUsd).toBeCloseTo(0.89, 2);
     expect(result.totals.costComplete).toBe(true);
 
     // Breakdown by Agent
     expect(result.byAgent.length).toBe(2);
     const codex = result.byAgent.find((a) => a.key === "codex");
     const claude = result.byAgent.find((a) => a.key === "claude");
-    expect(codex?.costUsd).toBeCloseTo(2.0, 2);
+    expect(codex?.costUsd).toBeCloseTo(0.44, 2);
     expect(claude?.costUsd).toBeCloseTo(0.45, 2);
 
     // Breakdown by Repo
@@ -119,10 +119,10 @@ describe("SessionStore.queryUsage", () => {
     const orchestrator = result.byOrigin.find((bucket) => bucket.key === "orchestrator");
     const worker = result.byOrigin.find((bucket) => bucket.key === "worker");
 
-    expect(result.totals.costUsd).toBeCloseTo(1.95, 5);
+    expect(result.totals.costUsd).toBeCloseTo(0.988, 5);
     expect(result.totals.sessionCount).toBe(3);
     expect(orchestrator).toMatchObject({ sessionCount: 1, costUsd: 0.7 });
-    expect(worker).toMatchObject({ sessionCount: 2, costUsd: 1.25 });
+    expect(worker).toMatchObject({ sessionCount: 2, costUsd: 0.288 });
   });
 
   it("uses harness-aware totals in every usage bucket", () => {

@@ -24,15 +24,15 @@ describe("computeSessionCost", () => {
         model: "gpt-5.6-luna",
         usage: { inputTokens: 1_000_000, outputTokens: 500_000, cachedTokens: 0 },
       }),
-    ).toBe(3.5);
+    ).toBe(0.8);
   });
 
   it("prices cached tokens at input price by default", () => {
-    const price = MODEL_PRICES["gpt-5.6-luna"];
+    const price = MODEL_PRICES["gpt-5.7"];
     expect(price.cached).toBeUndefined();
     expect(
       computeSessionCost({
-        model: "gpt-5.6-luna",
+        model: "gpt-5.7",
         usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 1_000_000 },
       }),
     ).toBe(price.input);
@@ -45,17 +45,17 @@ describe("computeSessionCost", () => {
         usage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 900_000 },
         cachedInInput: true,
       }),
-    ).toBe(1);
+    ).toBeCloseTo(0.038, 10);
   });
 
   it("uses input price for included cached tokens when the model has no cached price", () => {
     expect(
       computeSessionCost({
-        model: "gpt-5.6-luna",
+        model: "gpt-5.7",
         usage: { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 1_000_000 },
         cachedInInput: true,
       }),
-    ).toBe(MODEL_PRICES["gpt-5.6-luna"].input);
+    ).toBe(MODEL_PRICES["gpt-5.7"].input);
   });
 
   it("rejects cached tokens above input when cached tokens are included in input", () => {
@@ -94,11 +94,36 @@ describe("computeSessionCost", () => {
       cached: 0.002,
     });
     expect(MODEL_PRICES["openrouter/z-ai/glm-5.3-flash"]).toEqual({
-      input: 0.075,
-      output: 0.25,
-      cached: 0.015,
+      input: 0.045,
+      output: 0.6,
+      cached: 0.0285,
     });
     expect(MODEL_PRICES["openai-codex/gpt-5.6-luna"]).toEqual(MODEL_PRICES["gpt-5.6-luna"]);
+  });
+
+  it("resolves refreshed model prices, including provider-prefixed ids", () => {
+    const cases = [
+      ["gpt-6-luna", { input: 0.1, output: 0.5, cached: 0.01 }],
+      ["gpt-5.6-luna", { input: 0.2, output: 1.2, cached: 0.02 }],
+      ["claude-opus-5-5", { input: 4, output: 20, cached: 0.2 }],
+      ["gemini-3.8-flash-high", { input: 0.75, output: 3.75, cached: 0.075 }],
+      ["openrouter/deepseek/deepseek-v4-flash-0731", { input: 0.03, output: 0.32, cached: 0.016 }],
+      ["opencode/muse-spark-1.3-contributor-free", { input: 0, output: 0, cached: 0 }],
+    ] as const;
+
+    for (const [model, price] of cases) {
+      expect(resolveModelPrice(model)).toEqual(price);
+    }
+  });
+
+  it("resolves model ids with a trailing date suffix", () => {
+    expect(resolveModelPrice("claude-haiku-4-5-20251001")).toEqual(
+      MODEL_PRICES["claude-haiku-4-5"],
+    );
+  });
+
+  it("resolves model ids with a trailing bracketed context tag", () => {
+    expect(resolveModelPrice("claude-opus-5[1m]")).toEqual(MODEL_PRICES["claude-opus-5"]);
   });
 
   it("returns a cost for each OMP-harness model id", () => {
@@ -123,6 +148,7 @@ describe("computeSessionCost", () => {
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cachedTokens: 1_000_000 },
       }),
     ).toBeNull();
+    expect(computeSessionCost({ model: "model-that-is-not-versioned" })).toBeNull();
   });
 
   it("returns null for a negative reported cost", () => {
@@ -136,20 +162,20 @@ describe("computeSessionCost", () => {
   });
 
   it("resolves and prices models with provider prefixes (e.g. alibaba-token-plan, opencode)", () => {
-    // alibaba-token-plan/qwen3.8-max -> qwen3.8-max (input: 2.0, output: 6.0, cached: 0.2)
+    // alibaba-token-plan/qwen3.8-max -> qwen3.8-max (input: 2.0, output: 6.0, cached: 0.25)
     const cost = computeSessionCost({
       model: "alibaba-token-plan/qwen3.8-max",
       usage: { inputTokens: 1_000_000, outputTokens: 500_000, cachedTokens: 1_000_000 },
     });
-    // (1M * 2.0 + 0.5M * 6.0 + 1M * 0.2) / 1M = 2.0 + 3.0 + 0.2 = 5.2
-    expect(cost).toBeCloseTo(5.2, 5);
+    // (1M * 2.0 + 0.5M * 6.0 + 1M * 0.25) / 1M = 2.0 + 3.0 + 0.25 = 5.25
+    expect(cost).toBeCloseTo(5.25, 5);
 
-    // alibaba-token-plan/qwen3.8-flash -> qwen3.8-flash (input: 0.16, output: 0.47, cached: 0.016)
+    // alibaba-token-plan/qwen3.8-flash -> qwen3.8-flash (input: 0.15, output: 0.47, cached: 0.016)
     const flashCost = computeSessionCost({
       model: "alibaba-token-plan/qwen3.8-flash",
       usage: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
     });
-    expect(flashCost).toBeCloseTo(0.63, 5);
+    expect(flashCost).toBeCloseTo(0.62, 5);
 
     // opencode/claude-sonnet-4-6 -> claude-sonnet-4-6 (input: 3, output: 15, cached: 0.3)
     const claudeCost = computeSessionCost({
@@ -164,7 +190,7 @@ describe("computeSessionCost", () => {
       model: "gemini-3.8-flash-high   Gemini 3.8 Flash (High)",
       usage: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
     });
-    expect(cost).toBeCloseTo(0.5, 5);
+    expect(cost).toBeCloseTo(4.5, 5);
   });
 
   it("resolves multi-level nested provider prefixes (e.g. openrouter/meta/muse-spark-1.3-contributor)", () => {

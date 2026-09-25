@@ -246,12 +246,12 @@ describe("usage daemon methods", () => {
     expect(sess?.usage?.cost).toBeUndefined();
 
     // Query usage: should compute cost using alibaba-token-plan/qwen3.8-max table price:
-    // (1M * 2.0 + 0.5M * 6.0 + 1M * 0.2) = 5.2
+    // (1M * 2.0 + 0.5M * 6.0 + 1M * 0.25) = 5.25
     const usageResponse = await request("usage.get", { runId });
     expect(usageResponse.result.inputTokens).toBe(1_000_000);
     expect(usageResponse.result.outputTokens).toBe(500_000);
     expect(usageResponse.result.cachedTokens).toBe(1_000_000);
-    expect(usageResponse.result.costUsd).toBeCloseTo(5.2, 5);
+    expect(usageResponse.result.costUsd).toBeCloseTo(5.25, 5);
     expect(usageResponse.result.costComplete).toBe(true);
     expect(usageResponse.result.sessionsWithoutCost).toBe(0);
   });
