@@ -1,5 +1,10 @@
 # Web setup redesign
 
+> Superseded in part by `.specs/features/web-setup-roster/spec.md`. R2, R3, R5 and R6 (current-state text, Keep/Change
+> role cards, the Preview button, and the card grid) are replaced by the roster rows and the review drawer. R4 still
+> holds for escaping, hidden legacy keys, and the collapsed raw response, but its labels changed: change rows read
+> `Reviewer effort` with `to` between values, and a dry run shows `Not saved yet`. R1 and R7 still hold.
+
 ## Goal
 
 Redesign `/setup` as a clear setup dashboard that uses the CodeDeck brand and the visual language of `/usage`.
