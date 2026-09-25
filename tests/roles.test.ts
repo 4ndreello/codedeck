@@ -12,6 +12,7 @@ import {
   roleBody,
   ROLES,
 } from "../src/core/roles.js";
+import { composeRunSection } from "../src/core/run-skills.js";
 
 function pluginWith(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
@@ -135,7 +136,7 @@ describe("composeRunPrompt", () => {
     });
 
     expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 
@@ -148,7 +149,7 @@ describe("composeRunPrompt", () => {
     fs.writeFileSync(path.join(dir, "agents", "auditor.md"), "---\nname: auditor\n---\n\nYou audit.\n");
 
     expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 });
@@ -164,7 +165,7 @@ describe("resolveRolePrompt", () => {
     const dir = pluginWith({ "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n" });
 
     expect(resolveRolePrompt(dir, " AUDITOR ", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 

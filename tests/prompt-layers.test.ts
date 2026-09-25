@@ -135,12 +135,27 @@ describe("prompt layers: run-path core-first order", () => {
 
     expect(composed.startsWith(core)).toBe(true);
     expect(composed).toMatch(/\n\n---\n\ndo it$/);
+    expect(composed).toContain("## Run instructions");
   });
 
   it("carries each role body after the core text", () => {
     expect(composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it")).toContain(
       "You are the CodeDeck reviewer.",
     );
+  });
+
+  it("places headless run instructions after the role and before the task", () => {
+    const composed = composeRunPrompt(path.join(root, "plugin"), "reviewer", "do it");
+    const roleIndex = composed.indexOf("You are the CodeDeck reviewer.");
+    const runIndex = composed.indexOf("## Run instructions");
+    const taskIndex = composed.lastIndexOf("\n\n---\n\ndo it");
+
+    expect(roleIndex).toBeGreaterThan(-1);
+    expect(runIndex).toBeGreaterThan(roleIndex);
+    expect(taskIndex).toBeGreaterThan(runIndex);
+    expect(composed.match(/\n\n---\n\n/g)).toHaveLength(3);
+    expect(composed).toContain("This worker runs non-interactively in the background.");
+    expect(composed).toContain("Nobody answers approval, direction, or confirmation questions");
   });
 
   it("excludes core from every generated file", () => {

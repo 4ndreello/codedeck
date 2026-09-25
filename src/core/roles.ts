@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { composeRunSection } from "./run-skills.js";
 
 /**
  * Resolve the bundled plugin from this module, not from the caller's cwd.
@@ -81,12 +82,12 @@ export function readCore(pluginDir: string): string {
 }
 
 /**
- * The run-path composer: core first, then the role body, then the task.
- * Core-first is deliberate: the inviolables take precedence over role detail
- * and the shared prefix aids cache reuse across roles.
+ * The run-path composer: core first, then the role body, run instructions,
+ * and the task. Core-first is deliberate: the inviolables take precedence
+ * over role detail and the shared prefix aids cache reuse across roles.
  */
 export function composeRunPrompt(pluginDir: string, role: Role, prompt: string): string {
-  return `${readCore(pluginDir).trimEnd()}\n\n---\n\n${roleBody(pluginDir, role)}\n\n---\n\n${prompt}`;
+  return `${readCore(pluginDir).trimEnd()}\n\n---\n\n${roleBody(pluginDir, role)}\n\n---\n\n${composeRunSection(pluginDir)}\n\n---\n\n${prompt}`;
 }
 
 /**
