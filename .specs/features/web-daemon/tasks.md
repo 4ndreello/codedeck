@@ -498,12 +498,13 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `usage --web --today --repo x --by model --interval 5` → query has `period=today`, `repo=x`, `by=model`, `interval=5`, no empty keys
-- [ ] `tests/usage-cli.test.ts:300-333` rewritten against the injected launcher; run-id, backfill, and `--web --tui` tests unchanged
-- [ ] Gate check passes: `npx vitest run tests/usage-cli.test.ts`, `npx vitest run tests/web-cli.test.ts`, `npx vitest run tests/setup-cli-contract.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
+- [x] `usage --web --today --repo x --by model --interval 5` → query has `period=today`, `repo=x`, `by=model`, `interval=5`, no empty keys
+- [x] `tests/usage-cli.test.ts:300-333` rewritten against the injected launcher; run-id, backfill, and `--web --tui` tests unchanged
+- [x] Gate check passes: `npx vitest run tests/usage-cli.test.ts`, `npx vitest run tests/web-cli.test.ts`, `npx vitest run tests/setup-cli-contract.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `feat(usage): Open the usage page from the daemon web server`
 

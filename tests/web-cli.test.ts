@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { createCliProgram } from "../src/cli/index.js";
 import { createUiRoutes, registerUiCommand } from "../src/cli/commands/ui.js";
 import { registerSetupCommand } from "../src/cli/commands/setup.js";
-import { registerUsageCommand, type UsageCommandDependencies } from "../src/cli/commands/usage.js";
+import { registerUsageCommand } from "../src/cli/commands/usage.js";
 import { DEFAULT_CONFIG, serializeConfig, type SetupConfigRead } from "../src/config/config.js";
 import type { BatchModelsOptions, BatchModelsResult } from "../src/core/models.js";
 import type { UsageQueryResult } from "../src/daemon/protocol.js";
@@ -223,20 +223,12 @@ describe("setup and usage web commands", () => {
     expect(process.exitCode).toBe(0);
   });
 
-  it("opens aggregate usage with the selected filters, breakdown, interval, and token URL", async () => {
+  it("opens aggregate usage with the resolved filters, breakdown, and interval", async () => {
     const cwd = "/web-current/repo";
     vi.spyOn(process, "cwd").mockReturnValue(cwd);
-    const fetchUsageQuery = vi.fn(async () => emptyUsage);
-    let requested: WebServerOptions | undefined;
-    let started: WebServerHandle | undefined;
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const startServer: NonNullable<UsageCommandDependencies["startServer"]> = async (options) => {
-      requested = options;
-      started = await startEphemeralServer(options);
-      return started;
-    };
+    const launch = vi.fn(async () => 0);
     const program = new Command();
-    registerUsageCommand(program, { startServer, fetchUsageQuery });
+    registerUsageCommand(program, { launch });
 
     await program.parseAsync([
       "node", "codedeck", "usage", "--web", "--json", "--port", "32124", "--no-open",
@@ -244,49 +236,37 @@ describe("setup and usage web commands", () => {
       "--current", "--model", "gpt-5", "--agent", "codex", "--by", "origin", "--interval", "0",
     ], { from: "node" });
 
-    expect(requested).toMatchObject({ initialPath: "/usage", port: 32124, open: false });
-    expect(started?.initialUrl).toContain("?t=");
-    expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const page = await (await sessionFetch(started)(`${started?.baseUrl}/usage`)).text();
-    expect(page).toContain(JSON.stringify({
-      by: "origin",
-      interval: "0",
-      filters: {
-        period: "",
+    expect(launch).toHaveBeenCalledWith({
+      path: "/usage",
+      query: {
         repo: cwd,
         model: "gpt-5",
         agent: "codex",
         since: "2026-09-01",
         until: "2026-09-20",
+        by: "origin",
+        interval: "0",
       },
-    }));
-
-    const query = await sessionFetch(started)(`${started?.baseUrl}/api/usage?since=2026-09-01&until=2026-09-20&repo=${encodeURIComponent(cwd)}&model=gpt-5&agent=codex`);
-    expect(query.status).toBe(200);
-    expect(fetchUsageQuery).toHaveBeenCalledWith({
-      period: undefined,
-      since: "2026-09-01",
-      until: "2026-09-20",
-      repository: cwd,
-      model: "gpt-5",
-      agent: "codex",
+      title: "CodeDeck usage",
+      port: 32124,
+      open: false,
     });
   });
 
-  it("rejects usage --web --tui without starting a server", async () => {
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+  it("rejects usage --web --tui without launching", async () => {
+    const launch = vi.fn(async () => 0);
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const program = new Command();
-    registerUsageCommand(program, { startServer });
+    registerUsageCommand(program, { launch });
 
     await program.parseAsync(["node", "codedeck", "usage", "--web", "--tui"], { from: "node" });
 
-    expect(startServer).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith("Options --web and --tui cannot be used together.");
     expect(process.exitCode).toBe(2);
   });
 
-  it("keeps usage <run-id> --web --json on usage.get without a server", async () => {
+  it("keeps usage <run-id> --web --json on usage.get without launching", async () => {
     const summary = {
       runId: "run-web",
       inputTokens: 12,
@@ -302,15 +282,15 @@ describe("setup and usage web commands", () => {
     };
     usageIpc.ensureDaemonStarted.mockResolvedValue(undefined);
     usageIpc.request.mockResolvedValue(summary);
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+    const launch = vi.fn(async () => 0);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const program = new Command();
-    registerUsageCommand(program, { startServer });
+    registerUsageCommand(program, { launch });
 
     await program.parseAsync(["node", "codedeck", "usage", "run-web", "--web", "--json"], { from: "node" });
 
     expect(usageIpc.request).toHaveBeenCalledWith("usage.get", { runId: "run-web" });
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual(summary);
-    expect(startServer).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,6 @@ import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildUsageQueryParams } from "../src/core/usage-query.js";
 import { normalizeUsageInterval } from "../src/web/usage-page.js";
-import type { WebServerHandle, WebServerOptions } from "../src/web/server.js";
 import type { UsageCommandDependencies } from "../src/cli/commands/usage.js";
 
 const ensureDaemonStarted = vi.fn(async () => {});
@@ -299,31 +298,42 @@ describe("usage CLI", () => {
 describe("usage web options", () => {
   it("runs backfill before web startup", async () => {
     const backfill = vi.fn(async () => ({ imported: 2, skipped: 1 }));
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+    const launch = vi.fn(async () => 0);
 
     await runProgramWithDependencies(["--backfill", "--web"], {
       backfillUsage: backfill,
-      startServer,
+      launch,
     });
 
     expect(backfill).toHaveBeenCalledOnce();
-    expect(startServer).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
     expect(logs).toEqual(["Usage backfill: imported 2, skipped 1"]);
   });
 
-  it("forwards the web polling interval and applies its normalization rule", async () => {
-    let captured: WebServerOptions | undefined;
-    const startServer: NonNullable<UsageCommandDependencies["startServer"]> = async (options) => {
-      captured = options;
-      return {} as WebServerHandle;
-    };
+  it("opens the usage page with the resolved filters, breakdown and interval and no empty keys", async () => {
+    const launch = vi.fn(async () => 0);
 
-    await runProgramWithDependencies(["--web", "--interval", "0"], { startServer });
+    await runProgramWithDependencies(["--web", "--today", "--repo", "x", "--by", "model", "--interval", "5"], { launch });
 
-    const pageRoute = captured?.routes.find((route) => route.path === "/usage");
-    const response = { writeHead: vi.fn(), end: vi.fn() };
-    pageRoute?.handler({} as never, response as never);
-    expect(String(response.end.mock.calls[0]?.[0])).toContain('"interval":"0"');
+    expect(launch).toHaveBeenCalledWith({
+      path: "/usage",
+      query: { period: "today", repo: "x", by: "model", interval: "5" },
+      title: "CodeDeck usage",
+      port: undefined,
+      open: true,
+    });
+  });
+
+  it("forwards a raw polling interval for the page to normalize", async () => {
+    const launch = vi.fn(async () => 0);
+
+    await runProgramWithDependencies(["--web", "--interval", "0", "--port", "4200", "--no-open"], { launch });
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      query: expect.objectContaining({ interval: "0" }),
+      port: 4200,
+      open: false,
+    }));
     expect(normalizeUsageInterval("0")).toBe(2);
     expect(normalizeUsageInterval("not-a-number")).toBe(2);
     expect(normalizeUsageInterval("-0.5")).toBe(1);
