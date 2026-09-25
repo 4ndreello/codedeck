@@ -24,7 +24,7 @@ import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
-import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
+import { classifyFailure, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { parseRole } from "../core/roles.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
@@ -107,6 +107,11 @@ export interface DaemonOptions {
   /** Spawn used by the default supervisor; tests replace the real child process. */
   spawnWebChild?: WebSupervisorOptions["spawnChild"];
 }
+
+// Backoff for a busy store in the event loop; capped, never given up while
+// the daemon runs (see persistDriverEvent).
+const STORE_BUSY_RETRY_BASE_MS = 25;
+const STORE_BUSY_RETRY_MAX_MS = 2000;
 
 function appendDaemonLog(line: string): void {
   try {
@@ -1662,19 +1667,21 @@ class Daemon {
     }
   }
 
-  private async attachDriverEvents(sessionId: string, driver: AgentDriver, drvSession: DriverSession): Promise<void> {
-    try {
-      for await (const ev of driver.events(drvSession)) {
-        // A stop operation owns the terminal outcome. A terminal frame already
-        // buffered by the harness must not race it into the event log.
-        if (this.sessionLocks.has(sessionId) && (ev.type === "session.completed" || ev.type === "session.failed")) {
-          continue;
-        }
-        const db = this.db.getHandle();
-        db.exec("BEGIN");
-        let inserted = 0;
+  // Commits one event with its cursor. A busy store is the daemon's problem,
+  // not the session's: the harness keeps running and its output stays in the
+  // log file, so retry the same event until the store frees up instead of
+  // failing a live session. Returns undefined when shutdown interrupts the
+  // wait (the drain owns the outcome); any other error propagates.
+  private async persistDriverEvent(sessionId: string, driver: AgentDriver, ev: AgentEvent): Promise<number | undefined> {
+    const db = this.db.getHandle();
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        // IMMEDIATE takes the write lock up front, so busy_timeout applies.
+        // A deferred BEGIN read first and then got SQLITE_BUSY_SNAPSHOT on
+        // the upgrade, which no busy handler retries.
+        db.exec("BEGIN IMMEDIATE");
         try {
-          inserted = this.events.append(sessionId, ev, ev.raw);
+          const inserted = this.events.append(sessionId, ev, ev.raw);
           const offsets = driver.getOffsets?.(sessionId);
           if (offsets) {
             this.sessions.update(sessionId, { logOffset: offsets.log, stderrOffset: offsets.stderr });
@@ -1684,10 +1691,30 @@ class Daemon {
             this.updateSessionFromEvent(sessionId, ev, inserted);
           }
           db.exec("COMMIT");
+          return inserted;
         } catch (error) {
           try { db.exec("ROLLBACK"); } catch {}
           throw error;
         }
+      } catch (error) {
+        if (!isStoreBusy(error)) throw error;
+        if (this.shuttingDown) return undefined;
+        if (attempt === 0) appendDaemonLog(`store busy persisting ${ev.type} for ${sessionId}; retrying`);
+        await sleep(Math.min(STORE_BUSY_RETRY_BASE_MS * 2 ** attempt, STORE_BUSY_RETRY_MAX_MS));
+      }
+    }
+  }
+
+  private async attachDriverEvents(sessionId: string, driver: AgentDriver, drvSession: DriverSession): Promise<void> {
+    try {
+      for await (const ev of driver.events(drvSession)) {
+        // A stop operation owns the terminal outcome. A terminal frame already
+        // buffered by the harness must not race it into the event log.
+        if (this.sessionLocks.has(sessionId) && (ev.type === "session.completed" || ev.type === "session.failed")) {
+          continue;
+        }
+        const inserted = await this.persistDriverEvent(sessionId, driver, ev);
+        if (inserted === undefined) return;
         // Broadcast only after the durable event+cursor commit, and never
         // broadcast a replay that was already in the event store.
         if (inserted !== 0) this.broadcast(sessionId, ev);

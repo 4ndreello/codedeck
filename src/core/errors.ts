@@ -84,6 +84,7 @@ export type FailureCode =
   | "SPAWN_FAILED" // could not start the harness binary
   | "TIMEOUT"
   | "SHUTDOWN" // daemon shut down gracefully; session left interrupted
+  | "STORE_BUSY" // the daemon's SQLite store was locked; the harness may still run
   | "UNKNOWN";
 
 export interface FailureInfo {
@@ -119,6 +120,19 @@ const SIGNAL_EXIT_CODES: Record<number, string> = {
   139: "SIGSEGV",
 };
 
+// SQLITE_BUSY (5) and its extended codes, e.g. SQLITE_BUSY_SNAPSHOT (517),
+// which a WAL read snapshot gets when another writer commits before it
+// upgrades to write. busy_timeout never retries that one.
+const SQLITE_BUSY = 5;
+const STORE_BUSY_PATTERN = /database is locked|SQLITE_BUSY|database is busy/i;
+
+export function isStoreBusy(error: unknown): boolean {
+  const errcode = (error as { errcode?: unknown } | null)?.errcode;
+  if (typeof errcode === "number") return (errcode & 0xff) === SQLITE_BUSY;
+  const message = error instanceof Error ? error.message : String(error);
+  return STORE_BUSY_PATTERN.test(message);
+}
+
 export function classifyFailure(
   text: string,
   exitCode?: number | null,
@@ -126,6 +140,11 @@ export function classifyFailure(
 ): FailureInfo {
   const clean = (text || "").trim();
   const detail = clean.slice(0, 300) || undefined;
+  // The daemon's own store, not the harness or the task: checked first so
+  // no harness signature claims it.
+  if (STORE_BUSY_PATTERN.test(clean)) {
+    return { code: "STORE_BUSY", blame: "infra", retryable: true, detail };
+  }
   for (const [pattern, reason] of HARNESS_CRASH_PATTERNS) {
     if (pattern.test(clean)) {
       return { code: "HARNESS_CRASH", blame: "harness", retryable: true, reason, detail };
