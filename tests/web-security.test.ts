@@ -101,7 +101,9 @@ describe("web request security", () => {
     const foreign = await request(handle, { path: "/page", host: `example.test:${handle.port}` });
 
     expect(missing.status).toBe(403);
+    expect(missing.body).toBe("forbidden");
     expect(foreign.status).toBe(403);
+    expect(foreign.body).toBe("forbidden");
     expect(calls).toEqual([]);
   });
 
@@ -240,6 +242,7 @@ describe("web request security", () => {
         origin: value.origin,
       });
       expect(response.status).toBe(403);
+      expect(response.body).toBe("forbidden");
     }
 
     expect(calls).toEqual([]);

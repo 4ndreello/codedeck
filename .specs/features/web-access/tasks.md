@@ -9,7 +9,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 ---
 
 **Design**: inline (no design.md; the spec's Assumptions table fixes every mechanism)
-**Status**: Draft
+**Status**: Done
 
 ---
 

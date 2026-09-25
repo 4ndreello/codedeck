@@ -217,7 +217,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-24 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-25 | P2: Fixed, configurable port | Tasks | Verified |
 
-**Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️
+**Coverage:** 25 total, 25 mapped to tasks (see tasks.md), 0 unmapped.
 
 ---
 

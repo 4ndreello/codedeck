@@ -138,6 +138,13 @@ describe("runWebChild", () => {
     expect(parseWebChildArgs(argv)).toEqual(expected);
   });
 
+  it("feeds the parsed argv into runWebChild from the --web-child entry", () => {
+    const source = fs.readFileSync(path.join(import.meta.dirname, "..", "src", "web", "child.ts"), "utf8");
+    const entry = source.slice(source.indexOf('if (process.argv.includes("--web-child"))'));
+
+    expect(entry).toMatch(/runWebChild\(\{\s*\.\.\.parseWebChildArgs\(process\.argv\)/);
+  });
+
   it("prints an error handshake and exits 1 when listening fails", async () => {
     const listen = vi.fn(async () => { throw new Error("listen EADDRINUSE: address already in use 127.0.0.1:4567"); });
     const stdout = new PassThrough();
