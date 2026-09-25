@@ -53,7 +53,7 @@ WH IDs: WH-11, WH-12, WH-13
 Depends on: T01
 Tests: Update `tests/web-security.test.ts` for exact loopback names, injected per-request interfaces, hostname and MagicDNS suffixes, invalid Host, token/cookie redirects, and unchanged action checks.
 Gate: `npx vitest run --no-cache tests/web-security.test.ts`
-Status: Blocked by sandbox refusing loopback TCP binds
+Status: Complete
 
 #### T03: Bind web server and format its base URL
 
