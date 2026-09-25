@@ -71,15 +71,16 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] Valid file → returns its token unchanged (with and without trailing newline)
-- [ ] Missing file → creates a 64-hex token with mode 0600 and returns it; no temp file left behind
-- [ ] Malformed file (short, uppercase, extra text) → replaced; the returned token equals the file content
-- [ ] Race seam: a file appears between the temp write and `link` → `EEXIST` path returns the other token, which equals the file content
-- [ ] Mode 0644 file → mode becomes 0600, token kept
-- [ ] Gate check passes: `npx vitest run tests/web-token.test.ts`; `npx tsc --noEmit`
+- [x] Valid file → returns its token unchanged (with and without trailing newline)
+- [x] Missing file → creates a 64-hex token with mode 0600 and returns it; no temp file left behind
+- [x] Malformed file (short, uppercase, extra text) → replaced; the returned token equals the file content
+- [x] Race seam: a file appears between the temp write and `link` → `EEXIST` path returns the other token, which equals the file content
+- [x] Mode 0644 file → mode becomes 0600, token kept
+- [x] Gate check passes: `npx vitest run tests/web-token.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Persist the web console token`
 

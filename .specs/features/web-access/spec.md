@@ -190,10 +190,10 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| WA-01 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-02 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-03 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-04 | P1: Bookmark survives restarts | Tasks | Pending |
+| WA-01 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-02 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-03 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-04 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-05 | P1: Bookmark survives restarts | Tasks | Pending |
 | WA-06 | P1: Bookmark survives restarts | Tasks | Pending |
 | WA-07 | P1: Bookmark survives restarts | Tasks | Pending |
