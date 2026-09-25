@@ -209,26 +209,18 @@ describe("ui route table", () => {
 });
 
 describe("setup and usage web commands", () => {
-  it("starts setup on its selected port without opening a browser", async () => {
-    let requested: WebServerOptions | undefined;
-    let started: WebServerHandle | undefined;
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  it("opens setup on its selected port without opening a browser", async () => {
+    const launch = vi.fn(async () => 0);
     const program = new Command();
-    registerSetupCommand(program, {
-      isTTY: true,
-      startServer: async (options) => {
-        requested = options;
-        started = await startEphemeralServer(options);
-        return started;
-      },
-    });
+    registerSetupCommand(program, { launch });
 
     await program.parseAsync(["node", "codedeck", "setup", "--port", "32123", "--no-open"], { from: "node" });
 
-    expect(requested).toMatchObject({ initialPath: "/setup", port: 32123, open: false });
-    expect(started?.initialUrl).toContain("?t=");
-    expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    expect((await sessionFetch(started)(`${started?.baseUrl}/setup`)).status).toBe(200);
+    expect(launch).toHaveBeenCalledWith(
+      { path: "/setup", query: {}, title: "CodeDeck setup", port: 32123, open: false },
+      expect.anything(),
+    );
+    expect(process.exitCode).toBe(0);
   });
 
   it("opens aggregate usage with the selected filters, breakdown, interval, and token URL", async () => {

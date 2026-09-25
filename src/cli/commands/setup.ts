@@ -52,9 +52,8 @@ import {
   type RunAgentConfig,
   type SelfWorkMode,
 } from "../../config/config.js";
-import { SETUP_PAGE } from "../../web/setup-page.js";
-import { createSetupRoutes } from "../../web/setup-routes.js";
-import { DEFAULT_WEB_PORT, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
+import { parseOptionalWebPort } from "../../web/server.js";
+import { launchWebPage } from "../web-launch.js";
 export { diffConfig, SetupUsageError };
 export type { JsonValue, SetupEnvelope };
 
@@ -1208,7 +1207,7 @@ export interface SetupCommandDependencies extends SetupBatchDependencies {
   wizardDiscoverModels?: ModelWizardOptions["discoverModels"];
   runWizard?: typeof runModelSetupWizard;
   saveConfig?: (config: RunAgentConfig) => void;
-  startServer?: typeof startWebServer;
+  launch?: typeof launchWebPage;
 }
 
 function commandTokens(opts: Record<string, unknown>, command: Command): string[] {
@@ -1233,24 +1232,6 @@ export interface SetupActionResult {
   envelope?: SetupEnvelope;
 }
 
-function createSetupCommandRoutes(options: SetupCliOptions): WebRoute[] {
-  const routes = createSetupRoutes();
-  if (!options.refresh) return routes;
-
-  return routes.map((route) => route.path === "/setup"
-    ? {
-        ...route,
-        handler: (_request, response) => {
-          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          response.end(SETUP_PAGE.replace(
-            "</body>",
-            "<script>globalThis.setupPageReady.then(() => globalThis.setupPage.refreshCatalog());</script>\n</body>",
-          ));
-        },
-      }
-    : route);
-}
-
 export async function executeSetupAction(
   args: readonly string[],
   dependencies: SetupCommandDependencies = {},
@@ -1268,12 +1249,11 @@ export async function executeSetupAction(
 
   const tty = dependencies.isTTY ?? Boolean(input.isTTY && stdout.isTTY);
   if (!parsed.options.batch) {
-    if (!tty) {
-      const message = `${getCliName()} setup needs a terminal on both stdin and stdout.`;
-      writeError(message);
-      return { code: 1 };
-    }
     if (parsed.options.tui) {
+      if (!tty) {
+        writeError(`${getCliName()} setup needs a terminal on both stdin and stdout.`);
+        return { code: 1 };
+      }
       try {
         await (dependencies.runWizard ?? runModelSetupWizard)({
           registry: dependencies.registry,
@@ -1291,26 +1271,21 @@ export async function executeSetupAction(
       return { code: 0 };
     }
 
-    let port: number;
+    let port: number | undefined;
     try {
-      port = parseWebPort(parsed.options.port ?? String(DEFAULT_WEB_PORT));
+      port = parseOptionalWebPort(parsed.options.port);
     } catch (error) {
       writeError(error instanceof Error ? error.message : String(error));
       return { code: 1 };
     }
-    try {
-      await (dependencies.startServer ?? startWebServer)({
-        routes: createSetupCommandRoutes(parsed.options),
-        port,
-        initialPath: "/setup",
-        title: "CodeDeck setup",
-        open: !parsed.options.noOpen,
-      });
-    } catch (error) {
-      writeError(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
-      return { code: 1 };
-    }
-    return { code: 0 };
+    const code = await (dependencies.launch ?? launchWebPage)({
+      path: "/setup",
+      query: parsed.options.refresh ? { refresh: "1" } : {},
+      title: "CodeDeck setup",
+      port,
+      open: !parsed.options.noOpen,
+    }, { error: writeError });
+    return { code: code === 0 ? 0 : 1 };
   }
 
   const result = await runSetupBatch(parsed.options, dependencies);
@@ -1327,7 +1302,7 @@ export function registerSetupCommand(program: Command, dependencies: SetupComman
     .option("--refresh", "ignore the cached catalog and rediscover")
     .option("--tui", "use the frozen terminal setup wizard")
     .option("--port <n>", "port to listen on (default: 3100)")
-    .option("--no-open", "serve setup without opening a browser")
+    .option("--no-open", "print the setup URL without opening a browser")
     .option("--non-interactive", "run setup without the picker")
     .option("--json", "output one machine-readable envelope")
     .option("--dry-run", "show the proposed config without writing it")

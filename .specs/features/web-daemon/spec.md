@@ -267,8 +267,8 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-11 | P1: Daemon supervises one web server | Tasks | Verified |
 | WD-12 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-13 | P1: Web commands delegate to the daemon | Tasks | Verified |
-| WD-14 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-15 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-14 | P1: Web commands delegate to the daemon | Tasks | Verified |
+| WD-15 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-16 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-17 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-18 | P1: Web commands delegate to the daemon | Tasks | Verified |

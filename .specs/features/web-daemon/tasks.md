@@ -468,15 +468,16 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] Non-TTY `setup` → launcher called with `/setup`, no port, exit 0
-- [ ] `setup --refresh` → query `{ refresh: "1" }`
-- [ ] `setup --tui` without a TTY still fails with `<cli> setup needs a terminal`
-- [ ] `tests/setup-wizard.test.ts:1190-1210` moved to the `--tui` case; `tests/setup-cli-contract.test.ts` refresh-injection cases rewritten to assert the launcher query
-- [ ] Batch flag tests unchanged
-- [ ] Gate check passes: `npx vitest run tests/setup-cli-contract.test.ts`, `npx vitest run tests/setup-wizard.test.ts`, `npx vitest run tests/web-cli.test.ts`; `npx tsc --noEmit`
+- [x] Non-TTY `setup` → launcher called with `/setup`, no port, exit 0
+- [x] `setup --refresh` → query `{ refresh: "1" }`
+- [x] `setup --tui` without a TTY still fails with `<cli> setup needs a terminal`
+- [x] `tests/setup-wizard.test.ts:1190-1210` moved to the `--tui` case; `tests/setup-cli-contract.test.ts` refresh-injection cases rewritten to assert the launcher query
+- [x] Batch flag tests unchanged
+- [x] Gate check passes: `npx vitest run tests/setup-cli-contract.test.ts`, `npx vitest run tests/setup-wizard.test.ts`, `npx vitest run tests/web-cli.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(setup): Open the setup page from the daemon web server`
 
