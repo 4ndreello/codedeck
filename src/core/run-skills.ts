@@ -30,7 +30,8 @@ function parseScalar(value: string): string | undefined {
     }
   }
 
-  return trimmed.replace(/\s+#.*$/, "").trimEnd();
+  const commentStart = trimmed.search(/\s#/);
+  return (commentStart === -1 ? trimmed : trimmed.slice(0, commentStart)).trimEnd();
 }
 
 function parseSkillFrontmatter(source: string): Pick<RunSkill, "name" | "description"> | undefined {
@@ -40,10 +41,14 @@ function parseSkillFrontmatter(source: string): Pick<RunSkill, "name" | "descrip
   let name: string | undefined;
   let description: string | undefined;
   const lines = match[1].split(/\r?\n/);
-  for (let index = 0; index < lines.length; index++) {
+  let index = 0;
+  while (index < lines.length) {
     const line = lines[index];
-    const field = /^(name|description):(?:\s*(.*))?$/.exec(line);
-    if (!field) continue;
+    const field = /^(name|description):(.*)$/.exec(line);
+    if (!field) {
+      index++;
+      continue;
+    }
     const rawValue = field[2] ?? "";
     if (field[1] === "description") {
       const block = /^([>|])[+-]?$/.exec(rawValue.trim());
@@ -54,15 +59,16 @@ function parseSkillFrontmatter(source: string): Pick<RunSkill, "name" | "descrip
           content.push(lines[next].replace(/^[ \t]+/, ""));
           next++;
         }
-        index = next - 1;
         const joined = block[1] === ">" ? content.join(" ") : content.join("\n");
         description = joined.replace(/\s+/g, " ").trim();
+        index = next;
         continue;
       }
     }
     const value = parseScalar(rawValue);
     if (field[1] === "name") name = value;
     else description = value;
+    index++;
   }
 
   if (!name) return undefined;

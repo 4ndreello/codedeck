@@ -58,12 +58,31 @@ describe("run skill catalog", () => {
     writeSkill(
       root,
       "literal",
-      "---\nname: literal\ndescription: |+\n  Keep these words\n  from the next line.\nother: ignored\n---\n",
+      "---\nname: literal\ndescription: |+\n  Keep these words\n  from the next line.\nname: literal after block\n---\n",
     );
 
     expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([
       { name: "folded", description: "Use this skill when x: y." },
-      { name: "literal", description: "Keep these words from the next line." },
+      { name: "literal after block", description: "Keep these words from the next line." },
+    ]);
+  });
+
+  it("strips an unquoted comment only when # follows whitespace", () => {
+    const root = pluginDir();
+    writeSkill(
+      root,
+      "commented",
+      "---\nname: commented\ndescription: value # c\n---\n",
+    );
+    writeSkill(
+      root,
+      "hash",
+      "---\nname: hash\ndescription: a#b\n---\n",
+    );
+
+    expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([
+      { name: "commented", description: "value" },
+      { name: "hash", description: "a#b" },
     ]);
   });
 
@@ -98,6 +117,11 @@ describe("run skill catalog", () => {
       "unnamed",
       "---\ndescription: This skill has no name.\n---\n\nNo name.\n",
     );
+    const emptyNamePath = writeSkill(
+      root,
+      "empty-name",
+      "---\nname:\ndescription: This skill has an empty name.\n---\n",
+    );
     const namedPath = writeSkill(
       root,
       "named",
@@ -109,6 +133,7 @@ describe("run skill catalog", () => {
     ]);
     expect(composeRunSection(root)).toContain("- named: Kept skill.");
     expect(composeRunSection(root)).not.toContain(unnamedPath);
+    expect(composeRunSection(root)).not.toContain(emptyNamePath);
     expect(composeRunSection(root)).not.toContain("This skill has no name.");
   });
 });

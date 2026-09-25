@@ -52,5 +52,5 @@ export function discoverCodexHostSkills(opts: { codexHome?: string; homeDir?: st
   };
 
   for (const root of roots) visit(root);
-  return [...skillPaths].sort();
+  return [...skillPaths].sort((a, b) => a.localeCompare(b));
 }

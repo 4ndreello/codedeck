@@ -40,11 +40,20 @@ describe("discoverCodexHostSkills", () => {
     const agentSkills = path.join(homeDir, ".agents", "skills");
     const nestedSkill = path.join(codexSkills, "nested", "SKILL.md");
     const dotSkill = path.join(codexSkills, ".system", "builtin", "SKILL.md");
+    const uppercaseSkill = path.join(codexSkills, "Alpha", "SKILL.md");
+    const lowercaseSkill = path.join(codexSkills, "alpha", "SKILL.md");
     const agentSkill = path.join(agentSkills, "agent", "SKILL.md");
     const linkedSkill = path.join(temporary, "external", "linked", "SKILL.md");
     const linkedDir = path.dirname(linkedSkill);
 
-    for (const file of [nestedSkill, dotSkill, agentSkill, linkedSkill]) {
+    for (const file of [
+      nestedSkill,
+      dotSkill,
+      uppercaseSkill,
+      lowercaseSkill,
+      agentSkill,
+      linkedSkill,
+    ]) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, "skill");
     }
@@ -55,9 +64,11 @@ describe("discoverCodexHostSkills", () => {
       [
         nestedSkill,
         dotSkill,
+        uppercaseSkill,
+        lowercaseSkill,
         agentSkill,
         path.join(codexSkills, "linked", "SKILL.md"),
-      ].sort(),
+      ].sort((a, b) => a.localeCompare(b)),
     );
   });
 
