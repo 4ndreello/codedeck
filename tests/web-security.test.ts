@@ -385,6 +385,10 @@ describe("web request security", () => {
       `evil.example:${port}`,
       `deck-host.evil.com:${port}`,
       `deck-hostile:${port}`,
+      `deck-hostile.tail1234.ts.net:${port}`,
+      `deck-host.ts.net:${port}`,
+      `deck-host..ts.net:${port}`,
+      `deck-host.a_b.ts.net:${port}`,
       `100.101.102.103:${port + 1}`,
       `[deck-host]:${port}`,
       `[fe80::1%tailscale0]:${port}`,
@@ -395,6 +399,26 @@ describe("web request security", () => {
       expect(response.status).toBe(403);
       expect(response.body).toBe("forbidden");
     }
+  });
+
+  it.each([
+    { bindHost: "0.0.0.0", connectHost: "127.0.0.1", hostHeader: (port: number) => `0.0.0.0:${port}` },
+    { bindHost: "::", connectHost: "::1", hostHeader: (port: number) => `[::]:${port}` },
+  ])("rejects wildcard bind $bindHost as a Host header", async ({ bindHost, connectHost, hostHeader }) => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([]));
+    const { handle, calls } = await makeExtendedServer(networkInterfaces, () => "deck-host", {
+      host: bindHost,
+      listenHost: bindHost,
+    });
+    const response = await request(handle, {
+      path: `/page?t=${handle.security.token}`,
+      host: hostHeader(handle.port),
+      connectHost,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toBe("forbidden");
+    expect(calls).toEqual([]);
   });
 
   it("accepts the specific bind address when it is missing from local interfaces", async () => {

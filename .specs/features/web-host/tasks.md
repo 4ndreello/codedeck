@@ -167,6 +167,15 @@ Tests: Update `tests/web-supervisor.test.ts`, `tests/daemon-web.test.ts`, `tests
 Gate: `npx vitest run --no-cache tests/web-supervisor.test.ts tests/daemon-web.test.ts tests/web-launch.test.ts tests/web-host-docs.test.ts`
 Status: Complete
 
+#### T14: Cover surviving WH-12 Host mutations
+
+Where: `tests/web-security.test.ts`
+WH IDs: WH-12
+Depends on: T11
+Tests: Add rejected MagicDNS hostname forms and wildcard bind literals to the Host checks.
+Gate: `npx vitest run --no-cache tests/web-port.test.ts tests/web-security.test.ts` and `npx tsc --noEmit -p .`
+Status: Complete
+
 ## Task Completion Record
 
 Task completion and requirement traceability are updated in the same commit as each implementation task. The independent verifier owns `validation.md`.
