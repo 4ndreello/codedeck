@@ -251,6 +251,7 @@ Use this structure for PR descriptions (ignoring any repository PR templates):
 - Links to relevant issues or tickets
 - Context that isn't obvious from the code
 - Notes on specific areas that need careful review
+- Visual evidence when it passes the gate in Visual Evidence below
 
 ### Step 4: Create the PR
 
@@ -320,6 +321,36 @@ Reference issues in the PR body:
 | `Fixes SENTRY-1234` | Closes Sentry issue |
 | `Refs GH-1234` | Links without closing |
 | `Refs LINEAR-ABC-123` | Links Linear issue |
+
+## Visual Evidence
+
+Default to none. Add a visual only when a reviewer would otherwise have to check out the branch to see the change, or when the text needs a paragraph to describe what one picture shows. One visual per PR is the norm; never add one to fill space.
+
+| Change | Evidence |
+|--------|----------|
+| UI layout or styling | Screenshot, before/after when it changes existing UI |
+| Interaction or animation | GIF, 15s or less |
+| CLI/TUI output | Fenced text block with the real output, not a screenshot |
+| New flow across 3+ components, or a changed state machine | Mermaid diagram |
+| Refactor, config, deps, internal bug fix, tests | None |
+
+Rules:
+- Capture from the running app (Playwright for web, `ffmpeg` to turn a recording into a GIF). Never mock, edit or stage a screenshot.
+- A Mermaid diagram shows the mechanism the PR adds or changes, not the whole system. GitHub renders ` ```mermaid ` blocks natively.
+- Put each visual under the sentence it supports, with a one-line caption.
+
+Hosting images: `gh` cannot upload attachments, so push them to an orphan `pr-assets` branch and link them. Never commit them to the PR branch.
+
+```bash
+B=$(git branch --show-current)
+git fetch -q origin pr-assets:pr-assets 2>/dev/null || git branch pr-assets "$(git commit-tree "$(git mktree </dev/null)" -m 'chore: Start PR assets')"
+d=$(mktemp -d); git worktree add -q "$d" pr-assets
+mkdir -p "$d/$B"; cp shot.png "$d/$B/"
+git -C "$d" add -A && git -C "$d" commit -qm "chore: Add PR assets for $B" && git -C "$d" push -q origin pr-assets
+git worktree remove "$d"
+```
+
+Link as `![caption](https://github.com/OWNER/REPO/blob/pr-assets/BRANCH/shot.png?raw=true)`. This form also renders on private repos. For a video that must stay a video, leave the file path in your report and say the user has to drag it into the PR on GitHub.
 
 ## Guidelines
 
