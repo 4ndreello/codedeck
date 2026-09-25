@@ -1,11 +1,13 @@
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createUiRoutes } from "../cli/commands/ui.js";
+import { DEFAULT_WEB_HOST } from "../config/web-host.js";
 import { computeBuildId, distRootFor } from "../daemon/build-id.js";
 import { DEFAULT_WEB_PORT, listenWebServer, type WebRoute } from "./server.js";
 import { resolveWebToken } from "./web-token.js";
 
 export interface RunWebChildOptions {
+  host?: string;
   /** Explicit port (`--port`): no fallback. */
   port?: number;
   /** Preferred port (`--preferred-port`): an OS-assigned port on any listen error. Defaults to 7777. */
@@ -39,6 +41,7 @@ export async function runWebChild(options: RunWebChildOptions): Promise<void> {
   try {
     listening = await (options.listen ?? listenWebServer)({
       routes: (options.routes ?? (() => createUiRoutes()))(),
+      host: options.host ?? DEFAULT_WEB_HOST,
       port,
       fallbackToEphemeral: options.port === undefined,
       token: (options.resolveToken ?? resolveWebToken)(),
@@ -66,15 +69,18 @@ export async function runWebChild(options: RunWebChildOptions): Promise<void> {
   options.stdout.write(`${JSON.stringify({ port: listening.port, token: listening.security.token, build })}\n`);
 }
 
-/** `--port <n>` is explicit; `--preferred-port <n>` may fall back; neither means 7777 with fallback. */
-export function parseWebChildArgs(argv: readonly string[]): { port?: number; preferredPort?: number } {
-  const valueOf = (flag: string): number | undefined => {
+/** `--port <n>` is explicit; `--preferred-port <n>` may fall back; the host defaults to loopback. */
+export function parseWebChildArgs(argv: readonly string[]): { host: string; port?: number; preferredPort?: number } {
+  const numberValueOf = (flag: string): number | undefined => {
     const index = argv.indexOf(flag);
     return index >= 0 ? Number(argv[index + 1]) : undefined;
   };
-  const port = valueOf("--port");
-  const preferredPort = valueOf("--preferred-port");
+  const hostIndex = argv.indexOf("--host");
+  const host = hostIndex >= 0 ? argv[hostIndex + 1] : undefined;
+  const port = numberValueOf("--port");
+  const preferredPort = numberValueOf("--preferred-port");
   return {
+    host: host ?? DEFAULT_WEB_HOST,
     ...(port === undefined ? {} : { port }),
     ...(preferredPort === undefined ? {} : { preferredPort }),
   };

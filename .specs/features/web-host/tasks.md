@@ -71,7 +71,7 @@ WH IDs: WH-06
 Depends on: T03
 Tests: Update `tests/web-child.test.ts` for `--host`, omitted host, and listener option propagation.
 Gate: `npx vitest run --no-cache tests/web-child.test.ts`
-Status: Pending
+Status: Complete
 
 ### Phase 2: Carry host through daemon and CLI
 
