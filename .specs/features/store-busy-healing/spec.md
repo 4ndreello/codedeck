@@ -15,7 +15,7 @@ A causa do segundo escritor (N daemons) é tratada em `daemon-single-instance`. 
 - [x] Reconciliador no boot (`reviveStoreBusyFailures`, antes do loop de `recover()`): linha `failed` com `failure.code=STORE_BUSY` ou `failure.detail` contendo `database is locked`, com log em disco e PID, volta a `working` e passa pelo mesmo reattach de um restart
   - harness vivo (mesma identidade de PID): segue tailando do offset persistido
   - harness morto (ou PID reciclado): o log é drenado do offset e o desfecho é classificado; eventos drenados e `completedAt` recebem o mtime do log (os parsers carimbam hora de leitura)
-- [ ] Desfecho de harness morto sem frame terminal e exit não observado (hoje `failed` "exited without reporting a terminal event"): aceitar `turn.completed` final como `completed`? Decisão pendente
+- [x] Harness morto sem frame terminal e com exit não observado (reattach): se o último evento (fora `usage.updated`) é `turn.completed`, sem sinal fatal e sem assinatura de crash no stderr, fecha `completed` com `reason: "turn completed; exit not observed"`; senão segue `failed` "exited without reporting a terminal event"
 
 ## Decisions
 
@@ -26,6 +26,7 @@ A causa do segundo escritor (N daemons) é tratada em `daemon-single-instance`. 
 | Shutdown durante o retry | Sai do loop sem gravar nada | O drain de shutdown é dono do desfecho (`interrupted`) |
 | Reviver `failed` de lock | Só no boot, só com log + PID, nunca `origin=open` | Reusa o caminho de reattach testado; `open` não tem driver para reatachar |
 | Horário do backlog drenado | mtime do log (máx. de stdout/stderr) quando o harness já morreu | Parsers usam `new Date()` na leitura; o mtime é o limite superior honesto. O uso por hora agrupa por `created_at`, então só a linha do tempo e `completedAt` mudam |
+| Exit não observado | `turn.completed` final conta como fim do turno | `codex exec` sai logo após `turn.completed`; o trabalho do turno está feito. Vale também para restart comum do daemon. Limite: só enxerga eventos lidos desde o reattach |
 | Idempotência | O desfecho novo não tem `database is locked` no `detail` | Um boot seguinte não revive a mesma linha de novo |
 
 ## Acceptance Criteria
@@ -37,7 +38,8 @@ A causa do segundo escritor (N daemons) é tratada em `daemon-single-instance`. 
 5. WHEN o boot encontra uma linha `failed` por lock com harness vivo THEN ela SHALL voltar a `working` e os eventos novos do log SHALL ser persistidos
 6. WHEN o harness dessa linha já morreu THEN o log SHALL ser drenado do offset, a sessão SHALL terminar em estado terminal sem `database is locked`, e eventos drenados e `completedAt` SHALL usar o mtime do log
 7. WHEN a falha não é de lock, ou não há log THEN a linha SHALL ficar intacta
+8. WHEN um reattach vê o PID morrer e o último evento é `turn.completed` THEN a sessão SHALL fechar `completed`; WHEN o log para antes disso, ou há sinal fatal, exit não-zero ou crash no stderr THEN SHALL fechar `failed`
 
 ## Validation
 
-`tests/daemon-store-busy.test.ts` (AC 1-4), `tests/daemon-heal-store-busy.test.ts` (AC 5-7). AC 1 reproduz a intercalação real com uma segunda `DatabaseSync` e falhava antes do fix com só `session.failed` no log de eventos.
+`tests/daemon-store-busy.test.ts` (AC 1-4), `tests/daemon-heal-store-busy.test.ts` (AC 5-8), `tests/terminal-synth.test.ts` (AC 8). AC 1 reproduz a intercalação real com uma segunda `DatabaseSync` e falhava antes do fix com só `session.failed` no log de eventos.
