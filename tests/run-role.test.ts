@@ -117,12 +117,14 @@ describe("codedeck run --role", () => {
     expect(params.prompt).not.toMatch(/^---/);
   });
 
-  it("sends the prompt untouched without the flag", async () => {
+  it("sends only the headless run section before the task without the flag", async () => {
     await expect(runProgram(["do the thing", "--agent", "codex", "--effort", "high", "--bg"]))
       .rejects.toThrow(Exited);
 
     const [, params] = request.mock.calls[0];
-    expect(params.prompt).toBe("do the thing");
+    expect(params.prompt).toMatch(/^## Run instructions\n/);
+    expect(params.prompt).toMatch(/\n\n---\n\ndo the thing$/);
+    expect(params.prompt).not.toContain("# CodeDeck Ultra");
   });
 
   it("derives the session name from the raw task prompt", async () => {
