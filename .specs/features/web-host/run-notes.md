@@ -1,0 +1,22 @@
+# Run notes
+
+| Sequence | Decision | Bucket | Reason |
+|---|---|---|---|
+| 1 | Treat the supplied WH-01 through WH-16 criteria as the complete acceptance source, and keep the existing loopback default. | Assumption | The feature request says these criteria are the source of truth and that default behavior must not change. |
+| 2 | If `web` is present but is not an object, treat that raw value as an invalid `web.host` setting and report it as JSON. | Assumption | `resolveWebPort` already treats malformed `web` sections as invalid and reports the raw value. |
+| 3 | A valid `ui --host` value overrides the configured host for that launch, while an invalid configured host still produces the WH-03 warning. | Assumption | WH-03 requires reporting invalid config, and WH-04 says the CLI flag overrides the resolved setting. |
+| 4 | The supervisor stores the requested bind host with its running-child state because the child handshake contains only port, token, and build. | Decision | WH-09 needs the supervisor to compare the requested host with the host used to start the child. |
+| 5 | Compare accepted Host header names case-insensitively and require the exact console port. | Assumption | WH-12 requires case-insensitive Host matching and names each accepted value with `<port>`. |
+| 6 | Build alternate wildcard URLs from every non-internal IPv4 interface address returned at launch time, preserving the requested page path, query, and token. | Assumption | WH-14 specifies one link per non-internal IPv4 address and requires the tokenized page URL. |
+| 7 | Use `127.0.0.1` as the advertised URL host for `127.0.0.1`, `0.0.0.0`, and `::`; bracket all other IPv6 hosts. | Decision | This is the URL mapping WH-10 specifies for both server and supervisor results. |
+| 8 | Treat any IPv4 address in `127.0.0.0/8` and IPv6 loopback `::1` as loopback for the warning check. | Decision | WH-15 defines the complete loopback ranges that suppress the plain HTTP warning. |
+| 9 | Keep documentation checks as a focused test over the two required documentation files. | Assumption | The task matrix requires a test file and Vitest command for each layer, including docs. |
+| 10 | Stop implementation before committing because Vitest and TypeScript are absent and installing dependencies is out of scope. | Blocker | The required T01 gate fails at startup with `ERR_MODULE_NOT_FOUND` for `vitest/config`, and no install-free local runner is present. |
+| 11 | Run Vitest with `--no-cache` in this worktree. | Decision | The supplied `node_modules` symlink is read-only, and Vitest otherwise exits 1 while writing `node_modules/.vite/vitest/results.json`; the scoped tests pass with caching disabled. |
+| 12 | Resume implementation with the supplied `node_modules` symlink and leave it untouched. | Decision | The user confirmed the dependencies are available through this ignored symlink and explicitly said not to remove or commit it. |
+| 13 | Use lowercase commit subjects. | Decision | `check_commit.py` rejects capitalized descriptions, so its deterministic gate takes precedence over the capitalized example in the task text. |
+| 14 | Stop after T01 because Git cannot write its worktree index or commit metadata. | Blocker | `git add` failed with `Read-only file system` while creating `/home/andreello/dev/codedeck/.git/worktrees/f3c7/index.lock`; that Git directory is outside the writable roots. |
+| 15 | Do not create per-task commits; leave all feature changes uncommitted for the orchestrator. | Deviation | The orchestrator explicitly took responsibility for committing after verification because this sandbox cannot write Git metadata. |
+| 16 | Redirect `localhost` to `127.0.0.1` only when the server is bound to the default loopback host. | Decision | On another bind address that redirect can target an address the server does not serve; keeping the accepted Host lets the existing checks run on that request. |
+| 17 | Stop at T02 because the scoped security tests cannot bind a local TCP listener in this sandbox. | Blocker | All 13 tests fail before request assertions with `listen EPERM: operation not permitted 127.0.0.1`; typecheck passes, but the required integration gate cannot run. |
+| 18 | Use the requested capitalized commit subjects even though `check_commit.py` rejects them. | Decision | This continuation explicitly requires capitalized subjects and the exact T01 message; the checker requires lowercase descriptions. |
