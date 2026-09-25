@@ -408,17 +408,18 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] Success → opens `<baseUrl><path>?<query>&t=<token>`, prints `<title> on <url>`, returns 0; `web.ensure` params carry `build` and an absolute `entry` ending in `/web/child.js`
-- [ ] `open: false` → prints the URL line, opener not called, returns 0
-- [ ] Opener false → prints `Could not open a browser, visit <url> manually.`, returns 0
-- [ ] `port` given → sent; omitted → no `port` key; result on another port → `CodeDeck web is already running on port <port>`
-- [ ] `WEB_LISTEN_FAILED` → `Failed to listen on 127.0.0.1:<port>: <message>`, returns 1, no fallback
-- [ ] `UNKNOWN_METHOD` and `SERVICE_UNAVAILABLE` → WD-44 line with the code, `startServer` called with the full route table, `initialPath` = path + encoded query (a repo with a space and `&` round-trips; no trailing `?` for an empty query), and `fallbackToEphemeral: true` when the port was omitted
-- [ ] `ensureDaemonStarted` throws → WD-45 line and `startServer` called
-- [ ] Gate check passes: `npx vitest run tests/web-launch.test.ts`; `npx tsc --noEmit`
+- [x] Success → opens `<baseUrl><path>?<query>&t=<token>`, prints `<title> on <url>`, returns 0; `web.ensure` params carry `build` and an absolute `entry` ending in `/web/child.js`
+- [x] `open: false` → prints the URL line, opener not called, returns 0
+- [x] Opener false → prints `Could not open a browser, visit <url> manually.`, returns 0
+- [x] `port` given → sent; omitted → no `port` key; result on another port → `CodeDeck web is already running on port <port>`
+- [x] `WEB_LISTEN_FAILED` → `Failed to listen on 127.0.0.1:<port>: <message>`, returns 1, no fallback
+- [x] `UNKNOWN_METHOD` and `SERVICE_UNAVAILABLE` → WD-44 line with the code, `startServer` called with the full route table, `initialPath` = path + encoded query (a repo with a space and `&` round-trips; no trailing `?` for an empty query), and `fallbackToEphemeral: true` when the port was omitted
+- [x] `ensureDaemonStarted` throws → WD-45 line and `startServer` called
+- [x] Gate check passes: `npx vitest run tests/web-launch.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(cli): Open web pages through the daemon`
 

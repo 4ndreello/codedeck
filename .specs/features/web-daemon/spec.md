@@ -270,12 +270,12 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-14 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-15 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-16 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-17 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-18 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-19 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-17 | P1: Web commands delegate to the daemon | Tasks | Verified |
+| WD-18 | P1: Web commands delegate to the daemon | Tasks | Verified |
+| WD-19 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-20 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-21 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-22 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-21 | P1: Web commands delegate to the daemon | Tasks | Verified |
+| WD-22 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-23 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-24 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-25 | P1: Web failures stay isolated | Tasks | Verified |
@@ -297,9 +297,9 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-41 | P2: Web child restarts on build change | Tasks | Verified |
 | WD-42 | P2: Web child restarts on build change | Tasks | Verified |
 | WD-43 | P2: Web child restarts on build change | Tasks | Verified |
-| WD-44 | P2: In-process fallback | Tasks | Pending |
-| WD-45 | P2: In-process fallback | Tasks | Pending |
-| WD-46 | P2: In-process fallback | Tasks | Pending |
+| WD-44 | P2: In-process fallback | Tasks | Verified |
+| WD-45 | P2: In-process fallback | Tasks | Verified |
+| WD-46 | P2: In-process fallback | Tasks | Verified |
 | WD-47 | Edge cases | Tasks | Verified |
 | WD-48 | Edge cases | Tasks | Verified |
 | WD-49 | Edge cases | Tasks | Verified |
