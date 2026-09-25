@@ -43,7 +43,11 @@ The web console cannot be bookmarked. Opening `http://localhost:3100/setup` dire
 | Out of Scope "Persisting the web token across web child restarts" | WA-01 to WA-04 |
 | WD-21 notice text `CodeDeck web is already running on port <port>` | WA-17 |
 | WD-30 page 403 text `open this page with codedeck ui` | WA-08 |
-| `web.ensure` params `{port?, build?, entry?}` | adds `preferredPort` (WA-14) |
+| `web.ensure` params `{port?, build?, entry?}` | adds `preferredPort` (WA-16) |
+| WD-02 (same entry and build reuse the running child) | WA-19, WA-20: reuse also requires the port rule to hold |
+| WD-42 (a request without `build` reuses the running child) | WA-19, WA-20: the port rule applies first |
+| WD-03 (requests during a start share one result) | WA-13: each waiting request re-evaluates with its own params |
+| WD-44 (ephemeral fallback only on `EADDRINUSE` when `--port` is absent) | WA-18, WA-21: any listen error |
 
 Tests and docs that pin the old values change with this feature: tests/web-security.test.ts:140, 150; tests/web-launch.test.ts:98, 126; tests/web-server.test.ts:44-46; tests/review-command.test.ts:11-12; docs/protocol.md:46-63.
 
@@ -69,18 +73,20 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Port config key | `web.port` in `config.json`, an integer 1-65535. The preferred port is `web.port` when valid, else 7777. | Matches the existing per-feature objects in the config (`autocompact`, `orchestrator`). | n |
 | Who reads `web.port` | The CLI and the daemon, through one shared resolver in `src/config`. The web child reads no config: it gets its port from its arguments. | One resolution point; the child cannot disagree with the process that asked for it. | n |
 | Explicit `--port` vs preferred port | `--port` is explicit: no fallback, a listen error exits 1. The preferred port falls back to an OS-assigned port on any listen error (`EADDRINUSE`, `EACCES`, ...). | An explicit port is a request, not a hint; a bad config value must not break every web command. | n |
-| `--port` while a console runs | Reused as today, with the WA-17 notice. `--port` only picks the port of a child that has to start anyway. | Restarting on every `--port` would move open tabs; `web.port` is the durable knob. | n |
-| Config change while a console runs | The supervisor remembers the preferred port a child was started for and restarts the child when a later request brings a different preferred port. A child started for an explicit port is not restarted for a preferred port. | Editing `web.port` then running any web command applies it without restarting the daemon, which would interrupt sessions. | n |
+| `--port` while a console runs | Reused as today, with the WA-17 notice. `--port` only picks the port of a child that has to start anyway, and that child lasts until the next request without `--port`, which moves the console back to the preferred port (WA-19). | Restarting on every `--port` would move open tabs; a request without `--port` restoring the preferred port keeps the bookmark from being hijacked by one `--port` run. | n |
+| Config change while a console runs | The supervisor remembers what each child was started for: an explicit port, a preferred port, or nothing. A request without `port` but with a `preferredPort` restarts the child unless it was started for that same preferred port (WA-19). | Editing `web.port` then running any web command applies it without restarting the daemon, which would interrupt sessions. | n |
+| Request with neither `port` nor `preferredPort` (a CLI from an older tree) | Reuses a running child whose entry and build match; otherwise starts a child with no port argument (WA-25). | Absent means "no opinion", not "different". | n |
+| Child port arguments | `--port <n>`: explicit, no fallback (unchanged). `--preferred-port <n>`: that port, OS-assigned on any listen error. Neither: 7777 with the same fallback. | Keeps today's meaning of `--port`; a child started by an older daemon still gets a sensible port. | n |
 | Invalid `web.port` | Treated as absent (7777). The CLI prints `Ignoring invalid web.port in config: <JSON value>` to stderr; the daemon appends the same line to `daemon.log` on its eager start. | Visible, but never fatal, like `loadConfig`'s tolerance (src/config/config.ts:439-441). | n |
 | Token storage | `~/.run-agent/web-token` (`getPaths().base`), 64 lowercase hex characters plus an optional trailing newline, mode 0600. | Same directory as the daemon's other state; 0600 keeps other users out. | n |
-| Token creation | Write a random token to a 0600 temp file in the same directory, then `link(tmp, web-token)`. On `EEXIST`, read the existing file; if it is malformed, `rename(tmp, web-token)` and read the file again. Remove the temp file in every case. | `link` publishes a complete file atomically, so a concurrent reader never sees a partial token, and every process ends up with the token in the file. | n |
+| Token creation | Write a random token to a 0600 temp file in the same directory, then `link(tmp, web-token)`. On `EEXIST`, read the existing file; if it is malformed, `rename(tmp, web-token)` and read the file again. Remove the temp file in every case. | `link` publishes a complete file atomically, so a concurrent reader never sees a partial token and processes racing on a missing file agree (WA-03). Two processes replacing the same malformed file at once can serve different tokens until the next child start; accepted, since it needs a corrupted file plus a start race. | n |
 | Loose token file permissions | If the existing file is readable or writable by group or others, `chmod 0600` before using it. | A hand-copied file must not stay world-readable. | n |
 | Who uses the stored token | The web child and the CLI in-process fallback. Unit tests keep a per-server random token unless they inject one. | Both servers must accept the same cookie, or the fallback would overwrite it (same cookie name, same host, RFC 6265 §8.5). | n |
 | Cookie lifetime | `Max-Age=31536000` (365 days), renewed on every page GET served with a valid cookie. | A bookmark keeps working for a year after the last visit. | n |
 | Accepted risk of a persistent token | The token no longer dies with the child: the `?t=` URL a command prints and the cookie (sent by the browser to any 127.0.0.1 port, RFC 6265 §8.5) stay valid until the file is deleted. Accepted for a single-user loopback tool; rotation by deleting the file is documented. | The alternative (a new link per restart) is the pain this feature removes. | n |
 | Canonical host | `127.0.0.1`. A page GET whose Host is `localhost:<port>` answers 302 to `127.0.0.1:<port>` with the path and query of `new URL(request.url, "http://127.0.0.1:<port>")`. | RFC 6265 §5.1.3: a cookie set for `127.0.0.1` is never sent to `localhost`; building from a parsed URL keeps an absolute-form request target out of `Location`. | n |
 | Where the eager start runs | In the `--daemon` entry, after `start()` resolves, not awaited. `Daemon.start()` itself does not start the web child. | Keeps tests that call `start()` from spawning a real child, and IPC never waits on the web stack. | n |
-| Stray gate daemons | `scripts/pty-gate.sh` stops the daemon it started (from `$RUN_AGENT_DIR/daemon.pid`) in its EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
+| Stray gate daemons | `scripts/pty-gate.sh` and `scripts/rename-gate.sh` stop the daemon they started (from `$RUN_AGENT_DIR/daemon.pid`) in their EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
 | 403 page text | `Run "codedeck ui" once in a terminal to open CodeDeck in this browser.` | The old text did not say the step is one-time. | n |
 
 **Open questions:** none - all resolved or logged above.
@@ -122,7 +128,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 
 1. WHEN the `--daemon` entry's `start()` resolves THEN the daemon SHALL call `web.ensure` once with its own entry, no explicit port, and the resolved preferred port, without awaiting it.  <!-- WA-11 -->
 2. IF the eager start fails THEN the daemon SHALL append `web autostart failed: <message>` to `daemon.log` and keep serving IPC.  <!-- WA-12 -->
-3. WHEN a `web.ensure` arrives while another start is in flight THEN the supervisor SHALL wait for that start to settle and then apply its reuse and restart rules to the new request's own params.  <!-- WA-13 -->
+3. WHEN a `web.ensure` arrives while another start is in flight THEN the supervisor SHALL wait for that start to settle and then apply its reuse and restart rules to the new request's own params, repeating the wait whenever it finds another start in flight, so that at most one start runs at a time.  <!-- WA-13 -->
 4. The `Daemon.start()` method SHALL NOT start a web child.  <!-- WA-14 -->
 
 **Independent Test**: stop the daemon, run `codedeck ps` (which starts the daemon), then `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7777/` prints 403 instead of refusing the connection.
@@ -140,12 +146,14 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 1. The preferred port SHALL be `web.port` from `config.json` when it is an integer in 1-65535, and 7777 otherwise.  <!-- WA-15 -->
 2. WHEN a web command runs without `--port` THEN it SHALL send the preferred port as `preferredPort` in `web.ensure` and no `port`.  <!-- WA-16 -->
 3. WHEN a web command gets a console URL whose port differs from its `--port`, or from the preferred port when `--port` is absent, THEN it SHALL print `CodeDeck web is running on port <actual> instead of <asked>` before the page line.  <!-- WA-17 -->
-4. WHEN the supervisor starts a child for a `preferredPort` THEN the child SHALL listen on that port and, on any listen error, on an OS-assigned port.  <!-- WA-18 -->
-5. WHEN a `web.ensure` without `port` brings a `preferredPort` different from the one the running child was started for THEN the supervisor SHALL restart the child for the new preferred port.  <!-- WA-19 -->
-6. WHILE the running child was started for an explicit `port` the supervisor SHALL reuse it for any request whose entry and build match.  <!-- WA-20 -->
+4. WHEN the supervisor starts a child for a `preferredPort` THEN it SHALL pass `--preferred-port <n>`, and the child SHALL listen on that port and, on any listen error, on an OS-assigned port.  <!-- WA-18 -->
+5. WHEN a `web.ensure` without `port` and with a `preferredPort` finds a running child that was not started for that same preferred port (started for an explicit port, for another preferred port, or with no port argument) THEN the supervisor SHALL restart the child for the requested preferred port.  <!-- WA-19 -->
+6. WHEN a `web.ensure` with `port` finds a running child whose entry and build match THEN the supervisor SHALL reuse it, whatever the child was started for.  <!-- WA-20 -->
 7. WHEN the CLI serves in-process without `--port` THEN it SHALL listen on the preferred port and fall back to an OS-assigned port on any listen error.  <!-- WA-21 -->
 8. IF `web.port` is present and not an integer in 1-65535 THEN the CLI SHALL print `Ignoring invalid web.port in config: <JSON value>` to stderr and the daemon SHALL append the same line to `daemon.log` on its eager start.  <!-- WA-22 -->
 9. The `--port` help of `review`, `setup`, `usage`, and `ui` SHALL read `port for a new console (default: web.port from config, else 7777)`.  <!-- WA-23 -->
+10. WHEN the web child starts with neither `--port` nor `--preferred-port` THEN it SHALL listen on 7777 and, on any listen error, on an OS-assigned port.  <!-- WA-24 -->
+11. WHEN a `web.ensure` with neither `port` nor `preferredPort` finds a running child whose entry and build match THEN the supervisor SHALL reuse it.  <!-- WA-25 -->
 
 **Independent Test**: with the daemon running on 7777, set `"web": { "port": 7788 }` and run `codedeck ui --no-open`: the printed URL uses 7788 and `curl` on 7777 is refused. Occupy 7799 with `nc -l 7799`, set `web.port` to 7799, run `codedeck ui --no-open`, and the notice names the fallback port.
 
@@ -157,6 +165,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 - WHEN the web child restarts on the same port (build change, crash plus a new command) THEN a browser with the cookie SHALL load pages without a new `?t=` (follows from WA-01 and WA-07).
 - WHEN the console already runs on the preferred port and a web command passes no `--port` THEN the command SHALL print no port notice.
 - IF a `localhost` page GET carries `?t=` THEN the 302 SHALL keep `t` in the query so the `127.0.0.1` request sets the cookie (follows from WA-09).
+- WHEN `codedeck ui --port 8000` started the running child and a later web command passes no `--port` THEN the supervisor SHALL restart the child on the preferred port (follows from WA-19).
 - IF `web.port` is a privileged port the user cannot bind THEN the child SHALL fall back per WA-18 and the command SHALL print the WA-17 notice.
 
 ---
@@ -173,7 +182,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Data lifecycle / expiry | WA-06, WA-07 (365-day sliding cookie); persistent-token risk accepted in Assumptions. |
 | Observability | WA-12, WA-22 log lines; WA-17 CLI notice. |
 | External-dependency failure | N/A because the only external behavior is browser cookie handling, fixed by RFC 6265. |
-| State-transition integrity | WA-13, WA-19, WA-20 define when the supervisor reuses or restarts a child. |
+| State-transition integrity | WA-13, WA-19, WA-20, WA-25 define when the supervisor reuses or restarts a child; entry and build mismatches still restart as in web-daemon. |
 
 ---
 
@@ -204,8 +213,10 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-21 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-22 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-23 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-24 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-25 | P2: Fixed, configurable port | Tasks | Pending |
 
-**Coverage:** 23 total, 0 mapped to tasks, 23 unmapped ⚠️
+**Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️
 
 ---
 
