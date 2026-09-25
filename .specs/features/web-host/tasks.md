@@ -78,11 +78,12 @@ Status: Complete
 #### T05: Restart the supervisor child when its host changes
 
 Where: `src/daemon/web-supervisor.ts`
+Supporting files: `src/daemon/protocol.ts`, `src/config/web-host.ts`, and `src/web/server.ts`.
 WH IDs: WH-09, WH-10
 Depends on: T04
 Tests: Update `tests/web-supervisor.test.ts` for child args, default host, host mismatch restart, matching-host reuse, unchanged port reuse, and base URL formatting.
 Gate: `npx vitest run --no-cache tests/web-supervisor.test.ts`
-Status: Pending
+Status: Complete
 
 #### T06: Pass configured host during daemon autostart
 

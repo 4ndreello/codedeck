@@ -21,3 +21,4 @@
 | 17 | Stop at T02 because the scoped security tests cannot bind a local TCP listener in this sandbox. | Blocker | All 13 tests fail before request assertions with `listen EPERM: operation not permitted 127.0.0.1`; typecheck passes, but the required integration gate cannot run. |
 | 18 | Use the requested capitalized commit subjects even though `check_commit.py` rejects them. | Decision | This continuation explicitly requires capitalized subjects and the exact T01 message; the checker requires lowercase descriptions. |
 | 19 | Commit T01 and T02 in separate commits from this continuation. | Deviation | The earlier worker left their source changes uncommitted after sandbox failures, and this continuation reran both gates before committing. |
+| 20 | Share base URL formatting from `src/config/web-host.ts`. | Decision | The supervisor and web server need the same host mapping, while the daemon import boundary forbids importing the web server into the supervisor. |

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Readable, Writable } from "node:stream";
 import { getPaths } from "../config/paths.js";
+import { DEFAULT_WEB_HOST, webBaseUrl } from "../config/web-host.js";
 import type { WebEnsureParams, WebEnsureResult } from "./protocol.js";
 
 // The daemon never imports the web server itself (WD-28): it only spawns and watches
@@ -49,6 +50,7 @@ type StartedFor = { kind: "explicit"; port: number } | { kind: "preferred"; port
 
 interface RunningChild extends WebEnsureResult {
   child: WebChildProcess;
+  host: string;
   entry: string;
   build: string | undefined;
   startedFor: StartedFor;
@@ -133,6 +135,7 @@ export class WebSupervisor {
   }
 
   private matches(running: RunningChild, params: WebEnsureParams): boolean {
+    if (running.host !== (params.host ?? DEFAULT_WEB_HOST)) return false;
     if (params.entry !== undefined && params.entry !== running.entry) return false;
     if (params.build !== undefined && ((params.entry ?? this.defaultEntry) !== running.entry || params.build !== running.build)) {
       return false;
@@ -152,6 +155,7 @@ export class WebSupervisor {
 
   private start(params: WebEnsureParams): Promise<WebEnsureResult> {
     const entry = params.entry ?? this.defaultEntry;
+    const host = params.host ?? DEFAULT_WEB_HOST;
     const startedFor: StartedFor =
       params.port !== undefined
         ? { kind: "explicit", port: params.port }
@@ -160,6 +164,8 @@ export class WebSupervisor {
           : { kind: "none" };
     const args = [
       "--web-child",
+      "--host",
+      host,
       ...(startedFor.kind === "explicit" ? ["--port", String(startedFor.port)] : []),
       ...(startedFor.kind === "preferred" ? ["--preferred-port", String(startedFor.port)] : []),
     ];
@@ -219,10 +225,11 @@ export class WebSupervisor {
         }
         listening = true;
         const running: RunningChild = {
-          baseUrl: `http://127.0.0.1:${handshake.port}`,
+          baseUrl: webBaseUrl(host, handshake.port),
           port: handshake.port,
           token: handshake.token,
           child,
+          host,
           entry,
           build: handshake.build ?? params.build,
           startedFor,

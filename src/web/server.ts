@@ -1,11 +1,11 @@
 import http, { type RequestListener, type Server } from "node:http";
-import { isIP, type AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
 import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
-import { DEFAULT_WEB_HOST } from "../config/web-host.js";
+import { DEFAULT_WEB_HOST, webBaseUrl } from "../config/web-host.js";
 import { DEFAULT_WEB_PORT } from "../config/web-port.js";
 
 export { DEFAULT_WEB_PORT };
@@ -228,13 +228,6 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     security,
     close,
   };
-}
-
-function webBaseUrl(host: string, port: number): string {
-  const urlHost = host === "127.0.0.1" || host === "0.0.0.0" || host === "::"
-    ? "127.0.0.1"
-    : isIP(host) === 6 ? `[${host}]` : host;
-  return `http://${urlHost}:${port}`;
 }
 
 function dispatchRequest(

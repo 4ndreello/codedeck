@@ -28,3 +28,10 @@ export function resolveWebHost(config: { web?: unknown }): WebHostResolution {
 export function invalidWebHostMessage(value: unknown): string {
   return `Ignoring invalid web.host in config: ${JSON.stringify(value)}`;
 }
+
+export function webBaseUrl(host: string, port: number): string {
+  const urlHost = host === DEFAULT_WEB_HOST || host === "0.0.0.0" || host === "::"
+    ? DEFAULT_WEB_HOST
+    : isIP(host) === 6 ? `[${host}]` : host;
+  return `http://${urlHost}:${port}`;
+}
