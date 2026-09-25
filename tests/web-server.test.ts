@@ -152,3 +152,65 @@ describe("startWebServer", () => {
     expect(calls).toEqual(["close", "exit:0"]);
   });
 });
+
+describe("route failure isolation", () => {
+  async function startFailingServer(): Promise<WebServerHandle> {
+    const routes: WebRoute[] = [
+      { path: "/api/throw", kind: "api", handler: () => { throw new Error("sync boom"); } },
+      { path: "/api/reject", kind: "api", handler: async () => { throw new Error("async boom"); } },
+      {
+        path: "/api/late",
+        kind: "api",
+        handler: async (_req, res) => {
+          res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+          res.write("partial");
+          throw new Error("late boom");
+        },
+      },
+      {
+        path: "/api/ok",
+        kind: "api",
+        handler: (_req, res) => {
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ ok: true }));
+        },
+      },
+    ];
+    const handle = await startWebServer({
+      routes,
+      port: 0,
+      initialPath: "/",
+      open: false,
+      log: vi.fn(),
+      signalTarget: new EventEmitter(),
+      exit: vi.fn(),
+    });
+    handles.push(handle);
+    return handle;
+  }
+
+  it("answers 500 with the message when a handler throws synchronously", async () => {
+    const handle = await startFailingServer();
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/api/throw`);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "sync boom" });
+  });
+
+  it("answers 500 with the message when a handler rejects", async () => {
+    const handle = await startFailingServer();
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/api/reject`);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "async boom" });
+  });
+
+  it("ends a response whose headers were sent and keeps serving", async () => {
+    const handle = await startFailingServer();
+    const late = await sessionFetch(handle)(`${handle.baseUrl}/api/late`);
+    expect(late.status).toBe(200);
+    expect(await late.text()).toBe("partial");
+
+    const next = await sessionFetch(handle)(`${handle.baseUrl}/api/ok`);
+    expect(next.status).toBe(200);
+    expect(await next.json()).toEqual({ ok: true });
+  });
+});

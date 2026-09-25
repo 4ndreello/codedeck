@@ -114,13 +114,14 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] Throwing route → 500 `{ "error": "<message>" }`
-- [ ] Rejecting async route → 500 `{ "error": "<message>" }`
-- [ ] Route that writes headers then throws → response ends, and the next request still answers
-- [ ] Gate check passes: `npx vitest run tests/web-server.test.ts`; `npx tsc --noEmit`
+- [x] Throwing route → 500 `{ "error": "<message>" }`
+- [x] Rejecting async route → 500 `{ "error": "<message>" }`
+- [x] Route that writes headers then throws → response ends, and the next request still answers
+- [x] Gate check passes: `npx vitest run tests/web-server.test.ts`; `npx tsc --noEmit`
 
 **Tests**: integration
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `fix(web): Answer 500 when a route handler fails`
 

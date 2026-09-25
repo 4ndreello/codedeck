@@ -192,5 +192,23 @@ function dispatchRequest(
     return;
   }
 
-  route.handler(request, response);
+  try {
+    const result: unknown = route.handler(request, response);
+    if (isThenable(result)) result.then(undefined, (error: unknown) => failRequest(response, error));
+  } catch (error) {
+    failRequest(response, error);
+  }
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as PromiseLike<unknown> | undefined)?.then === "function";
+}
+
+function failRequest(response: http.ServerResponse, error: unknown): void {
+  if (response.headersSent) {
+    response.end();
+    return;
+  }
+  response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
 }

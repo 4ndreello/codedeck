@@ -277,9 +277,9 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-21 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-22 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-23 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-24 | P1: Web failures stay isolated | Tasks | Pending |
-| WD-25 | P1: Web failures stay isolated | Tasks | Pending |
-| WD-26 | P1: Web failures stay isolated | Tasks | Pending |
+| WD-24 | P1: Web failures stay isolated | Tasks | Verified |
+| WD-25 | P1: Web failures stay isolated | Tasks | Verified |
+| WD-26 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-27 | P1: Web failures stay isolated | Tasks | Pending |
 | WD-28 | P1: Web failures stay isolated | Tasks | Pending |
 | WD-29 | P1: Long-lived server authentication | Tasks | Verified |
