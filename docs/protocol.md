@@ -32,3 +32,61 @@ daemon reiniciar, ele reatacha pelo PID + identidade de início persistidos e
 continua do offset salvo, sem iniciar um segundo processo.
 
 Persistência: `sessions` + `events(seq)` monotônico, `raw_payload` preservado.
+
+## Console web (`web.ensure`)
+
+O daemon não abre porta HTTP. Ele supervisiona um processo filho
+(`dist/web/child.js --web-child`) que serve o console inteiro: `/`, `/review`,
+`/setup`, `/usage` e as rotas `/api/*`. `codedeck ui`, `review`, `setup` e
+`usage --web` pedem esse filho ao daemon, abrem ou imprimem a URL e voltam para
+o shell.
+
+Request:
+```json
+{ "id": "w1", "method": "web.ensure", "params": { "port": 3100, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
+```
+
+- `port` (opcional): porta explícita (`--port`). Sem ela, o filho tenta 3100 e
+  cai numa porta efêmera se 3100 estiver ocupada.
+- `build` (opcional): identidade do build do chamador, o maior `mtime` dos
+  `.js` na árvore `dist/` dele.
+- `entry` (opcional): caminho absoluto do `dist/web/child.js` do chamador. Sem
+  ele, o daemon usa o próprio.
+
+Response:
+```json
+{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:3100", "port": 3100, "token": "..." } }
+```
+
+A página abre em `<baseUrl><path>?<query>&t=<token>`. O token vira cookie
+(`303` sem `t`), e toda rota `/api/*` exige esse cookie. Uma página aberta sem
+token nem cookie responde `403 open this page with codedeck ui`. O review
+recebe o repositório em `?repo=<cwd>`, porque o filho não roda no cwd de quem
+chamou.
+
+Erros:
+
+| `code` | Quando | `details` |
+| --- | --- | --- |
+| `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on 127.0.0.1:<port>: ...` e sai com 1) | `{ "port": n }` |
+| `WEB_START_FAILED` | o filho morreu antes do handshake, não respondeu em 5 s ou mandou um handshake inválido | |
+| `WEB_BAD_ENTRY` | `entry` não é absoluto, não termina em `/web/child.js` ou não existe | |
+
+Ciclo de vida do filho:
+
+- Existe no máximo um filho. Pedidos simultâneos compartilham o mesmo start.
+- Handshake: a primeira linha do stdout do filho é `{ port, token, build }` ou
+  `{ error: { message, port } }`. O stderr vai para `~/.run-agent/logs/web-child.log`.
+- Se `build` ou `entry` do pedido diferem do filho atual, o daemon manda
+  `SIGTERM`, espera até 3 s, manda `SIGKILL` se preciso e sobe um filho novo.
+  Um pedido sem `build` reaproveita o filho atual. Sessões não são tocadas.
+- Se o filho morre depois do handshake, o daemon registra
+  `web child exited code=<code>` no `daemon.log` e sobe outro no próximo
+  `web.ensure`. O token nunca vai para o log.
+- O filho sai quando o stdin fecha (o daemon morreu) ou com `SIGTERM`. No
+  shutdown, o daemon manda `SIGTERM` sem esperar.
+
+Fallback: se `web.ensure` falhar com qualquer outro erro (por exemplo
+`UNKNOWN_METHOD` de um daemon antigo ou `SERVICE_UNAVAILABLE` durante o
+shutdown), ou se o daemon não subir, o comando serve as páginas no próprio
+processo, como antes, e fica rodando até `SIGINT` ou `SIGTERM`.

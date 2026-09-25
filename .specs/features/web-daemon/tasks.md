@@ -525,14 +525,15 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] Doc covers `web.ensure` params, result, errors, child restart on build change, and the fallback
-- [ ] `npm run build` and `scripts/pty-gate.sh` pass
-- [ ] Smoke run with an isolated `RUN_AGENT_DIR`: `review --no-open`, `setup --no-open`, `usage --web --no-open` each exit 0 and print URLs on one port; curl of each page after the token redirect answers 200. After the run, the isolated daemon is stopped
-- [ ] Killing the web child, then `ui --no-open`, prints a working URL
-- [ ] `touch dist/web/child.js`, then `review --no-open` again → a different token, and `ps` shows the same sessions as before
+- [x] Doc covers `web.ensure` params, result, errors, child restart on build change, and the fallback
+- [x] `npm run build` and `scripts/pty-gate.sh` pass
+- [x] Smoke run with an isolated `RUN_AGENT_DIR`: `review --no-open`, `setup --no-open`, `usage --web --no-open` each exit 0 and print URLs on one port; curl of each page after the token redirect answers 200. After the run, the isolated daemon is stopped
+- [x] Killing the web child, then `ui --no-open`, prints a working URL
+- [x] `touch dist/web/child.js`, then `review --no-open` again → a different token, and `ps` shows the same sessions as before
 
 **Tests**: none
 **Gate**: build
+**Status**: ✅ Done
 
 **Commit**: `docs(web): Document the daemon web console protocol`
 
