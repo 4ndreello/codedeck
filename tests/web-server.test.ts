@@ -1,6 +1,7 @@
 import http from "node:http";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionFetch } from "./helpers/web-session.js";
 import {
   DEFAULT_WEB_PORT,
   parseWebPort,
@@ -72,17 +73,17 @@ describe("startWebServer", () => {
     expect(handle.baseUrl).toBe(`http://127.0.0.1:${handle.address.port}`);
     expect(handle.initialUrl).toBe(`${handle.baseUrl}/?t=${handle.security.token}`);
 
-    const home = await fetch(`${handle.baseUrl}/`);
+    const home = await sessionFetch(handle)(`${handle.baseUrl}/`);
     expect(home.status).toBe(200);
     expect(home.headers.get("content-type")).toContain("text/html");
     expect(home.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
     expect(await home.text()).toBe("home page");
 
-    const api = await fetch(`${handle.baseUrl}/api/test`);
+    const api = await sessionFetch(handle)(`${handle.baseUrl}/api/test`);
     expect(api.status).toBe(200);
     expect(await api.json()).toEqual({ ok: true });
 
-    const missing = await fetch(`${handle.baseUrl}/missing`);
+    const missing = await sessionFetch(handle)(`${handle.baseUrl}/missing`);
     expect(missing.status).toBe(404);
     expect(seen).toEqual(["/", "/api/test"]);
   });

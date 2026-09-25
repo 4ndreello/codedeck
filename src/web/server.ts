@@ -185,7 +185,7 @@ function dispatchRequest(
   }
 
   const route = routes.find((candidate) => candidate.path === pathname);
-  if (!checkWebRequest(request, response, security, { htmlPage: route?.kind === "page" })) return;
+  if (!checkWebRequest(request, response, security, { htmlPage: route?.kind === "page", api: route?.kind === "api" })) return;
   if (!route) {
     response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ error: "not found" }));

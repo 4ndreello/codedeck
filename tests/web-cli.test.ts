@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionFetch } from "./helpers/web-session.js";
 import { Command } from "commander";
 import { createCliProgram } from "../src/cli/index.js";
 import { registerUiCommand } from "../src/cli/commands/ui.js";
@@ -105,7 +106,7 @@ describe("ui CLI command", () => {
     expect(started).toBeDefined();
     expect(started?.initialUrl).toContain("?t=");
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const rootResponse = await fetch(`${started?.baseUrl}/`);
+    const rootResponse = await sessionFetch(started)(`${started?.baseUrl}/`);
     const rootHtml = await rootResponse.text();
     expect(rootResponse.status).toBe(200);
     expect(rootHtml).not.toContain('href="/"');
@@ -113,14 +114,14 @@ describe("ui CLI command", () => {
     expect(rootHtml).toContain('href="/setup"');
     expect(rootHtml).toContain('href="/usage"');
 
-    const reviewResponse = await fetch(`${started?.baseUrl}/review`);
+    const reviewResponse = await sessionFetch(started)(`${started?.baseUrl}/review`);
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
     expect(await reviewResponse.text()).toContain("Review local");
 
-    const setupResponse = await fetch(`${started?.baseUrl}/setup`);
+    const setupResponse = await sessionFetch(started)(`${started?.baseUrl}/setup`);
     const setupHtml = await setupResponse.text();
-    const usageResponse = await fetch(`${started?.baseUrl}/usage`);
+    const usageResponse = await sessionFetch(started)(`${started?.baseUrl}/usage`);
     const setupNav = setupHtml.split('<nav aria-label="Main navigation">')[1]?.split("</nav>")[0] ?? "";
     expect(setupResponse.status).toBe(200);
     expect(setupNav).toContain('href="/">Home</a>');
@@ -178,12 +179,12 @@ describe("ui setup and usage routes", () => {
     await program.parseAsync(["node", "codedeck", "ui", "--no-open"], { from: "node" });
 
     const baseUrl = started!.baseUrl;
-    const home = await fetch(`${baseUrl}/`);
+    const home = await sessionFetch(started)(`${baseUrl}/`);
     const homeHtml = await home.text();
     expect(homeHtml).toContain('href="/setup"');
     expect(homeHtml).toContain('href="/usage"');
-    expect((await fetch(`${baseUrl}/api/setup/state`)).status).toBe(200);
-    expect((await fetch(`${baseUrl}/api/setup/catalog`)).status).toBe(200);
+    expect((await sessionFetch(started)(`${baseUrl}/api/setup/state`)).status).toBe(200);
+    expect((await sessionFetch(started)(`${baseUrl}/api/setup/catalog`)).status).toBe(200);
 
     const headers = {
       cookie: `codedeck_ui_token_${started!.port}=${started!.security.token}`,
@@ -191,13 +192,13 @@ describe("ui setup and usage routes", () => {
       "content-type": "application/json",
     };
     const emptySelection = JSON.stringify({ agents: {} });
-    const refresh = await fetch(`${baseUrl}/api/setup/catalog/refresh`, { method: "POST", headers });
-    const dryRun = await fetch(`${baseUrl}/api/setup/dry-run`, {
+    const refresh = await sessionFetch(started)(`${baseUrl}/api/setup/catalog/refresh`, { method: "POST", headers });
+    const dryRun = await sessionFetch(started)(`${baseUrl}/api/setup/dry-run`, {
       method: "POST",
       headers,
       body: emptySelection,
     });
-    const apply = await fetch(`${baseUrl}/api/setup/apply`, {
+    const apply = await sessionFetch(started)(`${baseUrl}/api/setup/apply`, {
       method: "POST",
       headers,
       body: emptySelection,
@@ -206,7 +207,7 @@ describe("ui setup and usage routes", () => {
     expect(dryRun.status).toBe(200);
     expect(apply.status).toBe(200);
 
-    const usage = await fetch(`${baseUrl}/api/usage`);
+    const usage = await sessionFetch(started)(`${baseUrl}/api/usage`);
     expect(usage.status).toBe(200);
     expect(await usage.json()).toEqual(emptyUsage);
     expect(fetchUsageQuery).toHaveBeenCalledOnce();
@@ -235,7 +236,7 @@ describe("setup and usage web commands", () => {
     expect(requested).toMatchObject({ initialPath: "/setup", port: 32123, open: false });
     expect(started?.initialUrl).toContain("?t=");
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    expect((await fetch(`${started?.baseUrl}/setup`)).status).toBe(200);
+    expect((await sessionFetch(started)(`${started?.baseUrl}/setup`)).status).toBe(200);
   });
 
   it("prints the token URL and keeps serving when the browser opener fails", async () => {
@@ -259,7 +260,7 @@ describe("setup and usage web commands", () => {
     await program.parseAsync(["node", "codedeck", "ui"], { from: "node" });
 
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    expect((await fetch(`${started?.baseUrl}/`)).status).toBe(200);
+    expect((await sessionFetch(started)(`${started?.baseUrl}/`)).status).toBe(200);
   });
 
   it("opens aggregate usage with the selected filters, breakdown, interval, and token URL", async () => {
@@ -286,7 +287,7 @@ describe("setup and usage web commands", () => {
     expect(requested).toMatchObject({ initialPath: "/usage", port: 32124, open: false });
     expect(started?.initialUrl).toContain("?t=");
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const page = await (await fetch(`${started?.baseUrl}/usage`)).text();
+    const page = await (await sessionFetch(started)(`${started?.baseUrl}/usage`)).text();
     expect(page).toContain(JSON.stringify({
       by: "origin",
       interval: "0",
@@ -300,7 +301,7 @@ describe("setup and usage web commands", () => {
       },
     }));
 
-    const query = await fetch(`${started?.baseUrl}/api/usage?since=2026-09-01&until=2026-09-20&repo=${encodeURIComponent(cwd)}&model=gpt-5&agent=codex`);
+    const query = await sessionFetch(started)(`${started?.baseUrl}/api/usage?since=2026-09-01&until=2026-09-20&repo=${encodeURIComponent(cwd)}&model=gpt-5&agent=codex`);
     expect(query.status).toBe(200);
     expect(fetchUsageQuery).toHaveBeenCalledWith({
       period: undefined,

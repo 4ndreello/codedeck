@@ -282,10 +282,10 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-26 | P1: Web failures stay isolated | Tasks | Pending |
 | WD-27 | P1: Web failures stay isolated | Tasks | Pending |
 | WD-28 | P1: Web failures stay isolated | Tasks | Pending |
-| WD-29 | P1: Long-lived server authentication | Tasks | Pending |
-| WD-30 | P1: Long-lived server authentication | Tasks | Pending |
-| WD-31 | P1: Long-lived server authentication | Tasks | Pending |
-| WD-32 | P1: Long-lived server authentication | Tasks | Pending |
+| WD-29 | P1: Long-lived server authentication | Tasks | Verified |
+| WD-30 | P1: Long-lived server authentication | Tasks | Verified |
+| WD-31 | P1: Long-lived server authentication | Tasks | Verified |
+| WD-32 | P1: Long-lived server authentication | Tasks | Verified |
 | WD-33 | P1: Review reads the requested repository | Tasks | Pending |
 | WD-34 | P1: Review reads the requested repository | Tasks | Pending |
 | WD-35 | P1: Review reads the requested repository | Tasks | Pending |

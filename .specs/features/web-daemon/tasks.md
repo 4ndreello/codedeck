@@ -84,15 +84,16 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] API GET without cookie → 403 `forbidden`; with cookie → handler runs
-- [ ] Page GET with no `t` and no cookie → 403 body `open this page with codedeck ui`
-- [ ] `/review?repo=%2Fx&t=<token>` → 303 to `/review?repo=%2Fx` + `Set-Cookie`; page GET with cookie → 200
-- [ ] Host and POST Origin tests still pass
-- [ ] Tests that call API routes or pages bootstrap the cookie first: `tests/usage-web.test.ts`, `tests/setup-web.test.ts`, `tests/web-cli.test.ts`, `tests/review.test.ts`, `tests/review-command.test.ts`, `tests/web-server.test.ts`
-- [ ] Gate check passes: `npx vitest run tests/web-security.test.ts` and each updated file, one run per file; `npx tsc --noEmit`
+- [x] API GET without cookie → 403 `forbidden`; with cookie → handler runs
+- [x] Page GET with no `t` and no cookie → 403 body `open this page with codedeck ui`
+- [x] `/review?repo=%2Fx&t=<token>` → 303 to `/review?repo=%2Fx` + `Set-Cookie`; page GET with cookie → 200
+- [x] Host and POST Origin tests still pass
+- [x] Tests that call API routes or pages bootstrap the cookie first: `tests/usage-web.test.ts`, `tests/setup-web.test.ts`, `tests/web-cli.test.ts`, `tests/review.test.ts`, `tests/review-command.test.ts`, `tests/web-server.test.ts`
+- [x] Gate check passes: `npx vitest run tests/web-security.test.ts` and each updated file, one run per file; `npx tsc --noEmit`
 
 **Tests**: integration
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Require the session cookie on API routes`
 

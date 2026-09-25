@@ -85,10 +85,11 @@ describe("web request security", () => {
     const { handle } = await makeServer();
     expect(handle.security.token).toMatch(/^[0-9a-f]{64}$/);
 
-    const accepted = await request(handle, { path: "/page", host: `LOCALHOST:${handle.port}` });
+    const cookie = `codedeck_ui_token_${handle.port}=${handle.security.token}`;
+    const accepted = await request(handle, { path: "/page", host: `LOCALHOST:${handle.port}`, cookie });
     expect(accepted.status).toBe(200);
 
-    const acceptedIp = await request(handle, { path: "/page", host: `127.0.0.1:${handle.port}` });
+    const acceptedIp = await request(handle, { path: "/page", host: `127.0.0.1:${handle.port}`, cookie });
     expect(acceptedIp.status).toBe(200);
   });
 
@@ -118,15 +119,70 @@ describe("web request security", () => {
     ]);
   });
 
-  it("does not set a cookie for HTML GETs without the current token and adds the framing policy", async () => {
+  it("keeps the remaining query when the token redirect drops t", async () => {
     const { handle } = await makeServer();
+
+    const response = await request(handle, {
+      path: `/page?repo=%2Fx&t=${handle.security.token}`,
+      host: `127.0.0.1:${handle.port}`,
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.location).toBe("/page?repo=%2Fx");
+  });
+
+  it("rejects HTML GETs without the current token or cookie, sets no cookie, and adds the framing policy", async () => {
+    const { handle, calls } = await makeServer();
 
     for (const path of ["/page", "/page?t=stale-token"]) {
       const response = await request(handle, { path, host: `127.0.0.1:${handle.port}` });
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(403);
+      expect(response.body).toBe("open this page with codedeck ui");
       expect(response.headers["set-cookie"]).toBeUndefined();
       expect(response.headers["content-security-policy"]).toBe("frame-ancestors 'none'");
     }
+    const stale = await request(handle, {
+      path: "/page",
+      host: `127.0.0.1:${handle.port}`,
+      cookie: `codedeck_ui_token_${handle.port}=stale`,
+    });
+    expect(stale.status).toBe(403);
+    expect(stale.body).toBe("open this page with codedeck ui");
+    expect(calls).toEqual([]);
+  });
+
+  it("serves an HTML GET that carries the current cookie", async () => {
+    const { handle, calls } = await makeServer();
+
+    const response = await request(handle, {
+      path: "/page",
+      host: `127.0.0.1:${handle.port}`,
+      cookie: `codedeck_ui_token_${handle.port}=${handle.security.token}`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBe("page");
+    expect(calls).toEqual(["page"]);
+  });
+
+  it("rejects API GETs without the current cookie before dispatch", async () => {
+    const { handle, calls } = await makeServer();
+    const host = `127.0.0.1:${handle.port}`;
+
+    for (const cookie of [undefined, `codedeck_ui_token_${handle.port}=stale`]) {
+      const response = await request(handle, { path: "/action", host, cookie });
+      expect(response.status).toBe(403);
+      expect(response.body).toBe("forbidden");
+    }
+    expect(calls).toEqual([]);
+
+    const accepted = await request(handle, {
+      path: "/action",
+      host,
+      cookie: `codedeck_ui_token_${handle.port}=${handle.security.token}`,
+    });
+    expect(accepted.status).toBe(200);
+    expect(calls).toEqual(["action"]);
   });
 
   it("rejects POSTs without the current cookie and same-origin HTTP Origin before dispatch", async () => {

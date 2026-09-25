@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionFetch } from "./helpers/web-session.js";
 import { parseReviewPort, registerReviewCommand } from "../src/cli/commands/review.js";
 import { startWebServer, type WebServerHandle } from "../src/web/server.js";
 import { EventEmitter } from "node:events";
@@ -52,14 +53,14 @@ describe("registerReviewCommand", () => {
 
     expect(started?.initialUrl).toContain("?t=");
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const root = await fetch(`${started?.baseUrl}/`);
-    const alias = await fetch(`${started?.baseUrl}/review`);
+    const root = await sessionFetch(started)(`${started?.baseUrl}/`);
+    const alias = await sessionFetch(started)(`${started?.baseUrl}/review`);
     expect(root.status).toBe(200);
     expect(alias.status).toBe(200);
     expect(await root.text()).toContain("Review local");
     expect(await alias.text()).toContain("Review local");
 
-    const api = await fetch(`${started?.baseUrl}/api/review?file=src/web/server.ts`);
+    const api = await sessionFetch(started)(`${started?.baseUrl}/api/review?file=src/web/server.ts`);
     expect(api.status).toBe(200);
     expect(await api.json()).toEqual({ ref: "HEAD", file: "src/web/server.ts" });
 

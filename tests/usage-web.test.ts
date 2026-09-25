@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionFetch } from "./helpers/web-session.js";
 import { buildUsageQueryParams } from "../src/core/usage-query.js";
 import type { UsageQueryParams, UsageQueryResult } from "../src/daemon/protocol.js";
 import { createUsageRoutes } from "../src/web/usage-routes.js";
@@ -54,7 +55,7 @@ describe("usage web routes", () => {
   it("serves the self-contained usage page", async () => {
     const handle = await startUsageServer(vi.fn(async () => usageResult));
 
-    const response = await fetch(`${handle.baseUrl}/usage`);
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/usage`);
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
@@ -68,7 +69,7 @@ describe("usage web routes", () => {
       port: 0, initialPath: "/usage", open: false, log: vi.fn(), signalTarget: new EventEmitter(), exit: vi.fn(),
     });
     handles.push(handle);
-    const response = await fetch(`${handle.baseUrl}/usage?period=7d&repo=work&model=m1&agent=codex&since=2026-09-01&until=2026-09-22&by=repo`);
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/usage?period=7d&repo=work&model=m1&agent=codex&since=2026-09-01&until=2026-09-22&by=repo`);
     const html = await response.text();
     expect(html).toContain('"period":"7d"');
     expect(html).toContain('"repo":"work"');
@@ -94,7 +95,7 @@ describe("usage web routes", () => {
     const fetchUsageQuery = vi.fn(async () => usageResult);
     const handle = await startUsageServer(fetchUsageQuery);
 
-    const response = await fetch(`${handle.baseUrl}/api/usage${query}`);
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/api/usage${query}`);
 
     expect(response.status).toBe(200);
     expect(fetchUsageQuery).toHaveBeenCalledWith({
@@ -114,7 +115,7 @@ describe("usage web routes", () => {
     const since = "2026-09-01T00:00:00.000Z";
     const until = "2026-09-20T23:59:59.999Z";
 
-    const response = await fetch(
+    const response = await sessionFetch(handle)(
       `${handle.baseUrl}/api/usage?repo=%2Fselected%2Frepo&current=true&model=gpt-5.6-luna&agent=codex&since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`,
     );
 
@@ -145,7 +146,7 @@ describe("usage web routes", () => {
     };
 
     const expected = buildUsageQueryParams(cliOptions, cwd, now);
-    const response = await fetch(
+    const response = await sessionFetch(handle)(
       `${handle.baseUrl}/api/usage?days=5&since=${encodeURIComponent(cliOptions.since)}&until=${encodeURIComponent(cliOptions.until)}&repo=%2Fselected%2Frepo&current=true&model=gpt-5.6-luna&agent=codex`,
     );
 
@@ -157,7 +158,7 @@ describe("usage web routes", () => {
     const fetchUsageQuery = vi.fn(async () => usageResult);
     const handle = await startUsageServer(fetchUsageQuery);
 
-    const response = await fetch(`${handle.baseUrl}/api/usage?period=all`);
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/api/usage?period=all`);
 
     expect(await response.json()).toEqual(usageResult);
   });
@@ -168,7 +169,7 @@ describe("usage web routes", () => {
     });
     const handle = await startUsageServer(fetchUsageQuery);
 
-    const response = await fetch(`${handle.baseUrl}/api/usage`);
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/api/usage`);
 
     expect(response.status).toBe(500);
     expect(response.headers.get("content-type")).toContain("application/json");

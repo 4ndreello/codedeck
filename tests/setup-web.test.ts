@@ -71,11 +71,8 @@ function request(
   return new Promise((resolve, reject) => {
     const method = options.method ?? "GET";
     const host = options.host ?? `127.0.0.1:${handle.port}`;
-    const headers: Record<string, string> = { host };
-    if (options.auth) {
-      headers.origin = `http://${host}`;
-      headers.cookie = `codedeck_ui_token_${handle.port}=${handle.security.token}`;
-    }
+    const headers: Record<string, string> = { host, cookie: `codedeck_ui_token_${handle.port}=${handle.security.token}` };
+    if (options.auth) headers.origin = `http://${host}`;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const req = http.request({
       hostname: "127.0.0.1",

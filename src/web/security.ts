@@ -9,9 +9,11 @@ export interface WebSecurity {
 
 export interface WebRoutePolicy {
   htmlPage?: boolean;
+  api?: boolean;
 }
 
 export const WEB_FORBIDDEN_MESSAGE = "forbidden";
+export const WEB_PAGE_FORBIDDEN_MESSAGE = "open this page with codedeck ui";
 
 export function createWebSecurity(port: number): WebSecurity {
   const token = randomBytes(32).toString("hex");
@@ -50,20 +52,35 @@ export function checkWebRequest(
     return false;
   }
 
+  if (policy.api && !hasSessionCookie(request, security)) {
+    reject(response);
+    return false;
+  }
+
   if (policy.htmlPage) {
     response.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
-    if (request.method === "GET" && redirectWithSessionCookie(request, response, security)) return false;
+    if (request.method === "GET") {
+      if (redirectWithSessionCookie(request, response, security)) return false;
+      if (!hasSessionCookie(request, security)) {
+        reject(response, WEB_PAGE_FORBIDDEN_MESSAGE);
+        return false;
+      }
+    }
   }
 
   return true;
 }
 
-function hasValidActionCredentials(request: IncomingMessage, security: WebSecurity): boolean {
+function hasSessionCookie(request: IncomingMessage, security: WebSecurity): boolean {
   const cookie = request.headers.cookie
     ?.split(";")
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${security.cookieName}=`));
-  if (cookie?.slice(security.cookieName.length + 1) !== security.token) return false;
+  return cookie?.slice(security.cookieName.length + 1) === security.token;
+}
+
+function hasValidActionCredentials(request: IncomingMessage, security: WebSecurity): boolean {
+  if (!hasSessionCookie(request, security)) return false;
 
   const origin = request.headers.origin;
   const host = request.headers.host;
@@ -106,7 +123,7 @@ function redirectWithSessionCookie(
   return true;
 }
 
-function reject(response: ServerResponse): void {
+function reject(response: ServerResponse, message = WEB_FORBIDDEN_MESSAGE): void {
   response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-  response.end(WEB_FORBIDDEN_MESSAGE);
+  response.end(message);
 }
