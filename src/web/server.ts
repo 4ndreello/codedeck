@@ -1,10 +1,11 @@
 import http, { type RequestListener, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { isIP, type AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
 import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
+import { DEFAULT_WEB_HOST } from "../config/web-host.js";
 import { DEFAULT_WEB_PORT } from "../config/web-port.js";
 
 export { DEFAULT_WEB_PORT };
@@ -18,6 +19,7 @@ export interface WebRoute {
 
 export interface WebServerOptions {
   routes: readonly WebRoute[];
+  host?: string;
   port?: number;
   initialPath: string;
   title?: string;
@@ -41,6 +43,7 @@ export interface CreateWebServerOptions {
 
 export interface ListenWebServerOptions {
   routes: readonly WebRoute[];
+  host?: string;
   port?: number;
   /** Retry on an OS-assigned port after any listen error on `port`. */
   fallbackToEphemeral?: boolean;
@@ -126,12 +129,13 @@ export async function listenWebServer(options: ListenWebServerOptions): Promise<
     serverFactory: options.serverFactory,
   });
 
+  const host = options.host ?? DEFAULT_WEB_HOST;
   const requestedPort = options.port ?? DEFAULT_WEB_PORT;
   try {
-    await listen(server, requestedPort);
+    await listen(server, requestedPort, host);
   } catch (error) {
     if (!options.fallbackToEphemeral) throw error;
-    await listen(server, 0);
+    await listen(server, 0, host);
   }
 
   const address = server.address();
@@ -140,13 +144,13 @@ export async function listenWebServer(options: ListenWebServerOptions): Promise<
     throw new Error("Web server did not return a TCP address");
   }
 
-  security = createWebSecurity(address.port, options.token);
+  security = createWebSecurity(address.port, options.token, { host });
   let closing: Promise<void> | undefined;
   return {
     server,
     address,
     port: address.port,
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl: webBaseUrl(host, address.port),
     security,
     close: () => {
       closing ??= new Promise<void>((resolve) => server.close(() => resolve()));
@@ -155,7 +159,7 @@ export async function listenWebServer(options: ListenWebServerOptions): Promise<
   };
 }
 
-function listen(server: Server, port: number): Promise<void> {
+function listen(server: Server, port: number, host: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => {
       server.off("listening", onListening);
@@ -167,13 +171,14 @@ function listen(server: Server, port: number): Promise<void> {
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(port, "127.0.0.1");
+    server.listen(port, host);
   });
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<WebServerHandle> {
   const listening = await listenWebServer({
     routes: options.routes,
+    host: options.host,
     port: options.port,
     fallbackToEphemeral: options.fallbackToEphemeral,
     token: options.token,
@@ -223,6 +228,13 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     security,
     close,
   };
+}
+
+function webBaseUrl(host: string, port: number): string {
+  const urlHost = host === "127.0.0.1" || host === "0.0.0.0" || host === "::"
+    ? "127.0.0.1"
+    : isIP(host) === 6 ? `[${host}]` : host;
+  return `http://${urlHost}:${port}`;
 }
 
 function dispatchRequest(

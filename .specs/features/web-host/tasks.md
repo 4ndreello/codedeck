@@ -62,7 +62,7 @@ WH IDs: WH-07, WH-10
 Depends on: T02
 Tests: Update `tests/web-server.test.ts` for optional host, loopback default, wildcard URL mapping, direct IPv4 URL, and bracketed IPv6 URL.
 Gate: `npx vitest run --no-cache tests/web-server.test.ts`
-Status: Pending
+Status: Complete
 
 #### T04: Parse the web child host argument
 
