@@ -73,9 +73,6 @@ export function createInputGate(options: InputGateOptions) {
   let disposed = false;
   let inPaste = false;
   let escapeCandidate = "";
-  let escapeChunkIndex = -1;
-  let focusPrefixChunkIndex = -1;
-  let inputChunkIndex = 0;
   let sgrMouseCandidate = false;
   let dirtyBeforeEscape = false;
   let previousByteBeforeEscape: number | undefined;
@@ -108,10 +105,6 @@ export function createInputGate(options: InputGateOptions) {
 
   const tryInject = (): void => {
     timer = undefined;
-    if (disposed) {
-      recordState("hold", { reason: "disposed" });
-      return;
-    }
     if (used) {
       recordState("hold", { reason: "used" });
       return;
@@ -159,7 +152,10 @@ export function createInputGate(options: InputGateOptions) {
     return fields.length <= 3 && fields.slice(0, -1).every(Boolean);
   };
 
-  const flushUnknownEscape = (byte: number, chunkIndex: number): void => {
+  const flushUnknownEscape = (
+    byte: number,
+    chunkState: { escapeStartedInChunk: boolean },
+  ): void => {
     // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
     if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
     const candidate = Buffer.from(escapeCandidate);
@@ -175,28 +171,26 @@ export function createInputGate(options: InputGateOptions) {
     if (retryEscape) {
       dirtyBeforeEscape = dirty;
       previousByteBeforeEscape = previousByte;
-      escapeChunkIndex = chunkIndex;
-      focusPrefixChunkIndex = -1;
+      chunkState.escapeStartedInChunk = true;
     }
   };
 
-  const observeByte = (byte: number, chunkIndex: number): boolean => {
+  const observeByte = (byte: number, chunkState: { escapeStartedInChunk: boolean }): boolean => {
     const char = String.fromCharCode(byte);
     if (escapeCandidate !== "") {
       escapeCandidate += char;
-      if (escapeCandidate === "\u001b[") {
-        focusPrefixChunkIndex = escapeChunkIndex === chunkIndex ? chunkIndex : -1;
-      }
       const isStart = BRACKETED_PASTE_START.startsWith(escapeCandidate);
       const isEnd = BRACKETED_PASTE_END.startsWith(escapeCandidate);
-      if (
-        (escapeCandidate === "\u001b[I" || escapeCandidate === "\u001b[O") &&
-        focusPrefixChunkIndex === escapeChunkIndex
-      ) {
-        escapeCandidate = "";
-        dirty = dirtyBeforeEscape;
-        previousByte = previousByteBeforeEscape;
-        return false;
+      if (escapeCandidate === "\u001b[I" || escapeCandidate === "\u001b[O") {
+        if (chunkState.escapeStartedInChunk) {
+          escapeCandidate = "";
+          dirty = dirtyBeforeEscape;
+          previousByte = previousByteBeforeEscape;
+          return false;
+        }
+        flushUnknownEscape(byte, chunkState);
+        previousByte = byte;
+        return true;
       } else if (escapeCandidate === BRACKETED_PASTE_START) {
         inPaste = true;
         escapeCandidate = "";
@@ -221,11 +215,11 @@ export function createInputGate(options: InputGateOptions) {
           previousByte = byte;
           return false;
         }
-        flushUnknownEscape(byte, chunkIndex);
+        flushUnknownEscape(byte, chunkState);
         previousByte = byte;
         return true;
       } else if (!isStart && !isEnd) {
-        flushUnknownEscape(byte, chunkIndex);
+        flushUnknownEscape(byte, chunkState);
         previousByte = byte;
         return true;
       }
@@ -236,8 +230,7 @@ export function createInputGate(options: InputGateOptions) {
       dirtyBeforeEscape = dirty;
       previousByteBeforeEscape = previousByte;
       escapeCandidate = char;
-      escapeChunkIndex = chunkIndex;
-      focusPrefixChunkIndex = -1;
+      chunkState.escapeStartedInChunk = true;
       markDirty();
       previousByte = byte;
       return false;
@@ -258,7 +251,6 @@ export function createInputGate(options: InputGateOptions) {
   return {
     observe(chunk: Buffer): void {
       if (disposed) return;
-      const chunkIndex = ++inputChunkIndex;
       if (chunk.equals(Buffer.from("\u001b[I")) || chunk.equals(Buffer.from("\u001b[O"))) {
         recordInput(chunk, "focus");
         return;
@@ -268,8 +260,9 @@ export function createInputGate(options: InputGateOptions) {
         return;
       }
       const observedAt = now();
+      const chunkState = { escapeStartedInChunk: false };
       let hasActivity = false;
-      for (const byte of chunk) hasActivity = observeByte(byte, chunkIndex) || hasActivity;
+      for (const byte of chunk) hasActivity = observeByte(byte, chunkState) || hasActivity;
       if (hasActivity) lastActivity = observedAt;
       recordInput(chunk, null);
       scheduleQuiet();

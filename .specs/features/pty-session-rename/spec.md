@@ -77,8 +77,11 @@ to own the terminal.
   conservative: a control may drive a suggestion menu, and the cost of a wrong
   guess is a rename that lands one prompt later.
 - Terminal focus reports (`ESC[I`, `ESC[O`) SHALL NOT mark the input box dirty
-  and SHALL NOT guard the next Enter, whether they arrive as a whole chunk,
-  inside a longer chunk, or split across chunks after the `ESC[` prefix.
+  and SHALL NOT guard the next Enter, whether they arrive as a whole chunk or
+  inside a longer chunk.
+- A focus report split across chunks SHALL be handled like any other
+  unrecognised escape (dirty and guard), because a legacy Alt+[ followed by a
+  typed I or O is indistinguishable from it.
 - WHEN a chunk carries a focus report followed by SGR mouse reports (as a
   terminal with focus-follows-mouse sends when the pointer enters the window),
   THEN the gate state SHALL be the same as before the chunk.
@@ -121,7 +124,7 @@ to own the terminal.
 - WHEN the gate observes a stdin chunk, THEN the trace SHALL record `kind: "input"`, the chunk as lowercase hex, whether it was ignored as a focus report or terminal reply (`ignored: "focus" | "reply" | null`), and the gate state after it (`dirty`, `guard`, `pending`, `used`).
 - WHEN a name is offered to the gate, THEN the trace SHALL record `kind: "offer"` with the gate state.
 - WHEN the gate types the rename, THEN the trace SHALL record `kind: "inject"`.
-- WHEN a quiet timer fires and the gate declines to inject, THEN the trace SHALL record `kind: "hold"` with the reason (`dirty`, `used`, `no-pending`, or `disposed`).
+- WHEN a quiet timer fires and the gate declines to inject, THEN the trace SHALL record `kind: "hold"` with the reason (`dirty`, `used`, or `no-pending`).
 - WHEN the sidecar watcher delivers a name, THEN the trace SHALL record `kind: "sidecar"` with the name.
 - Every trace line SHALL carry `t`, milliseconds since the pty session started.
 - The trace file SHALL be created with mode 0600, because it holds every keystroke the user types.

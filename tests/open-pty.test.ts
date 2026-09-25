@@ -4,7 +4,7 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   HARNESS_INJECTION,
@@ -427,6 +427,43 @@ describe("pty input gate", () => {
     });
   });
 
+  it("traces a used hold with its reason", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).toHaveBeenCalledOnce();
+
+    gate.observe(Buffer.from("typed"));
+    vi.advanceTimersByTime(quietMs);
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "hold",
+      reason: "used",
+      dirty: true,
+      guard: false,
+      pending: false,
+      used: true,
+    });
+  });
+
+  it("traces a no-pending hold with its reason", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+    gate.observe(Buffer.from("typed"));
+
+    vi.advanceTimersByTime(quietMs);
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "hold",
+      reason: "no-pending",
+      dirty: true,
+      guard: false,
+      pending: false,
+      used: false,
+    });
+  });
+
   it("injects the rename when the trace sink throws", () => {
     const { gate, inject } = setup(() => {
       throw new Error("trace failed");
@@ -622,7 +659,30 @@ describe("pty input gate", () => {
     expect(inject).toHaveBeenCalledOnce();
   });
 
-  it("recognizes a focus report split across chunks", () => {
+  it("keeps an embedded focus-out report neutral without resetting quiet time", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+    const before = {
+      dirty: events[0].dirty,
+      guard: events[0].guard,
+      pending: events[0].pending,
+      used: events[0].used,
+    };
+
+    gate.observe(Buffer.from("\u001b[O\u001b[<35;48;1M"));
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "input",
+      chunk: "1b5b4f1b5b3c33353b34383b314d",
+      ignored: null,
+      ...before,
+    });
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).toHaveBeenCalledOnce();
+  });
+
+  it("treats a focus report split across chunks as an unknown escape", () => {
     const events: Record<string, unknown>[] = [];
     const { gate, inject } = setup((event) => events.push(event));
     gate.offer("/rename nome\r");
@@ -631,17 +691,16 @@ describe("pty input gate", () => {
     expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
     gate.observe(Buffer.from("I"));
 
-    expect(events[events.length - 1]).toEqual({
+    expect(events[events.length - 1]).toMatchObject({
       kind: "input",
       chunk: "49",
       ignored: null,
-      dirty: false,
-      guard: false,
+      dirty: true,
+      guard: true,
       pending: true,
       used: false,
     });
-    vi.advanceTimersByTime(quietMs);
-    expect(inject).toHaveBeenCalledOnce();
+    expectHeldAfterQuiet(inject);
   });
 
   it("keeps a separately typed Esc, bracket, and I as an unknown escape", () => {
@@ -838,6 +897,8 @@ describe("pty input gate", () => {
 });
 
 describe("startPtySession", () => {
+  beforeEach(() => vi.stubEnv("CODEDECK_PTY_DEBUG", ""));
+
   // Enough of a child to exercise the wire: what the parent typed lands in
   // `written`, and `writable` is the flag the EPIPE guard reads.
   function fakeChild() {
