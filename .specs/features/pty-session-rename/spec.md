@@ -76,8 +76,18 @@ to own the terminal.
   CR) arrives, THEN the next Enter SHALL NOT count as a submit. This is
   conservative: a control may drive a suggestion menu, and the cost of a wrong
   guess is a rename that lands one prompt later.
-- Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
-  mark the box dirty.
+- Terminal focus reports (`ESC[I`, `ESC[O`) SHALL NOT mark the input box dirty
+  and SHALL NOT guard the next Enter, whether they arrive as a whole chunk,
+  inside a longer chunk, or split across chunks after the `ESC[` prefix.
+- WHEN a chunk carries a focus report followed by SGR mouse reports (as a
+  terminal with focus-follows-mouse sends when the pointer enters the window),
+  THEN the gate state SHALL be the same as before the chunk.
+- WHEN a name is held, a focus-in plus mouse motion chunk arrives, the user
+  types a line and submits it, THEN the wrapper SHALL type the rename after
+  QUIET_MS of quiet.
+- The kitty keyboard encoding of Esc (`ESC[27u`) SHALL keep guarding the next
+  Enter, because a double Esc opens Claude Code's rewind menu, where Enter
+  selects a message instead of submitting.
 - An SGR mouse report (`ESC[<` followed by three digit fields separated by
   semicolons and terminated by `M` or `m`) SHALL NOT mark the input box dirty.
 - An SGR mouse report SHALL NOT guard the next Enter.

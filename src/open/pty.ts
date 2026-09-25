@@ -73,6 +73,9 @@ export function createInputGate(options: InputGateOptions) {
   let disposed = false;
   let inPaste = false;
   let escapeCandidate = "";
+  let escapeChunkIndex = -1;
+  let focusPrefixChunkIndex = -1;
+  let inputChunkIndex = 0;
   let sgrMouseCandidate = false;
   let dirtyBeforeEscape = false;
   let previousByteBeforeEscape: number | undefined;
@@ -156,7 +159,7 @@ export function createInputGate(options: InputGateOptions) {
     return fields.length <= 3 && fields.slice(0, -1).every(Boolean);
   };
 
-  const flushUnknownEscape = (byte: number): void => {
+  const flushUnknownEscape = (byte: number, chunkIndex: number): void => {
     // Unrecognised escape sequences can edit earlier text, so guard the next Enter.
     if (escapeCandidate !== "\u001b\r") guardNextEnter = true;
     const candidate = Buffer.from(escapeCandidate);
@@ -172,16 +175,29 @@ export function createInputGate(options: InputGateOptions) {
     if (retryEscape) {
       dirtyBeforeEscape = dirty;
       previousByteBeforeEscape = previousByte;
+      escapeChunkIndex = chunkIndex;
+      focusPrefixChunkIndex = -1;
     }
   };
 
-  const observeByte = (byte: number): boolean => {
+  const observeByte = (byte: number, chunkIndex: number): boolean => {
     const char = String.fromCharCode(byte);
     if (escapeCandidate !== "") {
       escapeCandidate += char;
+      if (escapeCandidate === "\u001b[") {
+        focusPrefixChunkIndex = escapeChunkIndex === chunkIndex ? chunkIndex : -1;
+      }
       const isStart = BRACKETED_PASTE_START.startsWith(escapeCandidate);
       const isEnd = BRACKETED_PASTE_END.startsWith(escapeCandidate);
-      if (escapeCandidate === BRACKETED_PASTE_START) {
+      if (
+        (escapeCandidate === "\u001b[I" || escapeCandidate === "\u001b[O") &&
+        focusPrefixChunkIndex === escapeChunkIndex
+      ) {
+        escapeCandidate = "";
+        dirty = dirtyBeforeEscape;
+        previousByte = previousByteBeforeEscape;
+        return false;
+      } else if (escapeCandidate === BRACKETED_PASTE_START) {
         inPaste = true;
         escapeCandidate = "";
         markDirty();
@@ -205,11 +221,11 @@ export function createInputGate(options: InputGateOptions) {
           previousByte = byte;
           return false;
         }
-        flushUnknownEscape(byte);
+        flushUnknownEscape(byte, chunkIndex);
         previousByte = byte;
         return true;
       } else if (!isStart && !isEnd) {
-        flushUnknownEscape(byte);
+        flushUnknownEscape(byte, chunkIndex);
         previousByte = byte;
         return true;
       }
@@ -220,6 +236,8 @@ export function createInputGate(options: InputGateOptions) {
       dirtyBeforeEscape = dirty;
       previousByteBeforeEscape = previousByte;
       escapeCandidate = char;
+      escapeChunkIndex = chunkIndex;
+      focusPrefixChunkIndex = -1;
       markDirty();
       previousByte = byte;
       return false;
@@ -240,6 +258,7 @@ export function createInputGate(options: InputGateOptions) {
   return {
     observe(chunk: Buffer): void {
       if (disposed) return;
+      const chunkIndex = ++inputChunkIndex;
       if (chunk.equals(Buffer.from("\u001b[I")) || chunk.equals(Buffer.from("\u001b[O"))) {
         recordInput(chunk, "focus");
         return;
@@ -250,7 +269,7 @@ export function createInputGate(options: InputGateOptions) {
       }
       const observedAt = now();
       let hasActivity = false;
-      for (const byte of chunk) hasActivity = observeByte(byte) || hasActivity;
+      for (const byte of chunk) hasActivity = observeByte(byte, chunkIndex) || hasActivity;
       if (hasActivity) lastActivity = observedAt;
       recordInput(chunk, null);
       scheduleQuiet();

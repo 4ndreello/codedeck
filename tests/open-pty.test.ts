@@ -339,6 +339,24 @@ describe("pty input gate", () => {
     });
   });
 
+  it("traces a whole-chunk focus-out report as ignored focus input", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[O"));
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "input",
+      chunk: "1b5b4f",
+      ignored: "focus",
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+    });
+  });
+
   it("traces terminal replies as ignored reply input", () => {
     const events: Record<string, unknown>[] = [];
     const { gate } = setup((event) => events.push(event));
@@ -579,6 +597,126 @@ describe("pty input gate", () => {
     gate.observe(Buffer.from("\u001b[O"));
     vi.advanceTimersByTime(1);
     expect(inject).toHaveBeenCalledOnce();
+  });
+
+  it("keeps embedded focus and SGR mouse reports neutral without resetting quiet time", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+    const before = {
+      dirty: events[0].dirty,
+      guard: events[0].guard,
+      pending: events[0].pending,
+      used: events[0].used,
+    };
+    vi.advanceTimersByTime(quietMs - 1);
+
+    gate.observe(Buffer.from("\u001b[I\u001b[<35;48;1M"));
+    gate.observe(Buffer.from("\u001b[<35;47;1M"));
+
+    expect(events.slice(-2)).toEqual([
+      { kind: "input", chunk: "1b5b491b5b3c33353b34383b314d", ignored: null, ...before },
+      { kind: "input", chunk: "1b5b3c33353b34373b314d", ignored: null, ...before },
+    ]);
+    vi.advanceTimersByTime(1);
+    expect(inject).toHaveBeenCalledOnce();
+  });
+
+  it("recognizes a focus report split across chunks", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b["));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
+    gate.observe(Buffer.from("I"));
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "input",
+      chunk: "49",
+      ignored: null,
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+    });
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a separately typed Esc, bracket, and I as an unknown escape", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b"));
+    vi.advanceTimersByTime(50);
+    gate.observe(Buffer.from("["));
+    vi.advanceTimersByTime(50);
+    gate.observe(Buffer.from("I"));
+
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: true });
+    gate.observe(Buffer.from("\r"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
+    vi.advanceTimersByTime(quietMs);
+
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  it("preserves the previous byte after an embedded focus and mouse report", () => {
+    const { gate, inject } = setup();
+    gate.observe(Buffer.from("draft\\"));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[I\u001b[<35;48;1M"));
+    gate.observe(Buffer.from("\r"));
+    vi.advanceTimersByTime(quietMs);
+    expect(inject).not.toHaveBeenCalled();
+
+    gate.observe(Buffer.from("ok\r"));
+    expectInjectedAfterQuiet(inject);
+  });
+
+  it("preserves an existing unknown-escape guard through focus reports", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.observe(Buffer.from("\u001b[A"));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[I\u001b[<35;48;1M"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: true });
+    gate.observe(Buffer.from("\r"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
+    vi.advanceTimersByTime(quietMs);
+
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  it("keeps kitty Esc guarded so the following Enter cannot submit", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[27u"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: true });
+    gate.observe(Buffer.from("\r"));
+    expect(events[events.length - 1]).toMatchObject({ dirty: true, guard: false });
+    vi.advanceTimersByTime(quietMs);
+
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  it("types a held name after focus and mouse reports, typing, and submit", () => {
+    const { gate, inject } = setup();
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[I\u001b[<35;48;1M"));
+    gate.observe(Buffer.from("abc"));
+    gate.observe(Buffer.from("\r"));
+    vi.advanceTimersByTime(quietMs);
+
+    expect(inject).toHaveBeenCalledOnce();
+    expect(inject).toHaveBeenCalledWith("/rename nome\r");
   });
 
   type InputGateStep =
