@@ -234,8 +234,10 @@ export interface QueryUsageRequest {
 }
 
 export interface WebEnsureParams {
-  /** Bind address; omitted requests the default loopback host. */
+  /** Explicit bind address from `ui --host`; omitted does not move a running child. */
   host?: string;
+  /** Resolved `web.host`; only moves a child that was not started for an explicit host. */
+  preferredHost?: string;
   /** Explicit port (`--port`): used only when a child has to start, never a fallback. */
   port?: number;
   /** The caller's resolved preferred port (`web.port` or 7777), sent when there is no explicit port. */

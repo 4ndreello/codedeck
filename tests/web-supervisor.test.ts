@@ -47,6 +47,13 @@ function harness(overrides: Partial<WebSupervisorOptions> = {}) {
 
 const ok = (port = 4100, token = "tok-1", build = "b1") => ({ port, token, build });
 
+async function running(t: ReturnType<typeof harness>, params: Parameters<WebSupervisor["ensure"]>[0], port = 4100) {
+  const pending = t.supervisor.ensure(params);
+  await vi.waitFor(() => expect(t.children.length).toBeGreaterThan(0));
+  t.children[t.children.length - 1].handshake(ok(port, `tok-${port}`));
+  return pending;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -220,6 +227,42 @@ describe("WebSupervisor.ensure", () => {
     expect(t.children[0].signals).toEqual([]);
   });
 
+  it("does not move an explicitly bound child for a preferred host", async () => {
+    const t = harness();
+    const first = await running(t, { preferredPort: 7777, host: "0.0.0.0" });
+
+    await expect(t.supervisor.ensure({ preferredPort: 7777, preferredHost: "127.0.0.1" })).resolves.toEqual(first);
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
+  it.each([
+    ["preferred", { preferredPort: 7777, preferredHost: "127.0.0.1" }],
+    ["none", { preferredPort: 7777 }],
+  ])("moves a child started for %s when its preferred host changes", async (_label, firstParams) => {
+    const t = harness();
+    await running(t, firstParams);
+
+    const second = t.supervisor.ensure({ preferredPort: 7777, preferredHost: "0.0.0.0" });
+    await vi.waitFor(() => expect(t.children).toHaveLength(2));
+    t.children[1].handshake(ok(4101, "tok-2"));
+
+    await expect(second).resolves.toMatchObject({ port: 4101, token: "tok-2" });
+    expect(t.children[0].signals).toEqual(["SIGTERM"]);
+    expect(t.spawns[1].args).toEqual(["--web-child", "--host", "0.0.0.0", "--preferred-port", "7777"]);
+  });
+
+  it("reuses the running host when neither host field is supplied", async () => {
+    const t = harness();
+    const first = await running(t, { host: "100.64.0.5" });
+
+    await expect(t.supervisor.ensure({})).resolves.toEqual(first);
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
   it("stops an old build with SIGTERM, escalates to SIGKILL after the stop timeout, and returns the new child", async () => {
     vi.useFakeTimers();
     const { supervisor, children } = harness();
@@ -253,13 +296,6 @@ describe("WebSupervisor.ensure", () => {
 });
 
 describe("WebSupervisor port rules", () => {
-  async function running(t: ReturnType<typeof harness>, params: Parameters<WebSupervisor["ensure"]>[0], port = 4100) {
-    const pending = t.supervisor.ensure(params);
-    await vi.waitFor(() => expect(t.children.length).toBeGreaterThan(0));
-    t.children[t.children.length - 1].handshake(ok(port, `tok-${port}`));
-    return pending;
-  }
-
   it("passes a preferred port as --preferred-port", async () => {
     const t = harness();
 

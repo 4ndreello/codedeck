@@ -107,7 +107,7 @@ The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` t
 }
 ```
 
-`web.host` accepts IP addresses only. `codedeck ui --host <addr>` overrides the configured address for that launch. The CLI sends the selected address as the `host` parameter of `web.ensure`, and the daemon passes it to the child as `--host <addr>`. If `web.ensure` omits `host`, the supervisor uses `127.0.0.1`. A host change restarts the web child.
+`web.host` accepts IP addresses only. `codedeck ui --host <addr>` explicitly binds that address for the launch. The CLI sends it as `host` to `web.ensure`; without the flag, it sends the resolved config value as `preferredHost`. The daemon passes the selected address to the child as `--host <addr>`. An explicit host change restarts the child. A preferred host moves a child started for a preferred host or with no host request, and never moves a child started for an explicit host. If both host fields are absent, the supervisor reuses a running child at any address and starts a new child on `127.0.0.1`.
 
 ## Open
 

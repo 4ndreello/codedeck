@@ -148,7 +148,7 @@ describe("daemon web autostart", () => {
     daemon.autostartWeb();
 
     expect(host.ensure).toHaveBeenCalledTimes(1);
-    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7788, host: "100.64.0.5" });
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7788, preferredHost: "100.64.0.5" });
   });
 
   it("logs a failed autostart and keeps serving web.ensure", async () => {
@@ -161,7 +161,7 @@ describe("daemon web autostart", () => {
     daemon.autostartWeb();
 
     await vi.waitFor(() => expect(daemonLog()).toMatch(/\] web autostart failed: web child exited before its handshake \(code=1\)\n/));
-    expect(hostEnsure).toHaveBeenNthCalledWith(1, { preferredPort: 7777, host: "127.0.0.1" });
+    expect(hostEnsure).toHaveBeenNthCalledWith(1, { preferredPort: 7777, preferredHost: "127.0.0.1" });
     expect((await ensure({})).result).toEqual({ baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" });
   });
 
@@ -173,7 +173,7 @@ describe("daemon web autostart", () => {
     daemon.autostartWeb();
 
     expect(daemonLog()).toMatch(/\] Ignoring invalid web.port in config: "7788"\n/);
-    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, host: "127.0.0.1" });
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, preferredHost: "127.0.0.1" });
   });
 
   it("logs an invalid web.host and autostarts on loopback", async () => {
@@ -187,7 +187,7 @@ describe("daemon web autostart", () => {
     daemon.autostartWeb();
 
     expect(daemonLog()).toMatch(/\] Ignoring invalid web\.host in config: "deck\.local"\n/);
-    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, host: "127.0.0.1" });
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, preferredHost: "127.0.0.1" });
   });
 
   it("does not start the web child from start()", async () => {

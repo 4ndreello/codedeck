@@ -59,7 +59,7 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
   }
 
   const params: WebEnsureParams = {
-    host,
+    ...(options.host === undefined ? { preferredHost: configuredHost } : { host: options.host }),
     ...(options.port === undefined ? { preferredPort } : { port: options.port }),
     build: deps.build ?? computeBuildId(distRootFor(import.meta.url)),
     entry: deps.entry ?? fileURLToPath(new URL("../web/child.js", import.meta.url)),

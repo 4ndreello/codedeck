@@ -23,3 +23,5 @@
 | 19 | Commit T01 and T02 in separate commits from this continuation. | Deviation | The earlier worker left their source changes uncommitted after sandbox failures, and this continuation reran both gates before committing. |
 | 20 | Share base URL formatting from `src/config/web-host.ts`. | Decision | The supervisor and web server need the same host mapping, while the daemon import boundary forbids importing the web server into the supervisor. |
 | 21 | Print the plain HTTP warning after a listener succeeds. | Decision | A preferred port may fall back to an OS-assigned port, so the warning must name the actual listening port. |
+| 22 | Separate explicit and preferred web host requests. | Bucket 1 decision | Finding R1: an explicit `ui --host` bind pins its child, `web.host` is a preference, and omitted host fields reuse a running child or start on loopback. |
+| 23 | Capitalize commit subjects after the Conventional Commit prefix. | Decision | The remediation follows repository history; `check_commit.py` requires lowercase subjects, so the repository convention takes precedence as requested. |

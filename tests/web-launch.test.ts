@@ -81,6 +81,8 @@ describe("launchWebPage", () => {
     expect(method).toBe("web.ensure");
     expect(params.build).toBe("build-1");
     expect(params.entry).toBe(path.join(REPO_ROOT, "src", "web", "child.js"));
+    expect(params).toMatchObject({ preferredHost: "127.0.0.1" });
+    expect(params).not.toHaveProperty("host");
     expect(t.startServer).not.toHaveBeenCalled();
   });
 
@@ -131,9 +133,11 @@ describe("launchWebPage", () => {
     await t.launch({ host: "192.168.1.25", open: false });
 
     expect(t.request.mock.calls.map(([, params]) => params)).toEqual([
-      expect.objectContaining({ host: "100.64.0.5" }),
+      expect.objectContaining({ preferredHost: "100.64.0.5" }),
       expect.objectContaining({ host: "192.168.1.25" }),
     ]);
+    expect(t.request.mock.calls[0][1]).not.toHaveProperty("host");
+    expect(t.request.mock.calls[1][1]).not.toHaveProperty("preferredHost");
     expect(t.errors).toEqual([
       "Warning: the console listens on 100.64.0.5 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
       "Warning: the console listens on 192.168.1.25 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
@@ -146,7 +150,7 @@ describe("launchWebPage", () => {
     await t.launch({ open: false });
 
     expect(t.errors).toEqual(['Ignoring invalid web.host in config: "deck.local"']);
-    expect(t.request.mock.calls[0][1]).toMatchObject({ host: "127.0.0.1" });
+    expect(t.request.mock.calls[0][1]).toMatchObject({ preferredHost: "127.0.0.1" });
   });
 
   it("passes the resolved host to the in-process server", async () => {

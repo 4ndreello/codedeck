@@ -1519,7 +1519,7 @@ class Daemon {
     if (invalid !== undefined) appendDaemonLog(invalidWebPortMessage(invalid));
     if (invalidHost !== undefined) appendDaemonLog(invalidWebHostMessage(invalidHost));
     this.webHost()
-      .ensure({ preferredPort: port, host })
+      .ensure({ preferredPort: port, preferredHost: host })
       .catch((error: unknown) => appendDaemonLog(`web autostart failed: ${error instanceof Error ? error.message : String(error)}`));
   }
 

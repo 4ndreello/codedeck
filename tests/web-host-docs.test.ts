@@ -17,6 +17,8 @@ describe("web host documentation", () => {
     expect(readme).toContain("`--host <addr>`");
     expect(readme).toContain("`web.ensure`");
     expect(readme).toContain("`host`");
+    expect(readme).toContain("`preferredHost`");
+    expect(readme).toContain("explicit host");
   });
 
   it("documents the host parameter in Portuguese in the protocol section", () => {
@@ -27,5 +29,6 @@ describe("web host documentation", () => {
     expect(protocol).toContain("`web.host`");
     expect(protocol).toContain("`--host <addr>`");
     expect(protocol).toContain("`127.0.0.1`");
+    expect(protocol).toContain("`preferredHost` (opcional)");
   });
 });

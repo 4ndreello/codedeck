@@ -47,10 +47,12 @@ export interface WebSupervisorOptions {
 
 /** What a child was started for; decides whether a later request may reuse it. */
 type StartedFor = { kind: "explicit"; port: number } | { kind: "preferred"; port: number } | { kind: "none" };
+type HostFor = "explicit" | "preferred" | "none";
 
 interface RunningChild extends WebEnsureResult {
   child: WebChildProcess;
   host: string;
+  hostFor: HostFor;
   entry: string;
   build: string | undefined;
   startedFor: StartedFor;
@@ -111,12 +113,14 @@ export class WebSupervisor {
     // then judges the outcome by its own params.
     while (this.state.kind === "starting") await this.state.promise.catch(() => {});
     const state = this.state;
-    if (state.kind === "running" && this.matches(state.running, params)) return resultOf(state.running);
+    const running = state.kind === "running" ? state.running : undefined;
+    const requestedHost = this.requestedHost(running, params);
+    if (running && this.matches(running, params, requestedHost.host)) return resultOf(running);
 
-    const previous = state.kind === "running" ? state.running : undefined;
+    const previous = running;
     const promise = (async () => {
       if (previous) await this.stop(previous);
-      return this.start(params);
+      return this.start(params, requestedHost.host, requestedHost.hostFor);
     })();
     this.state = { kind: "starting", promise };
     promise.catch(() => {
@@ -134,8 +138,17 @@ export class WebSupervisor {
     return path.isAbsolute(entry) && entry.endsWith("/web/child.js") && this.entryExists(entry);
   }
 
-  private matches(running: RunningChild, params: WebEnsureParams): boolean {
-    if (running.host !== (params.host ?? DEFAULT_WEB_HOST)) return false;
+  private requestedHost(running: RunningChild | undefined, params: WebEnsureParams): { host: string; hostFor: HostFor } {
+    if (params.host !== undefined) return { host: params.host, hostFor: "explicit" };
+    if (params.preferredHost !== undefined && running?.hostFor !== "explicit") {
+      return { host: params.preferredHost, hostFor: "preferred" };
+    }
+    if (running) return { host: running.host, hostFor: running.hostFor };
+    return { host: DEFAULT_WEB_HOST, hostFor: "none" };
+  }
+
+  private matches(running: RunningChild, params: WebEnsureParams, requestedHost: string): boolean {
+    if (running.host !== requestedHost) return false;
     if (params.entry !== undefined && params.entry !== running.entry) return false;
     if (params.build !== undefined && ((params.entry ?? this.defaultEntry) !== running.entry || params.build !== running.build)) {
       return false;
@@ -153,9 +166,8 @@ export class WebSupervisor {
     await exitsWithin(running.exited, this.stopTimeoutMs);
   }
 
-  private start(params: WebEnsureParams): Promise<WebEnsureResult> {
+  private start(params: WebEnsureParams, host: string, hostFor: HostFor): Promise<WebEnsureResult> {
     const entry = params.entry ?? this.defaultEntry;
-    const host = params.host ?? DEFAULT_WEB_HOST;
     const startedFor: StartedFor =
       params.port !== undefined
         ? { kind: "explicit", port: params.port }
@@ -230,6 +242,7 @@ export class WebSupervisor {
           token: handshake.token,
           child,
           host,
+          hostFor,
           entry,
           build: handshake.build ?? params.build,
           startedFor,

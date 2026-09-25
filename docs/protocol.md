@@ -47,9 +47,14 @@ Request:
 { "id": "w1", "method": "web.ensure", "params": { "host": "100.101.102.103", "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
 ```
 
-- `host` (opcional): endereço IP usado para escutar. Vem de `web.host` ou de
-  `codedeck ui --host <addr>`; sem esse campo, usa `127.0.0.1`. Se o endereço
-  diferir do filho atual, o supervisor encerra o filho e inicia outro.
+- `host` (opcional): endereço IP explícito, enviado por `codedeck ui --host
+  <addr>`. Se diferir do filho atual, o supervisor encerra o filho e inicia
+  outro nesse endereço.
+- `preferredHost` (opcional): endereço resolvido de `web.host`, enviado quando
+  não há `ui --host`. Ele move um filho iniciado para uma preferência ou sem
+  pedido de host, mas não move um filho iniciado para um `host` explícito.
+  Quando ambos os campos faltam, um filho atual é reaproveitado em qualquer
+  endereço; se não houver filho, o supervisor inicia em `127.0.0.1`.
 - `port` (opcional): porta explícita (`--port`). Só vale quando um filho
   precisa subir, e nunca cai para outra porta. Um filho já rodando é
   reaproveitado em qualquer porta.

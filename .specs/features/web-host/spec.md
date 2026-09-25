@@ -31,7 +31,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | --- | --- | --- | --- |
 | A malformed top-level `web` value | Treat it as an invalid host setting and report the raw JSON value. | This matches `resolveWebPort` handling for malformed `web` sections. | No |
 | A valid explicit `ui --host` with invalid configured `web.host` | Use the explicit host and still report the invalid config value. | WH-03 requires the CLI warning and WH-04 makes the flag an override. | No |
-| Supervisor host identity | Store the requested host with the running child state. | The child handshake has no host field, and WH-09 compares requested and running hosts. | No |
+| Supervisor host identity | Store the bind host and whether it came from an explicit request, config preference, or no host request. | The child handshake has no host field, and WH-09 plus WH-17 through WH-19 define host reuse and restart rules. | No |
 | Host header comparison | Compare the complete host and port case-insensitively. | WH-12 requires case-insensitive matching and the exact console port. | No |
 | Wildcard alternate links | Use each non-internal IPv4 interface address and preserve the requested path, query, and token. | WH-14 requires one tokenized link for each such address. | No |
 | URL host formatting | Advertise loopback for `127.0.0.1`, `0.0.0.0`, and `::`; bracket other IPv6 hosts. | WH-10 specifies this mapping. | No |
@@ -72,8 +72,11 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 1. WHILE the bind host is `127.0.0.1` THEN the server SHALL allow exactly `127.0.0.1:<port>` and `localhost:<port>` as Host headers. <!-- WH-11 -->
 2. WHILE the bind host is anything other than `127.0.0.1` THEN the server SHALL also allow case-insensitive Host `<name>:<port>` values for current local interface addresses, `os.hostname()`, and names beginning with `os.hostname() + "."`; interface addresses SHALL be evaluated per request through an injectable seam, IPv6 addresses SHALL use brackets, and addresses with a `%` zone SHALL be skipped. <!-- WH-12 -->
 3. WHEN a Host header is accepted THEN the server SHALL apply the existing token, cookie, same-origin POST, and `/api/*` checks unchanged; a page GET on a Tailscale IP without a token or cookie SHALL return the existing 403 page body, and a GET with the correct `t` token SHALL return 303 and set the session cookie. <!-- WH-13 -->
-4. WHEN `web.ensure` requests a host different from the running child's host THEN the supervisor SHALL stop that child and start a child on the requested host; omitted `host` SHALL mean `127.0.0.1`, and existing port reuse rules SHALL otherwise remain unchanged. <!-- WH-09 -->
+4. WHEN `web.ensure` supplies an explicit `host` different from the running child's host THEN the supervisor SHALL stop that child and start a child on the requested host; an omitted `host` SHALL NOT request a move to `127.0.0.1`, and existing port reuse rules SHALL remain unchanged. <!-- WH-09 -->
 5. WHEN the bind host is `127.0.0.1`, `0.0.0.0`, or `::` THEN the supervisor and `listenWebServer` SHALL return `http://127.0.0.1:<port>` as the base URL; for any other host they SHALL return `http://<host>:<port>`, with IPv6 in brackets. <!-- WH-10 -->
+6. WHEN `web.ensure` supplies a `preferredHost` different from the running child's host AND the child was started for a preferred host or with neither host field THEN the supervisor SHALL stop that child and start a child on `preferredHost`. <!-- WH-17 -->
+7. WHEN `web.ensure` supplies a `preferredHost` AND the running child was started for an explicit host THEN the supervisor SHALL keep that explicit bind host. <!-- WH-18 -->
+8. WHEN `web.ensure` supplies neither `host` nor `preferredHost` THEN the supervisor SHALL reuse a running child regardless of its bind host, and SHALL start a new child on `127.0.0.1` when none is running. <!-- WH-19 -->
 
 **Independent Test**: Bind to a wildcard address, send requests with a local interface Host, a hostile Host, and tokenized or untokenized page URLs, and verify the exact response behavior.
 
@@ -111,13 +114,13 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | --- | --- |
 | Input validation and bounds | WH-02, WH-03, and WH-05 require `net.isIP` validation. |
 | Failure and partial-failure states | WH-03, WH-05, and WH-16 define invalid config, invalid flag, and listen failure outcomes. |
-| Idempotency and retry | WH-09 defines child reuse and restart behavior when the host changes. |
+| Idempotency and retry | WH-09 and WH-17 through WH-19 define child reuse and restart behavior by host request and start origin. |
 | Auth boundaries and rate limits | WH-11 through WH-13 keep the existing Host and token checks; rate limiting is N/A because this feature does not change request authorization behavior. |
-| Concurrency and ordering | WH-09 uses the existing single-child supervisor transition when the host changes. |
+| Concurrency and ordering | WH-09 and WH-17 use the existing single-child supervisor transition when the requested host changes. |
 | Data lifecycle and expiry | N/A because the feature adds no persisted data. |
 | Observability | WH-03 reports invalid config, WH-15 warns about reachable plain HTTP, and WH-16 reports the listen host. |
 | External-dependency failure | WH-16 covers OS listen failures; no new external service is introduced. |
-| State-transition integrity | WH-09 defines the transition from a running child to a child on the requested host. |
+| State-transition integrity | WH-09 and WH-17 through WH-19 define host transitions and reuse. |
 
 ## Requirement Traceability
 
@@ -131,7 +134,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-06 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-07 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-08 | P1: Bind the console to a configured address | Tasks | Verified |
-| WH-09 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-09 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-10 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-11 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-12 | P1: Preserve the console's request protections | Tasks | Verified |
@@ -139,8 +142,11 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-14 | P2: Print usable links and bind errors | Tasks | Verified |
 | WH-15 | P2: Print usable links and bind errors | Tasks | Verified |
 | WH-16 | P2: Print usable links and bind errors | Tasks | Verified |
+| WH-17 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-18 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-19 | P1: Preserve the console's request protections | Tasks | Implemented |
 
-**Coverage**: 16 requirements, 16 mapped to tasks, 0 unmapped.
+**Coverage**: 19 requirements, 19 mapped to tasks, 0 unmapped.
 
 ## Success Criteria
 
