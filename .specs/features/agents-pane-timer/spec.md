@@ -59,9 +59,10 @@ Tick:
   the module SHALL invalidate `ui.render` once per second.
 - AC12. WHEN the pane closes or the snapshot holds no live row THEN the tick
   SHALL stop, and no timer SHALL stay scheduled.
-- AC13. A tick SHALL NOT spawn `codedeck ps`. Data refresh during a tick is
-  capped: at most one `refresh` per 5 seconds while ticking, so a worker that
-  finishes while the orchestrator is idle stops counting within 5 seconds.
+- AC13. WHILE ticking, the module SHALL request at most one data `refresh`
+  (the existing helper, which runs `codedeck ps`) per 5 seconds; the 1 second
+  redraws in between SHALL NOT refresh. A worker that finishes while the
+  orchestrator is idle stops counting within about 5 seconds.
 - AC14. Starting the tick twice SHALL NOT schedule two timers.
 - AC15. A throw inside a tick SHALL be caught; it SHALL NOT escape the module.
 
