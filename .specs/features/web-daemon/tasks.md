@@ -311,15 +311,16 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] With a port-0 listen, stdout gets one line `{ port, token, build }` and `/`, `/review`, `/setup`, `/usage` answer 200 after the token redirect
-- [ ] No port → `fallbackToEphemeral: true`; explicit port → `false`
-- [ ] Listen failure → line `{ "error": { "message", "port" } }` and exit code 1
-- [ ] Ending stdin closes the server (new connection refused) and calls exit with 0, even with a request still in flight (a route that never responds)
-- [ ] `process.stdout` `EPIPE` does not throw
-- [ ] Gate check passes: `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
+- [x] With a port-0 listen, stdout gets one line `{ port, token, build }` and `/`, `/review`, `/setup`, `/usage` answer 200 after the token redirect
+- [x] No port → `fallbackToEphemeral: true`; explicit port → `false`
+- [x] Listen failure → line `{ "error": { "message", "port" } }` and exit code 1
+- [x] Ending stdin closes the server (new connection refused) and calls exit with 0, even with a request still in flight (a route that never responds)
+- [x] `process.stdout` `EPIPE` does not throw
+- [x] Gate check passes: `npx vitest run tests/web-child.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Add a web child process entry`
 

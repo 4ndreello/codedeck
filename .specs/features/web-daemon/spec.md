@@ -261,8 +261,8 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-05 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-06 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-07 | P1: Daemon supervises one web server | Tasks | Pending |
-| WD-08 | P1: Daemon supervises one web server | Tasks | Pending |
-| WD-09 | P1: Daemon supervises one web server | Tasks | Pending |
+| WD-08 | P1: Daemon supervises one web server | Tasks | Verified |
+| WD-09 | P1: Daemon supervises one web server | Tasks | Verified |
 | WD-10 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-11 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-12 | P1: Web commands delegate to the daemon | Tasks | Pending |
@@ -293,7 +293,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-37 | P1: Review reads the requested repository | Tasks | Verified |
 | WD-38 | P1: Review reads the requested repository | Tasks | Verified |
 | WD-39 | P1: Review reads the requested repository | Tasks | Verified |
-| WD-40 | P2: Web child restarts on build change | Tasks | Pending |
+| WD-40 | P2: Web child restarts on build change | Tasks | Verified |
 | WD-41 | P2: Web child restarts on build change | Tasks | Pending |
 | WD-42 | P2: Web child restarts on build change | Tasks | Pending |
 | WD-43 | P2: Web child restarts on build change | Tasks | Pending |
