@@ -195,19 +195,48 @@ export function renderLineChartSvg(rows: UsageMetricBucket[], metric: "costUsd" 
   const left = Math.max(width < 500 ? 52 : 66, Math.ceil(longestTick * 6.7 + 8));
   const x = (index: number) => left + index * (width - left - right) / Math.max(values.length - 1, 1);
   const y = (value: number) => top + (height - top - bottom) * (1 - value / max);
-  const path = values.map((value, index) => `${index ? "L" : "M"}${x(index)} ${y(value)}`).join(" ");
-  const area = `${path} L ${x(values.length - 1)} ${height - bottom} L ${left} ${height - bottom} Z`;
+  const hourly = rows[0].key.length > 10;
+  const partial = rows[rows.length - 1].label?.endsWith("partial") ? 1 : 0;
+  const path = values.slice(0, values.length - partial).map((value, index) => `${index ? "L" : "M"}${x(index)} ${y(value)}`).join(" ");
+  const partialPath = partial ? `<path class="chart-line chart-partial" d="M${x(values.length - 2)} ${y(values[values.length - 2])} L${x(values.length - 1)} ${y(values[values.length - 1])}"/>` : "";
+  const area = `${values.map((value, index) => `${index ? "L" : "M"}${x(index)} ${y(value)}`).join(" ")} L ${x(values.length - 1)} ${height - bottom} L ${left} ${height - bottom} Z`;
   const grid = [0, .25, .5, .75, 1].map((part) => {
     const yy = y(max * part);
     return `<line class="gridline" x1="${left}" y1="${yy}" x2="${width - right}" y2="${yy}"/><text class="axis" x="${left - 8}" y="${yy + 3}" text-anchor="end" title="${max * part}">${formatAxisTick(max * part, metric === "costUsd")}</text>`;
   }).join("");
-  const points = rows.map((row, index) => `<circle class="chart-point" data-index="${index}" cx="${x(index)}" cy="${y(values[index])}" r="4" tabindex="0"><title>${escapeHtml(row.label ?? row.key)}: ${values[index]}</title></circle>`).join("");
-  const labels = rows.filter((_, index) => index % Math.max(1, Math.ceil(rows.length / 7)) === 0 || index === rows.length - 1).map((row) => {
+  const points = rows.map((row, index) => `<circle class="chart-point" data-index="${index}" cx="${x(index)}" cy="${y(values[index])}" r="${hourly ? 0 : 4}" data-r="${hourly ? 0 : 4}" tabindex="0"><title>${escapeHtml(row.label ?? row.key)}: ${values[index]}</title></circle>`).join("");
+  const labels = hourly ? rows.map((row, index) => {
+    const hour = Number(row.key.slice(11));
+    if (hour === 0) return `<line class="day-divider" x1="${x(index)}" y1="${top}" x2="${x(index)}" y2="${height - bottom}"/><text class="axis" x="${x(index) + 4}" y="${height - 7}">${escapeHtml(row.key.slice(5, 10))}</text>`;
+    return hour % 6 === 0 && rows.length <= 72 ? `<text class="axis axis-hour" x="${x(index)}" y="${height - 7}" text-anchor="middle">${hour}h</text>` : "";
+  }).join("") : rows.filter((_, index) => index % Math.max(1, Math.ceil(rows.length / 7)) === 0 || index === rows.length - 1).map((row) => {
     const index = rows.indexOf(row);
     const anchor = index === 0 && index !== rows.length - 1 ? "start" : index === rows.length - 1 && index !== 0 ? "end" : "middle";
     return `<text class="axis" x="${x(index)}" y="${height - 7}" text-anchor="${anchor}" title="${escapeHtml(row.label ?? row.key)}">${escapeHtml(row.key.slice(5))}</text>`;
   }).join("");
-  return `<svg class="line-chart" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric} over time"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6" stop-opacity=".2"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient></defs>${grid}${labels}<path class="chart-area" d="${area}"/><path class="chart-line" d="${path}"/><line class="chart-crosshair" data-crosshair x1="0" y1="${top}" x2="0" y2="${height - bottom}" visibility="hidden"/>${points}</svg>`;
+  return `<svg class="line-chart" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${metric} over time"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6" stop-opacity=".2"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient></defs>${grid}${labels}<path class="chart-area" d="${area}"/><path class="chart-line" d="${path}"/>${partialPath}<line class="chart-crosshair" data-crosshair x1="0" y1="${top}" x2="0" y2="${height - bottom}" visibility="hidden"/>${points}</svg>`;
+}
+
+/** Hourly rows (gaps zero-filled, current hour flagged partial) for ranges up to 7 days, daily rows otherwise. */
+export function chartRows(data: Pick<UsageQueryResult, "byDay" | "byHour">, now = new Date()): UsageMetricBucket[] {
+  if (!data.byHour?.length || !data.byDay.length || data.byDay.length > 7) return data.byDay;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const dayKey = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const byKey = new Map(data.byHour.map((row) => [row.key, row]));
+  const [year, month, day] = data.byDay[0].key.split("-").map(Number);
+  const cursor = new Date(year, month - 1, day);
+  const lastDay = data.byDay[data.byDay.length - 1].key;
+  const currentKey = `${dayKey(now)} ${pad(now.getHours())}`;
+  const rows: UsageMetricBucket[] = [];
+  while (dayKey(cursor) <= lastDay) {
+    const key = `${dayKey(cursor)} ${pad(cursor.getHours())}`;
+    const partial = key === currentKey;
+    const label = `${key.slice(5, 10)} ${key.slice(11)}:00${partial ? " · partial" : ""}`;
+    rows.push({ ...(byKey.get(key) ?? { key, sessionCount: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, costUsd: 0, costComplete: true }), key, label });
+    if (partial) break;
+    cursor.setHours(cursor.getHours() + 1);
+  }
+  return rows;
 }
 
 export function createUsageChartView(initialSeries: "costUsd" | "totalTokens" | "sessionCount" = "costUsd") {
@@ -244,6 +273,7 @@ export function attachChartInteractions(wrapper: UsagePageElement, rows: UsageMe
     const row = rows[index];
     if (!row) return;
     const formatted = formatChartTooltip(row, series);
+    points.forEach((point) => point.setAttribute("r", point === nearest ? "4" : point.getAttribute("data-r") ?? "4"));
     crosshair.setAttribute("x1", String(pointX));
     crosshair.setAttribute("x2", String(pointX));
     crosshair.setAttribute("visibility", "visible");
@@ -255,12 +285,12 @@ export function attachChartInteractions(wrapper: UsagePageElement, rows: UsageMe
   };
   wrapper.addEventListener("pointermove", show);
   wrapper.addEventListener("pointerdown", show);
-  wrapper.addEventListener("pointerleave", () => { crosshair.setAttribute("visibility", "hidden"); tooltip.hidden = true; });
+  wrapper.addEventListener("pointerleave", () => { points.forEach((point) => point.setAttribute("r", point.getAttribute("data-r") ?? "4")); crosshair.setAttribute("visibility", "hidden"); tooltip.hidden = true; });
 }
 
 export function toUsagePageData(result: UsageQueryResult): UsagePageData {
   return {
-    range: { ...result.range }, totals: { ...result.totals }, byDay: [...result.byDay],
+    range: { ...result.range }, totals: { ...result.totals }, byDay: [...result.byDay], byHour: [...(result.byHour ?? [])],
     byRepository: [...result.byRepository], byModel: [...result.byModel], byAgent: [...result.byAgent],
     byRun: [...result.byRun], byOrigin: [...(result.byOrigin ?? [])],
   };
@@ -510,7 +540,7 @@ function renderUsageDashboard(
   for (const button of root.querySelectorAll("[data-breakdown]")) button.setAttribute("aria-pressed", String(button.dataset.breakdown === state.selectedBreakdown));
   if (!state.result) return;
   const data = state.result;
-  const rows = data.byDay;
+  const rows = chartRows(data);
   const totals = data.totals;
   const chips = root.querySelector("[data-chips]");
   if (chips) {
@@ -579,8 +609,9 @@ function renderActiveUsageChart(root: UsagePageElement, state: UsagePageState, c
   const target = wrapper?.querySelector("[data-chart-svg]");
   if (!wrapper || !target || !state.result) return;
   const width = wrapper.clientWidth || 880;
-  target.innerHTML = chartView.render(state.result.byDay, width);
-  attachChartInteractions(wrapper, state.result.byDay, chartView.getSeries());
+  const rows = chartRows(state.result);
+  target.innerHTML = chartView.render(rows, width);
+  attachChartInteractions(wrapper, rows, chartView.getSeries());
 }
 
 function selectedRows(data: UsagePageData, by: UsageBreakdown): UsageMetricBucket[] {
@@ -592,7 +623,7 @@ function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (c
 export function renderUsagePage(options: UsagePageOptions = {}): string {
   const pageOptions = { by: options.by ?? "day", interval: options.interval ?? 2, filters: options.filters ?? {} };
   const serializedOptions = JSON.stringify(pageOptions).replaceAll("<", "\\u003c");
-  const behaviorSource = [normalizeUsageInterval, buildUsageApiUrl, buildUsagePageSearch, formatCompact, formatUsd, formatAxisTick, formatShare, formatCost, previousWindow, computeDelta, donutSlices, donutCenterFontSize, renderModelLegend, renderDonutSvg, renderSparklineSvg, renderLineChartSvg, createUsageChartView, formatChartTooltip, attachChartInteractions, toUsagePageData, createUsagePageController, startUsagePage, filterAndSortUsageRows, captureUsageSearchFocus, restoreUsageSearchFocus, csvQuote, renderUsageFilterOptions, renderUsageTableRows, renderUsageDashboard, renderActiveUsageChart, selectedRows, escapeHtml]
+  const behaviorSource = [normalizeUsageInterval, buildUsageApiUrl, buildUsagePageSearch, formatCompact, formatUsd, formatAxisTick, formatShare, formatCost, previousWindow, computeDelta, donutSlices, donutCenterFontSize, renderModelLegend, renderDonutSvg, renderSparklineSvg, renderLineChartSvg, chartRows, createUsageChartView, formatChartTooltip, attachChartInteractions, toUsagePageData, createUsagePageController, startUsagePage, filterAndSortUsageRows, captureUsageSearchFocus, restoreUsageSearchFocus, csvQuote, renderUsageFilterOptions, renderUsageTableRows, renderUsageDashboard, renderActiveUsageChart, selectedRows, escapeHtml]
     .map((behavior) => Function.prototype.toString.call(behavior)).join("\n\n");
   const topbar = renderTopBar({ pages: options.pages ?? [{ label: "Home", path: "/" }, { label: "Review", path: "/review" }, { label: "Setup", path: "/setup" }, { label: "Usage", path: "/usage" }], activePath: "/usage", title: "Usage" });
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CodeDeck usage</title><link rel="icon" href="${LOGO_FAVICON_HREF}"><style>${BRAND_CSS}
@@ -611,7 +642,7 @@ main{max-width:1440px;margin:0 auto;padding:24px 30px 60px}.usage-header{display
 .filter-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);border-radius:99px;background:var(--surface-raised);color:var(--text-muted);font-size:10px;padding:4px 7px}.filter-chip button{border:0!important;padding:0!important;background:transparent!important;color:var(--text-faint)!important}
 .error{display:flex;justify-content:space-between;align-items:center;margin:0 0 14px;padding:10px 12px;border:1px solid #65363a;border-radius:6px;background:#1c0d0e;color:#f2a5a7;font-size:12px}[hidden]{display:none!important}[data-loading]{color:var(--text-muted);font-size:12px;margin:8px 0}.dashboard{display:grid;gap:14px}.card{min-width:0;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:16px}.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.kpi{position:relative;min-height:142px;padding-bottom:34px;overflow:hidden}.kpi-heading{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:11px}.range-tag{margin-left:auto;font:10px var(--font-mono);color:var(--text-faint)}.kpi-value{display:block;margin-top:14px;font-size:25px;letter-spacing:-.7px;font-weight:550;font-variant-numeric:tabular-nums}.delta{margin:4px 0 0;color:var(--blue-2);font-size:10px}.delta span,.kpi-note{color:var(--text-faint)}.kpi-note{font-size:10px}.spark{position:absolute;left:0;right:0;bottom:0;width:100%;height:38px;overflow:visible}.spark-area{fill:url(#chart-fill)}.spark-line{fill:none;stroke:var(--blue-chart);stroke-width:1.6}.spark circle{fill:var(--blue-chart)}
 th button{border:0;background:transparent;color:var(--text-faint);padding:0;font:inherit;cursor:pointer}
-.card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.card-heading h2{margin:0;font-size:13px;font-weight:550}.card-heading>span{font-size:10px;color:var(--text-faint);font-family:var(--font-mono)}.series-switch,.tabs{display:flex;gap:4px}.series-switch button,.tabs button{border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text-faint);padding:5px 8px;font-size:10px;cursor:pointer}.series-switch button:focus,.series-switch button:hover,.tabs button[aria-pressed="true"]{border-color:var(--border-strong);background:var(--surface-raised);color:var(--text)}.chart-wrap{width:100%;overflow:hidden;position:relative}.line-chart{display:block;width:100%;height:auto}.single-day-caption{margin:0;color:var(--text-faint);font-size:11px;text-align:center}.chart-crosshair{stroke:#bfdbfe;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}.chart-tooltip{position:absolute;z-index:2;max-width:170px;padding:7px 9px;border:1px solid var(--border-strong);border-radius:6px;background:#111;color:var(--text);font:11px var(--font-mono);pointer-events:none;white-space:nowrap}.gridline{stroke:var(--grid);stroke-dasharray:3 4}.axis{font:11px var(--font-mono);fill:var(--text-faint)}.chart-area{fill:url(#chart-fill)}.chart-line{fill:none;stroke:var(--blue-chart);stroke-width:2}.chart-point{fill:var(--blue-chart);stroke:var(--bg);stroke-width:2}.two-col,.three-col{display:grid;gap:12px;align-items:stretch}.two-col{grid-template-columns:1fr 1fr}.three-col{grid-template-columns:1fr 1.1fr 1fr}.donut-layout{display:grid;grid-template-columns:minmax(130px, .85fr) 1.15fr;align-items:center;gap:12px}.donut-svg{width:100%;max-height:210px;overflow:visible}.donut-seg{fill:none;stroke-width:22;cursor:pointer}.donut-center{text-anchor:middle;font:600 13px var(--font-mono);fill:var(--text)}.donut-sub{text-anchor:middle;font:10px var(--font-sans);fill:var(--text-faint)}.model-legend{display:grid;align-content:start;gap:4px;min-width:0}.legend-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:10px}.legend-row .model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--font-mono);color:var(--text-muted)}.legend-row strong{font:11px var(--font-mono)}.legend-row small{grid-column:1/-1;color:var(--text-faint);font-size:10px}.rank-list{max-height:246px;overflow:auto}.rank-row{display:grid;grid-template-columns:minmax(80px,1.1fr) minmax(50px,1fr) auto;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:10px}.rank-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted)}.rank-row>strong{font:10px var(--font-mono)}.rank-row>i,.track{height:4px;background:var(--surface-raised);border-radius:5px;overflow:hidden}.rank-row>i>b,.track>i{display:block;height:100%;background:var(--blue-chart);border-radius:5px}
+.card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.card-heading h2{margin:0;font-size:13px;font-weight:550}.card-heading>span{font-size:10px;color:var(--text-faint);font-family:var(--font-mono)}.series-switch,.tabs{display:flex;gap:4px}.series-switch button,.tabs button{border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text-faint);padding:5px 8px;font-size:10px;cursor:pointer}.series-switch button:focus,.series-switch button:hover,.tabs button[aria-pressed="true"]{border-color:var(--border-strong);background:var(--surface-raised);color:var(--text)}.chart-wrap{width:100%;overflow:hidden;position:relative}.line-chart{display:block;width:100%;height:auto}.single-day-caption{margin:0;color:var(--text-faint);font-size:11px;text-align:center}.chart-crosshair{stroke:#bfdbfe;stroke-width:1;stroke-dasharray:3 3;pointer-events:none}.chart-tooltip{position:absolute;z-index:2;max-width:170px;padding:7px 9px;border:1px solid var(--border-strong);border-radius:6px;background:#111;color:var(--text);font:11px var(--font-mono);pointer-events:none;white-space:nowrap}.gridline{stroke:var(--grid);stroke-dasharray:3 4}.axis{font:11px var(--font-mono);fill:var(--text-faint)}.chart-area{fill:url(#chart-fill)}.chart-line{fill:none;stroke:var(--blue-chart);stroke-width:2}.chart-partial{stroke-dasharray:4 4}.day-divider{stroke:var(--border-strong)}.axis-hour{opacity:.6}.chart-point{fill:var(--blue-chart);stroke:var(--bg);stroke-width:2}.two-col,.three-col{display:grid;gap:12px;align-items:stretch}.two-col{grid-template-columns:1fr 1fr}.three-col{grid-template-columns:1fr 1.1fr 1fr}.donut-layout{display:grid;grid-template-columns:minmax(130px, .85fr) 1.15fr;align-items:center;gap:12px}.donut-svg{width:100%;max-height:210px;overflow:visible}.donut-seg{fill:none;stroke-width:22;cursor:pointer}.donut-center{text-anchor:middle;font:600 13px var(--font-mono);fill:var(--text)}.donut-sub{text-anchor:middle;font:10px var(--font-sans);fill:var(--text-faint)}.model-legend{display:grid;align-content:start;gap:4px;min-width:0}.legend-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:10px}.legend-row .model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--font-mono);color:var(--text-muted)}.legend-row strong{font:11px var(--font-mono)}.legend-row small{grid-column:1/-1;color:var(--text-faint);font-size:10px}.rank-list{max-height:246px;overflow:auto}.rank-row{display:grid;grid-template-columns:minmax(80px,1.1fr) minmax(50px,1fr) auto;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:10px}.rank-row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted)}.rank-row>strong{font:10px var(--font-mono)}.rank-row>i,.track{height:4px;background:var(--surface-raised);border-radius:5px;overflow:hidden}.rank-row>i>b,.track>i{display:block;height:100%;background:var(--blue-chart);border-radius:5px}
 .outcome-bar{display:flex;height:9px;border-radius:8px;overflow:hidden;background:var(--surface-raised)}.outcome-bar i{min-width:0}.outcome-legend{display:grid;gap:8px;margin-top:14px}.outcome-legend>div{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:10px;color:var(--text-muted)}.outcome-legend strong{font:11px var(--font-mono);color:var(--text)}.outcome-legend small{grid-column:1/-1;color:var(--text-faint);font-size:10px}.harness-list,.origin-list{display:grid;gap:12px}.harness-row{display:grid;grid-template-columns:minmax(56px,.7fr) minmax(38px,1fr) auto minmax(38px,1fr) auto;gap:8px;align-items:center;font-size:10px}.harness-row strong,.origin-row strong{font:10px var(--font-mono);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.harness-row small{font-size:10px;color:var(--text-faint);white-space:nowrap}.origin-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;border-bottom:1px solid var(--border);padding:8px 0;font-size:10px}.origin-row span{color:var(--text-muted);white-space:nowrap}.empty{margin:20px 0;color:var(--text-faint);font-size:11px;text-align:center}.table-card{padding-bottom:10px}.table-card .card-heading{margin-bottom:8px}.table-card input{height:29px;min-width:160px}.tabs{border-bottom:1px solid var(--border);margin-bottom:5px}.tabs button{padding:8px 10px;border-radius:0}.tabs button[aria-pressed="true"]{border:0;border-bottom:2px solid var(--blue);background:transparent}.table-scroll{width:100%;overflow:auto}table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:left;color:var(--text-faint);font-weight:450;border-bottom:1px solid var(--border)}th,td{padding:10px 9px;white-space:nowrap}td{border-bottom:1px solid var(--border);color:var(--text-muted)}td:first-child{max-width:280px;overflow:hidden;text-overflow:ellipsis;color:var(--text)}td:nth-child(2),td:nth-child(3),td:nth-child(4){font-family:var(--font-mono);font-variant-numeric:tabular-nums}.share{display:inline-block;width:65px;height:4px;margin-right:8px;background:var(--surface-raised);vertical-align:middle}.share i{display:block;height:100%;background:var(--blue-chart)}.show-all{margin:6px 0}
 @media(max-width:900px){main{padding:18px 18px 40px}.three-col{grid-template-columns:repeat(2,minmax(0,1fr))}.three-col>.card:last-child{grid-column:1/-1}}
 @media(max-width:600px){.usage-header{align-items:flex-start;flex-direction:column}.usage-actions{width:100%;flex-wrap:wrap}.range-picker{flex:1}.range-picker select{width:100%}.usage-actions .ghost-button{flex:1}.topbar{padding:0 14px;gap:12px}.topbar-title{padding-left:10px}.topbar nav{gap:10px}.topbar nav a{font-size:10px}main{padding:14px 12px 36px}.filterbar{align-items:center;display:flex;gap:8px}.filter-tools{margin:0;display:flex;flex-wrap:wrap}.filter-tools button{padding:8px}.kpis{grid-template-columns:1fr;gap:8px}.kpi{min-height:128px;padding:12px 10px 32px}.kpi-value{font-size:20px}.two-col,.three-col{grid-template-columns:1fr}.three-col>.card:last-child{grid-column:auto}.card{padding:13px}.donut-layout{grid-template-columns:1fr;gap:6px}.donut-svg{width:180px;height:180px;max-height:none;justify-self:center}.donut-center{font-size:13px}.rank-list{max-height:230px}.harness-row{grid-template-columns:minmax(55px,.7fr) minmax(30px,1fr) auto minmax(30px,1fr) auto;gap:5px}.harness-row small{font-size:10px}.axis{font-size:11px}table{font-size:10px}th,td{padding:9px 6px}td:first-child{max-width:110px}.table-card input{min-width:120px}.series-switch button{padding:5px 4px;font-size:10px}}

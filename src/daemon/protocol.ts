@@ -219,6 +219,8 @@ export interface UsageQueryResult {
   };
   totals: UsageTotals;
   byDay: UsageMetricBucket[];
+  /** Local-time hourly buckets keyed `YYYY-MM-DD HH`; absent from older daemons. */
+  byHour?: UsageMetricBucket[];
   byRepository: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   byAgent: UsageMetricBucket[];

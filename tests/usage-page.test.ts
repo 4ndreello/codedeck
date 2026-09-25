@@ -2,6 +2,7 @@ import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import type { UsageMetricBucket, UsageQueryResult } from "../src/daemon/protocol.js";
 import {
+  chartRows,
   createUsagePageController,
   buildUsagePageSearch,
   computeDelta,
@@ -600,5 +601,35 @@ describe("usage page formatting and chart helpers", () => {
   it("builds stable shareable query strings", () => {
     expect(buildUsagePageSearch({ filters: { period: "7d", repo: "a/b", model: "", agent: "codex", since: "", until: "" }, by: "repo" }))
       .toBe("?period=7d&repo=a%2Fb&agent=codex&by=repo");
+  });
+});
+
+describe("hourly chart", () => {
+  const now = new Date(2026, 8, 24, 3, 40);
+
+  it("zero-fills hours from the first day through the current hour and flags it partial", () => {
+    const rows = chartRows({
+      byDay: [{ ...bucket, key: "2026-09-23" }, { ...bucket, key: "2026-09-24" }],
+      byHour: [{ ...bucket, key: "2026-09-23 14", costUsd: 2 }, { ...bucket, key: "2026-09-24 03", costUsd: 1 }],
+    }, now);
+    expect(rows).toHaveLength(28);
+    expect(rows[14]).toMatchObject({ key: "2026-09-23 14", label: "09-23 14:00", costUsd: 2 });
+    expect(rows[0]).toMatchObject({ key: "2026-09-23 00", costUsd: 0, sessionCount: 0 });
+    expect(rows[27]).toMatchObject({ label: "09-24 03:00 · partial", costUsd: 1 });
+  });
+
+  it("keeps daily rows past 7 days or without hourly data", () => {
+    const byDay = Array.from({ length: 8 }, (_, day) => ({ ...bucket, key: `2026-09-${String(day + 10).padStart(2, "0")}` }));
+    expect(chartRows({ byDay, byHour: [{ ...bucket, key: "2026-09-10 01" }] }, now)).toBe(byDay);
+    expect(chartRows({ byDay: [bucket] }, now)).toEqual([bucket]);
+  });
+
+  it("draws day dividers and a dashed partial segment", () => {
+    const rows = chartRows({ byDay: [{ ...bucket, key: "2026-09-23" }, { ...bucket, key: "2026-09-24" }], byHour: [] }, now);
+    const svg = renderLineChartSvg(chartRows({ byDay: [{ ...bucket, key: "2026-09-23" }, { ...bucket, key: "2026-09-24" }], byHour: [{ ...bucket, key: "2026-09-23 01" }] }, now));
+    expect(rows).toEqual([{ ...bucket, key: "2026-09-23" }, { ...bucket, key: "2026-09-24" }]);
+    expect(svg.match(/class="day-divider"/g)).toHaveLength(2);
+    expect(svg).toContain("chart-partial");
+    expect(svg).toContain(">6h<");
   });
 });
