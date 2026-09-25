@@ -290,12 +290,13 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] `npm run build` exits 0; `scripts/pty-gate.sh` prints its ok line and leaves no daemon with its `RUN_AGENT_DIR`
-- [ ] Smoke under a temp `RUN_AGENT_DIR` and config: daemon start → 403 on the preferred port within 5 s; `ui --no-open` URL → cookie with `Max-Age`; restarting the daemon keeps the token; `localhost` page GET → 302; `web.port` change + one command moves the port
-- [ ] Gate check passes: build gate
+- [x] `npm run build` exits 0; `scripts/pty-gate.sh` prints its ok line and leaves no daemon with its `RUN_AGENT_DIR`
+- [x] Smoke under a temp `RUN_AGENT_DIR` and config: daemon start → 403 on the preferred port within 5 s; `ui --no-open` URL → cookie with `Max-Age`; restarting the daemon keeps the token; `localhost` page GET → 302; `web.port` change + one command moves the port
+- [x] Gate check passes: build gate
 
 **Tests**: none
 **Gate**: build
+**Status**: ✅ Done
 
 **Commit**: `docs(web): Document stable console access and stop gate daemons`
 
