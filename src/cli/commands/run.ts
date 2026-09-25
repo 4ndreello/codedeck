@@ -155,7 +155,7 @@ Resume with: ${getCliName()} send <id> "continue"
       }
 
       const effectiveSandbox = agent === "codex" ? sandbox : undefined;
-      if (sandbox && agent !== "codex") {
+      if (opts.sandbox && sandbox && agent !== "codex") {
         console.error(`Warning: --sandbox has no effect on ${agent} (only codex supports -s); continuing without it.`);
       }
       if (dangerouslyBypass && agent !== "codex") {
