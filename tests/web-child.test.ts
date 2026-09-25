@@ -5,7 +5,13 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { computeBuildId } from "../src/daemon/build-id.js";
 import { runWebChild, type RunWebChildOptions } from "../src/web/child.js";
+
+vi.mock("../src/daemon/build-id.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/daemon/build-id.js")>();
+  return { ...actual, computeBuildId: vi.fn(actual.computeBuildId) };
+});
 import type { ListeningWebServer, WebRoute } from "../src/web/server.js";
 
 interface Handshake { port: number; token: string; build: string }
@@ -87,6 +93,15 @@ describe("runWebChild", () => {
     const { handshake } = await startChild({ build: undefined, distRoot, routes: () => [] });
 
     expect(handshake.build).toBe("4000000");
+  });
+
+  it("computes its build identity from its own dist root by default", async () => {
+    vi.mocked(computeBuildId).mockReturnValueOnce("own-tree");
+
+    const { handshake } = await startChild({ build: undefined, routes: () => [] });
+
+    expect(computeBuildId).toHaveBeenLastCalledWith(path.join(import.meta.dirname, "..", "src"));
+    expect(handshake.build).toBe("own-tree");
   });
 
   it("asks for the ephemeral fallback only when no port was given", async () => {

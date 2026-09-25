@@ -560,6 +560,27 @@ T12 → T13 → T14 → T15 → T16
 
 ---
 
+### T18: Pin the CLI defaults and follow side-effect imports
+
+**What**: Fix task from validation round 2: tests for the default build and entry `launchWebPage` sends, the child's default `distRootFor` build root, and an import-boundary walker that also follows `import "./x.js"`.
+**Where**: `tests/web-launch.test.ts`, `tests/web-child.test.ts`, `tests/web-supervisor.test.ts`
+**Depends on**: T17
+**Reuses**: `vi.mock` of `src/daemon/build-id.ts` with the real implementation spied
+**Requirement**: WD-12, WD-28, WD-40
+
+**Done when**:
+
+- [x] Surviving mutants M31, M32, M18b, M27 each break a test
+- [x] Gate check passes: the three test files above, one run each; `npx tsc --noEmit`
+
+**Tests**: unit
+**Gate**: quick
+**Status**: ✅ Done
+
+**Commit**: `test(web): Pin the CLI build and entry defaults`
+
+---
+
 ## Phase Execution Map
 
 ```
@@ -568,7 +589,7 @@ Phase 1 → Phase 2 → Phase 3 → Phase 4
 Phase 1:  T1 → T2 → T3 → T4
 Phase 2:  T5 → T6 → T7
 Phase 3:  T8 → T9 → T10 → T11
-Phase 4:  T12 → T13 → T14 → T15 → T16 → T17
+Phase 4:  T12 → T13 → T14 → T15 → T16 → T17 → T18
 ```
 
 ## Diagram-Definition Cross-Check

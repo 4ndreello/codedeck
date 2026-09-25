@@ -284,7 +284,7 @@ describe("spawnWebChild", () => {
 describe("daemon import boundary", () => {
   function localImports(file: string): string[] {
     const source = fs.readFileSync(file, "utf8");
-    const specifiers = [...source.matchAll(/(?:from\s+|import\(\s*)["'](\.{1,2}\/[^"']+)["']/g)].map((match) => match[1]);
+    const specifiers = [...source.matchAll(/(?:from\s+|import\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g)].map((match) => match[1]);
     return specifiers.map((specifier) => path.resolve(path.dirname(file), specifier.replace(/\.js$/, ".ts")));
   }
 

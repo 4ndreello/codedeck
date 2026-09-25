@@ -1,6 +1,17 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { computeBuildId } from "../src/daemon/build-id.js";
 import { launchWebPage, type LaunchWebPageDependencies, type LaunchWebPageOptions } from "../src/cli/web-launch.js";
 import type { WebServerHandle } from "../src/web/server.js";
+
+// Keep the real implementation but record calls; the default-build test stubs one call
+// so it does not walk the whole repository.
+vi.mock("../src/daemon/build-id.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/daemon/build-id.js")>();
+  return { ...actual, computeBuildId: vi.fn(actual.computeBuildId) };
+});
+
+const REPO_ROOT = path.join(import.meta.dirname, "..");
 
 const BASE = { baseUrl: "http://127.0.0.1:3100", port: 3100, token: "tok" };
 
@@ -29,7 +40,7 @@ function setup(overrides: {
   };
   const launch = (options: Partial<LaunchWebPageOptions> = {}) =>
     launchWebPage({ path: "/review", query: { repo: "/work/app" }, title: "CodeDeck review", open: true, ...options }, deps);
-  return { launch, request, ensureDaemonStarted, openBrowser, startServer, logs, errors };
+  return { launch, deps, request, ensureDaemonStarted, openBrowser, startServer, logs, errors };
 }
 
 describe("launchWebPage", () => {
@@ -45,8 +56,18 @@ describe("launchWebPage", () => {
     const [method, params] = t.request.mock.calls[0] as [string, { build: string; entry: string; port?: number }];
     expect(method).toBe("web.ensure");
     expect(params.build).toBe("build-1");
-    expect(params.entry).toMatch(/^\/.*\/web\/child\.js$/);
+    expect(params.entry).toBe(path.join(REPO_ROOT, "src", "web", "child.js"));
     expect(t.startServer).not.toHaveBeenCalled();
+  });
+
+  it("sends the build id of its own dist root when none is injected", async () => {
+    const t = setup();
+    vi.mocked(computeBuildId).mockReturnValueOnce("tree-build");
+
+    await launchWebPage({ path: "/", title: "CodeDeck UI", open: false }, { ...t.deps, build: undefined });
+
+    expect(computeBuildId).toHaveBeenLastCalledWith(path.join(REPO_ROOT, "src"));
+    expect(t.request.mock.calls[0][1]).toMatchObject({ build: "tree-build" });
   });
 
   it("prints the URL without opening a browser when open is false", async () => {
