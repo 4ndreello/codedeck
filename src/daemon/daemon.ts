@@ -132,6 +132,9 @@ class Daemon {
   private startTime = Date.now();
   private startupReconcilePromise: Promise<void> = Promise.resolve();
   private sessionLocks = new Set<string>();
+  // Sessions recover() revived from a store-busy failure: the sequence the
+  // drain starts after, and the log mtime when the harness is already dead.
+  private healing = new Map<string, { fromSequence: number; endedAt?: Date }>();
   // Power-shutdown state. `shuttingDown` is set synchronously by the signal
   // handler so concurrent handleRequest calls are refused during the drain.
   private shuttingDown = false;
@@ -398,6 +401,7 @@ class Daemon {
   // streaming; a dead one is drained and classified from its log tail.
   private async recover(): Promise<void> {
     const paths = getPaths();
+    this.reviveStoreBusyFailures(paths.logsDir);
     const actives = this.sessions.listActive();
     for (const s of actives) {
       // Power-shutdown rows are terminal: never reattach, never flip. A
@@ -468,7 +472,10 @@ class Daemon {
       // Never attach to or signal a PID whose identity changed while the
       // daemon was away. The original harness is gone; the replacement is
       // somebody else's process.
-      if (pidReused) {
+      // A revived row died long ago: its PID may be anyone's by now, but its
+      // log is still its own, so drain it as dead instead of failing it.
+      const healing = this.healing.has(s.id);
+      if (pidReused && !healing) {
         const failure: FailureInfo = {
           code: "HARNESS_CRASH",
           blame: "harness",
@@ -490,13 +497,14 @@ class Daemon {
         continue;
       }
 
-      const alive = processPresent;
+      // Only a healing row reaches here with a reused PID; it counts as dead.
+      const alive = processPresent && !pidReused;
       const stdoutPath = path.join(paths.logsDir, `${s.id}.ndjson`);
       const stderrPath = path.join(paths.logsDir, `${s.id}.stderr.log`);
       const hasDetachedLogs = fs.existsSync(stdoutPath) || fs.existsSync(stderrPath);
       // A live PID without a recorded identity is unsafe to attach: it may be
       // a recycled process. A dead PID is safe to drain from its own log.
-      const identityVerified = !processPresent || (recordedStart !== undefined && currentStart === recordedStart);
+      const identityVerified = !alive || (recordedStart !== undefined && currentStart === recordedStart);
 
       if (typeof driver.attach === "function" && pid != null && hasDetachedLogs && identityVerified) {
         try {
@@ -540,6 +548,59 @@ class Daemon {
       } else {
         this.sessions.setStatus(s.id, "failed");
       }
+    }
+  }
+
+  // A session the old event loop failed on "database is locked" was never
+  // over: the harness kept writing its log past the persisted offset. Flip
+  // such rows back to working so the reattach loop below drains the log
+  // (dead harness) or keeps tailing it (live one), exactly as after a restart.
+  private reviveStoreBusyFailures(logsDir: string): void {
+    for (const s of this.sessions.listStoreBusyFailures()) {
+      if (s.origin === "open") continue;
+      const logs = [path.join(logsDir, `${s.id}.ndjson`), path.join(logsDir, `${s.id}.stderr.log`)]
+        .filter((file) => fs.existsSync(file));
+      const metadata = readSessionProcessMetadata(s.id);
+      const pid = metadata?.pid ?? s.pid;
+      if (logs.length === 0 || pid == null) continue;
+      const recordedStart = metadata?.pidStartTime ?? s.pidStartTime;
+      const alive = processAlive(pid) && (recordedStart === undefined || processStartTime(pid) === recordedStart);
+      // Parsers stamp events with read time. For a dead harness the last log
+      // write is the best bound on when the backlog really happened.
+      const endedAt = alive
+        ? undefined
+        : new Date(Math.max(...logs.map((file) => fs.statSync(file).mtimeMs)));
+      const last = this.db.getHandle().prepare(
+        `SELECT COALESCE(MAX(sequence), 0) AS seq FROM events WHERE session_id = ?`,
+      ).get(s.id) as { seq: number };
+      this.healing.set(s.id, { fromSequence: last.seq, endedAt });
+      this.sessions.setStatus(s.id, "working", {
+        failure: null,
+        completedAt: null,
+        lastEvent: "healing after a store-busy failure",
+      });
+      appendDaemonLog(`healing ${s.id} from store-busy failure (${alive ? "live" : "dead"} harness)`);
+    }
+  }
+
+  // Once a revived session's stream ends, pin the drained backlog and the
+  // terminal time to the log mtime instead of the replay time.
+  private finishHeal(sessionId: string): void {
+    const heal = this.healing.get(sessionId);
+    if (!heal) return;
+    this.healing.delete(sessionId);
+    if (!heal.endedAt) return;
+    const endedAt = heal.endedAt.toISOString();
+    try {
+      this.db.getHandle().prepare(`
+        UPDATE events
+        SET timestamp = ?, normalized_payload = json_set(normalized_payload, '$.timestamp', ?)
+        WHERE session_id = ? AND sequence > ? AND timestamp > ?
+      `).run(endedAt, endedAt, sessionId, heal.fromSequence, endedAt);
+      const s = this.sessions.get(sessionId);
+      if (s && isTerminalStatus(s.status)) this.sessions.update(sessionId, { completedAt: heal.endedAt });
+    } catch (error) {
+      appendDaemonLog(`heal timestamps for ${sessionId} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1769,6 +1830,7 @@ class Daemon {
         this.sessions.setStatus(sessionId, "failed", { lastEvent: error.slice(0, 200), failure });
       }
     }
+    this.finishHeal(sessionId);
     // A message queued while the turn ran starts now as the next turn.
     // tryDispatch rechecks resumability under the lifecycle lock; a stale
     // or unresumable slot stays put for a manual send.

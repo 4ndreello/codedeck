@@ -223,6 +223,19 @@ export class SessionStore {
     return rows.map(rowToSession);
   }
 
+  // Rows the pre-STORE_BUSY event loop failed on a locked SQLite store
+  // ("database is locked" was classified UNKNOWN), plus STORE_BUSY rows.
+  listStoreBusyFailures(): Session[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM sessions
+      WHERE status = 'failed' AND failure IS NOT NULL
+        AND (json_extract(failure, '$.code') = 'STORE_BUSY'
+          OR json_extract(failure, '$.detail') LIKE '%database is locked%')
+      ORDER BY updated_at DESC
+    `).all() as unknown as SessionRow[];
+    return rows.map(rowToSession);
+  }
+
   getByRunId(runId: string): Session[] {
     const rows = this.db.prepare(
       `SELECT * FROM sessions WHERE run_id = ? ORDER BY updated_at DESC`,
