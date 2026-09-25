@@ -75,8 +75,12 @@ export class OpencodeDriver extends SessionDriver {
     if (!install.installed || !install.path) return [];
 
     try {
-      const args = options?.refresh ? ["models", "--refresh"] : ["models"];
-      const stdout = await runCommandWithTimeout(install.path, args, { timeoutMs: 10000 });
+      const list = (args: string[]) => runCommandWithTimeout(install.path!, args, { timeoutMs: 10000 });
+      // OpenCode v2 dropped `models --refresh` and exits with its usage text,
+      // so a refresh falls back to the plain listing instead of an empty catalog.
+      const stdout = options?.refresh
+        ? await list(["models", "--refresh"]).catch(() => list(["models"]))
+        : await list(["models"]);
       const lines = stdout.split("\n");
 
       const providerMap = new Map<string, ModelInfo[]>();
