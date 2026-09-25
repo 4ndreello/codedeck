@@ -11,8 +11,8 @@ import { SessionStore, resolveUsageDateRange } from "../../store/sessions.js";
 import { renderSnapshot } from "../usage/snapshot.js";
 import { runDashboard, type DashboardFetcher } from "../usage/dashboard.js";
 import { backfillUsage } from "./usage-backfill.js";
-import { DEFAULT_WEB_PORT, parseWebPort, startWebServer } from "../../web/server.js";
-import { createUsageRoutes } from "../../web/usage-routes.js";
+import { parseOptionalWebPort } from "../../web/server.js";
+import { launchWebPage } from "../web-launch.js";
 
 export interface UsageCommandOptions {
   json?: boolean;
@@ -42,7 +42,7 @@ export interface UsageCommandOptions {
 export interface UsageCommandDependencies {
   fetchUsageQuery?: typeof fetchUsageQuery;
   backfillUsage?: typeof backfillUsage;
-  startServer?: typeof startWebServer;
+  launch?: typeof launchWebPage;
 }
 
 function parseUsageObservation(value: string | undefined): { nativeId: string; costUsd: number } | undefined {
@@ -151,8 +151,8 @@ export function registerUsageCommand(program: Command, dependencies: UsageComman
     .option("--transcript <nativeId=path>", "report live orchestrator transcript tokens")
     .option("--backfill", "import historical orchestrator usage")
     .option("--web", "open aggregate usage in the browser")
-    .option("--port <n>", "port to listen on (default: 3100)", String(DEFAULT_WEB_PORT))
-    .option("--no-open", "serve usage without opening a browser")
+    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--no-open", "print the usage URL without opening a browser")
     .option("-i, --tui", "open interactive full-screen TUI dashboard")
     .option("-w, --watch", "watch usage in real time with live updates")
     .option("--interval <seconds>", "refresh interval for --watch (default: 2)", "2")
@@ -215,42 +215,34 @@ export function registerUsageCommand(program: Command, dependencies: UsageComman
       const queryParams = buildUsageQueryParams(opts, cwd, new Date());
 
       if (opts.web) {
-        let port: number;
+        let port: number | undefined;
         try {
-          port = parseWebPort(opts.port);
+          port = parseOptionalWebPort(opts.port);
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
           process.exitCode = 1;
           return;
         }
 
-        try {
-          await (dependencies.startServer ?? startWebServer)({
-            routes: createUsageRoutes({
-              fetchUsageQuery: queryUsage,
-              cwd,
-              page: {
-                by: opts.by,
-                interval: opts.interval,
-                filters: {
-                  period: queryParams.period ?? "",
-                  repo: queryParams.repository ?? "",
-                  model: queryParams.model ?? "",
-                  agent: queryParams.agent ?? "",
-                  since: queryParams.since ?? "",
-                  until: queryParams.until ?? "",
-                },
-              },
-            }),
-            port,
-            initialPath: "/usage",
-            title: "CodeDeck usage",
-            open: opts.open,
-          });
-        } catch (error) {
-          console.error(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
-          process.exitCode = 1;
-        }
+        // The shared server has its own cwd, so the page gets filters already resolved here.
+        const query = Object.fromEntries(Object.entries({
+          period: queryParams.period,
+          repo: queryParams.repository,
+          model: queryParams.model,
+          agent: queryParams.agent,
+          since: queryParams.since,
+          until: queryParams.until,
+          by: opts.by,
+          interval: opts.interval,
+        }).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== ""));
+        const code = await (dependencies.launch ?? launchWebPage)({
+          path: "/usage",
+          query,
+          title: "CodeDeck usage",
+          port,
+          open: opts.open !== false,
+        });
+        if (code !== 0) process.exitCode = code;
         return;
       }
 

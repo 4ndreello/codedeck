@@ -27,7 +27,8 @@ export type RequestMethod =
   | "doctor"
   | "models.list"
   | "usage.get"
-  | "usage.query";
+  | "usage.query"
+  | "web.ensure";
 
 export interface RunOptions {
   prompt: string;
@@ -226,6 +227,24 @@ export interface QueryUsageRequest {
   params?: UsageQueryParams;
 }
 
+export interface WebEnsureParams {
+  port?: number;
+  build?: string;
+  /** Absolute path of the caller's `dist/web/child.js`; the daemon spawns it as the web child. */
+  entry?: string;
+}
+
+export interface WebEnsureResult {
+  baseUrl: string;
+  port: number;
+  token: string;
+}
+
+export interface EnsureWebRequest {
+  method: "web.ensure";
+  params?: WebEnsureParams;
+}
+
 export interface ListModelsResult {
   agents: HarnessModels[];
 }
@@ -250,7 +269,8 @@ export type RequestParams =
   | DaemonStatusRequest
   | ListModelsRequest
   | GetUsageRequest
-  | QueryUsageRequest;
+  | QueryUsageRequest
+  | EnsureWebRequest;
 
 export type UsageGetResult = RunUsageSummary;
 

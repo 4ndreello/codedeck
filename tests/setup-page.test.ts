@@ -586,9 +586,7 @@ describe("setup page selection", () => {
 });
 
 describe("setup page inline behavior", () => {
-  it("runs the injected functions in a clean VM with only browser adapters stubbed", async () => {
-    const script = SETUP_PAGE.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-    expect(script).toBeDefined();
+  function pageContext(search: string) {
     const { document } = fakeDocument();
     const calls: string[] = [];
     const context = {
@@ -600,8 +598,31 @@ describe("setup page inline behavior", () => {
       },
       setTimeout: () => 1,
       clearTimeout: () => undefined,
+      location: { search },
+      URLSearchParams,
       document,
     };
+    return { calls, context };
+  }
+
+  it.each([
+    ["with refresh=1", "?refresh=1", ["/api/setup/state", "/api/setup/catalog", "POST /api/setup/catalog/refresh"]],
+    ["without refresh", "", ["/api/setup/state", "/api/setup/catalog"]],
+  ])("refreshes the catalog once after the initial load only %s", async (_label, search, expected) => {
+    const script = SETUP_PAGE.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    const { calls, context } = pageContext(search);
+
+    runInNewContext(script!, context);
+    await (context as typeof context & { setupPageReady: Promise<unknown> }).setupPageReady;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(calls).toEqual(expected);
+  });
+
+  it("runs the injected functions in a clean VM with only browser adapters stubbed", async () => {
+    const script = SETUP_PAGE.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeDefined();
+    const { calls, context } = pageContext("");
 
     runInNewContext(script!, context);
     await (context as typeof context & { setupPageReady: Promise<unknown> }).setupPageReady;

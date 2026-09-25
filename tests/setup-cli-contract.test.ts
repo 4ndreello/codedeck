@@ -28,11 +28,9 @@ import {
   parseBind,
   parseSetupArgs,
   runSetupBatch,
-  type SetupCommandDependencies,
   type SetupBatchDependencies,
   type SetupCliOptions,
 } from "../src/cli/commands/setup.js";
-import type { WebServerHandle, WebServerOptions } from "../src/web/server.js";
 
 const originalEnv = {
   HOME: process.env.HOME,
@@ -367,20 +365,21 @@ describe("setup batch execution", () => {
   it("does not discover or write for a non-batch invocation without a TTY", async () => {
     const discover = vi.fn<NonNullable<SetupBatchDependencies["discoverModels"]>>();
     const save = vi.fn();
-    const stderr = new MemoryWritable();
+    const launch = vi.fn(async () => 0);
     const input = new PassThrough() as PassThrough & { isTTY?: boolean };
     input.isTTY = false;
     const result = await executeSetupAction([], {
       input,
       stdout: Object.assign(new MemoryWritable(), { isTTY: false }),
-      stderr,
+      stderr: new MemoryWritable(),
       discoverModels: discover,
       saveConfig: save,
       isTTY: false,
+      launch,
     });
 
-    expect(result.code).toBe(1);
-    expect(stderr.text()).toBe(`${getCliName()} setup needs a terminal on both stdin and stdout.\n`);
+    expect(result.code).toBe(0);
+    expect(launch).toHaveBeenCalledOnce();
     expect(discover).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
   });
@@ -706,96 +705,103 @@ describe("config store seam", () => {
 });
 
 describe("setup web command", () => {
-  it("keeps non-TTY setup on the current error path without starting a server", async () => {
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+  it("opens the setup page without a TTY and without a port default", async () => {
+    const launch = vi.fn(async () => 0);
     const stderr = new MemoryWritable();
-    const result = await executeSetupAction([], { isTTY: false, startServer, stderr });
+    const result = await executeSetupAction([], { isTTY: false, launch, stderr });
+
+    expect(result.code).toBe(0);
+    expect(stderr.text()).toBe("");
+    expect(launch).toHaveBeenCalledWith(
+      { path: "/setup", query: {}, title: "CodeDeck setup", port: undefined, open: true },
+      expect.anything(),
+    );
+  });
+
+  it("asks the page to refresh the catalog with --refresh", async () => {
+    const launch = vi.fn(async () => 0);
+
+    const result = await executeSetupAction(["--refresh", "--port", "3201", "--no-open"], { isTTY: true, launch });
+
+    expect(result.code).toBe(0);
+    expect(launch).toHaveBeenCalledWith(
+      { path: "/setup", query: { refresh: "1" }, title: "CodeDeck setup", port: 3201, open: false },
+      expect.anything(),
+    );
+  });
+
+  it("rejects an invalid port without launching", async () => {
+    const launch = vi.fn(async () => 0);
+    const stderr = new MemoryWritable();
+
+    const result = await executeSetupAction(["--port", "abc"], { isTTY: true, launch, stderr });
+
+    expect(result.code).toBe(1);
+    expect(stderr.text()).toBe("--port must be a positive integer\n");
+    expect(launch).not.toHaveBeenCalled();
+  });
+
+  it("returns 1 when the launcher fails", async () => {
+    const result = await executeSetupAction(["--port", "3201"], { isTTY: true, launch: vi.fn(async () => 1) });
+
+    expect(result.code).toBe(1);
+  });
+
+  it("keeps --tui on the terminal error path without a TTY", async () => {
+    const launch = vi.fn(async () => 0);
+    const runWizard = vi.fn(async () => ({}));
+    const stderr = new MemoryWritable();
+    const result = await executeSetupAction(["--tui"], { isTTY: false, launch, runWizard, stderr });
 
     expect(result.code).toBe(1);
     expect(stderr.text()).toBe(`${getCliName()} setup needs a terminal on both stdin and stdout.\n`);
-    expect(startServer).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+    expect(runWizard).not.toHaveBeenCalled();
   });
 
-  it("uses the frozen wizard for --tui and does not start the web server", async () => {
+  it("uses the frozen wizard for --tui and does not launch the web page", async () => {
     const runWizard = vi.fn(async () => ({}));
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+    const launch = vi.fn(async () => 0);
 
-    const result = await executeSetupAction(["--tui"], { isTTY: true, runWizard, startServer });
+    const result = await executeSetupAction(["--tui"], { isTTY: true, runWizard, launch });
 
     expect(result.code).toBe(0);
     expect(runWizard).toHaveBeenCalledOnce();
-    expect(startServer).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
   });
 
   it.each(["--json", "--dry-run", "--non-interactive"])(
-    "rejects --port with %s before starting the server",
+    "rejects --port with %s before launching",
     async (flag) => {
-      const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+      const launch = vi.fn(async () => 0);
       const stderr = new MemoryWritable();
       const result = await executeSetupAction([flag, "--port", "3201"], {
         isTTY: true,
-        startServer,
+        launch,
         stderr,
       });
 
       expect(result.code).toBe(2);
       expect(stderr.text()).toContain('Option "--port" cannot be used');
-      expect(startServer).not.toHaveBeenCalled();
+      expect(launch).not.toHaveBeenCalled();
     },
   );
 
   it("rejects --tui with batch flags before starting either path", async () => {
     const runWizard = vi.fn(async () => ({}));
-    const startServer = vi.fn(async (_options: WebServerOptions) => ({} as WebServerHandle));
+    const launch = vi.fn(async () => 0);
     const stderr = new MemoryWritable();
 
     const result = await executeSetupAction(["--tui", "--non-interactive"], {
       isTTY: true,
       runWizard,
-      startServer,
+      launch,
       stderr,
     });
 
     expect(result.code).toBe(2);
     expect(stderr.text()).toContain('Option "--tui" cannot be used with batch setup flags.');
     expect(runWizard).not.toHaveBeenCalled();
-    expect(startServer).not.toHaveBeenCalled();
-  });
-
-  it("passes refresh behavior to the setup page route", async () => {
-    const configFile = getPaths().configFile;
-    const pointerKey = "activeProfile";
-    const savedSetsKey = "profiles";
-    fs.mkdirSync(path.dirname(configFile), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(configFile, serializeConfig({
-      ...DEFAULT_CONFIG,
-      agents: { reviewer: { harness: "codex", model: "gpt-5" } },
-      [pointerKey]: "staging",
-      [savedSetsKey]: { staging: { agents: { general: { harness: "omp", model: "legacy" } } } },
-    }), "utf8");
-
-    let captured: WebServerOptions | undefined;
-    const startServer: NonNullable<SetupCommandDependencies["startServer"]> = async (options) => {
-      captured = options;
-      return {} as WebServerHandle;
-    };
-    const result = await executeSetupAction(
-      ["--refresh", "--port", "3201", "--no-open"],
-      { isTTY: true, startServer },
-    );
-
-    expect(result.code).toBe(0);
-    expect(captured).toMatchObject({ initialPath: "/setup", port: 3201, open: false });
-    const page = captured?.routes.find((route) => route.path === "/setup");
-    const pageResponse = { writeHead: vi.fn(), end: vi.fn() };
-    page?.handler({} as never, pageResponse as never);
-    expect(String(pageResponse.end.mock.calls[0]?.[0])).toContain(
-      "globalThis.setupPageReady.then(() => globalThis.setupPage.refreshCatalog())",
-    );
-
-    const state = captured?.routes.find((route) => route.path === "/api/setup/state");
-    const stateResponse = { writeHead: vi.fn(), end: vi.fn() };
-    state?.handler({ method: "GET" } as never, stateResponse as never);
-    expect(JSON.parse(String(stateResponse.end.mock.calls[0]?.[0])).target).toEqual({ kind: "global" });
+    expect(launch).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "promote_threshold": 2,
+  "window_days": 45,
+  "quarantine_threshold": 2,
+  "next_id": 6,
+  "lessons": [
+    {
+      "id": "L-001",
+      "key": "surviving_mutant::test a spec defined timeout against the default constant not an injected copy of the value and assert nothing fires one tick before the deadline",
+      "text": "Test a spec-defined timeout against the default constant, not an injected copy of the value, and assert nothing fires one tick before the deadline",
+      "signal": "surviving_mutant",
+      "scope": "timers",
+      "status": "candidate",
+      "features": [
+        "web-daemon"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md M6, M7, M21 (src/daemon/web-supervisor.ts:14, :15, :169) (timers)"
+      ],
+      "created": "2026-09-25T00:47:48Z",
+      "last_seen": "2026-09-25T00:47:48Z"
+    },
+    {
+      "id": "L-002",
+      "key": "surviving_mutant::when tests inject a dependency keep at least one test that omits the injection so the production default is exercised",
+      "text": "When tests inject a dependency, keep at least one test that omits the injection so the production default is exercised",
+      "signal": "surviving_mutant",
+      "scope": "seams",
+      "status": "candidate",
+      "features": [
+        "web-daemon"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md M8, M18, M22 (src/daemon/daemon.ts:1373, src/web/child.ts:26, src/daemon/web-supervisor.ts:94) (seams)",
+        "validation.md round 2 M18b, M31 (src/web/child.ts:28, src/cli/web-launch.ts:45) (seams)"
+      ],
+      "created": "2026-09-25T00:47:48Z",
+      "last_seen": "2026-09-25T00:53:07Z"
+    },
+    {
+      "id": "L-003",
+      "key": "surviving_mutant::list every error code the spec names as a trigger in the test table instead of a representative subset",
+      "text": "List every error code the spec names as a trigger in the test table instead of a representative subset",
+      "signal": "surviving_mutant",
+      "scope": "error-mapping",
+      "status": "candidate",
+      "features": [
+        "web-daemon"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md M10 (src/cli/web-launch.ts:53, WD-44) (error-mapping)"
+      ],
+      "created": "2026-09-25T00:47:48Z",
+      "last_seen": "2026-09-25T00:47:48Z"
+    },
+    {
+      "id": "L-004",
+      "key": "surviving_mutant::assert the exact expected path instead of a pattern that a wrong path also matches",
+      "text": "Assert the exact expected path instead of a pattern that a wrong path also matches",
+      "signal": "surviving_mutant",
+      "scope": "assertions",
+      "status": "candidate",
+      "features": [
+        "web-daemon"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md round 2 M32 (tests/web-launch.test.ts:48) (assertions)"
+      ],
+      "created": "2026-09-25T00:53:08Z",
+      "last_seen": "2026-09-25T00:53:08Z"
+    },
+    {
+      "id": "L-005",
+      "key": "surviving_mutant::when a test parses source imports cover static from dynamic import and bare side effect imports",
+      "text": "When a test parses source imports, cover static from, dynamic import() and bare side-effect imports",
+      "signal": "surviving_mutant",
+      "scope": "import-boundary",
+      "status": "candidate",
+      "features": [
+        "web-daemon"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md round 2 M27 (tests/web-supervisor.test.ts:287) (import-boundary)"
+      ],
+      "created": "2026-09-25T00:53:08Z",
+      "last_seen": "2026-09-25T00:53:08Z"
+    }
+  ]
+}

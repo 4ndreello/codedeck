@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseReviewPort, registerReviewCommand } from "../src/cli/commands/review.js";
-import { startWebServer, type WebServerHandle } from "../src/web/server.js";
+import { sessionFetch } from "./helpers/web-session.js";
+import { createReviewRoutes, parseReviewPort, registerReviewCommand } from "../src/cli/commands/review.js";
+import { startWebServer } from "../src/web/server.js";
 import { EventEmitter } from "node:events";
 
 afterEach(() => vi.restoreAllMocks());
@@ -31,38 +32,66 @@ describe("registerReviewCommand", () => {
     expect(program.commands[0].description()).toContain("local review");
   });
 
-  it("starts the shared server with the review aliases and API route", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  it("opens the review page for the current repo through the launcher", async () => {
+    const launch = vi.fn(async () => 0);
     const program = new Command();
-    let started: WebServerHandle | undefined;
-    registerReviewCommand(program, {
-      startServer: async (options) => {
-        started = await startWebServer({
-          ...options,
-          port: 0,
-          signalTarget: new EventEmitter(),
-          exit: () => {},
-        });
-        return started;
-      },
-      loadReview: async (_root, ref, file) => ({ ref, file }),
-    });
+    registerReviewCommand(program, { launch });
 
     await program.parseAsync(["node", "codedeck", "review", "--no-open"], { from: "node" });
 
-    expect(started?.initialUrl).toContain("?t=");
-    expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const root = await fetch(`${started?.baseUrl}/`);
-    const alias = await fetch(`${started?.baseUrl}/review`);
-    expect(root.status).toBe(200);
-    expect(alias.status).toBe(200);
-    expect(await root.text()).toContain("Review local");
-    expect(await alias.text()).toContain("Review local");
+    expect(launch).toHaveBeenCalledWith({
+      path: "/review",
+      query: { repo: process.cwd() },
+      title: "CodeDeck review",
+      port: undefined,
+      open: false,
+    });
+  });
 
-    const api = await fetch(`${started?.baseUrl}/api/review?file=src/web/server.ts`);
-    expect(api.status).toBe(200);
-    expect(await api.json()).toEqual({ ref: "HEAD", file: "src/web/server.ts" });
+  it("rejects an invalid port without launching", async () => {
+    const launch = vi.fn(async () => 0);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const program = new Command();
+    registerReviewCommand(program, { launch });
+    const exitCode = process.exitCode;
 
-    await started?.close();
+    try {
+      await program.parseAsync(["node", "codedeck", "review", "--port", "abc"], { from: "node" });
+
+      expect(launch).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = exitCode;
+    }
+  });
+});
+
+describe("review route table", () => {
+  it("serves the review aliases and the API route", async () => {
+    const started = await startWebServer({
+      routes: createReviewRoutes({ loadReview: async (_root, ref, file) => ({ ref, file }) }),
+      port: 0,
+      initialPath: "/review",
+      open: false,
+      log: () => {},
+      signalTarget: new EventEmitter(),
+      exit: () => {},
+    });
+
+    try {
+      const root = await sessionFetch(started)(`${started.baseUrl}/`);
+      const alias = await sessionFetch(started)(`${started.baseUrl}/review`);
+      expect(root.status).toBe(200);
+      expect(alias.status).toBe(200);
+      expect(await root.text()).toContain("Review local");
+      expect(await alias.text()).toContain("Review local");
+
+      const repo = encodeURIComponent(process.cwd());
+      const api = await sessionFetch(started)(`${started.baseUrl}/api/review?file=src/web/server.ts&repo=${repo}`);
+      expect(api.status).toBe(200);
+      expect(await api.json()).toEqual({ ref: "HEAD", file: "src/web/server.ts" });
+    } finally {
+      await started.close();
+    }
   });
 });

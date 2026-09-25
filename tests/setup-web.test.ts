@@ -71,11 +71,8 @@ function request(
   return new Promise((resolve, reject) => {
     const method = options.method ?? "GET";
     const host = options.host ?? `127.0.0.1:${handle.port}`;
-    const headers: Record<string, string> = { host };
-    if (options.auth) {
-      headers.origin = `http://${host}`;
-      headers.cookie = `codedeck_ui_token_${handle.port}=${handle.security.token}`;
-    }
+    const headers: Record<string, string> = { host, cookie: `codedeck_ui_token_${handle.port}=${handle.security.token}` };
+    if (options.auth) headers.origin = `http://${host}`;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     const req = http.request({
       hostname: "127.0.0.1",
@@ -269,6 +266,26 @@ describe("setup catalog routes", () => {
 });
 
 describe("setup dry-run and apply routes", () => {
+  it("answers 500 when the mutation route rejects instead of leaving the promise unhandled", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const handle = await makeServer({
+        readConfig: () => { throw new Error("read boom"); },
+        configPath: () => { throw new Error("path boom"); },
+      });
+
+      const response = await post(handle, "/api/setup/apply", emptySelection);
+
+      expect(response.status).toBe(500);
+      expect(json(response)).toEqual({ error: "path boom" });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("returns the exact dry-run envelope and never writes config", async () => {
     const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
     const saveConfig = vi.fn(() => true);

@@ -23,6 +23,7 @@ export interface WebServerOptions {
   openBrowser?: (url: string) => boolean | Promise<boolean>;
   log?: (message: string) => void;
   serverFactory?: (handler: RequestListener) => Server;
+  fallbackToEphemeral?: boolean;
   signalTarget?: EventEmitter;
   closeServer?: () => Promise<void> | void;
   exit?: (code: number) => void;
@@ -32,6 +33,22 @@ export interface CreateWebServerOptions {
   routes: readonly WebRoute[];
   getSecurity: () => WebSecurity | undefined;
   serverFactory?: (handler: RequestListener) => Server;
+}
+
+export interface ListenWebServerOptions {
+  routes: readonly WebRoute[];
+  port?: number;
+  fallbackToEphemeral?: boolean;
+  serverFactory?: (handler: RequestListener) => Server;
+}
+
+export interface ListeningWebServer {
+  server: Server;
+  address: AddressInfo;
+  port: number;
+  baseUrl: string;
+  security: WebSecurity;
+  close(): Promise<void>;
 }
 
 export interface WebServerHandle {
@@ -52,6 +69,11 @@ export function parseWebPort(raw: string | undefined): number {
     throw new InvalidArgumentError("--port must be a positive integer");
   }
   return port;
+}
+
+/** Like `parseWebPort`, but an omitted `--port` stays undefined so the daemon picks the port. */
+export function parseOptionalWebPort(raw: string | undefined): number | undefined {
+  return raw === undefined ? undefined : parseWebPort(raw);
 }
 
 export function openBrowser(url: string): Promise<boolean> {
@@ -89,8 +111,7 @@ export function createWebServer(options: CreateWebServerOptions): Server {
   });
 }
 
-export async function startWebServer(options: WebServerOptions): Promise<WebServerHandle> {
-  const requestedPort = options.port ?? DEFAULT_WEB_PORT;
+export async function listenWebServer(options: ListenWebServerOptions): Promise<ListeningWebServer> {
   let security: WebSecurity | undefined;
   const server = createWebServer({
     routes: options.routes,
@@ -98,7 +119,37 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     serverFactory: options.serverFactory,
   });
 
-  await new Promise<void>((resolve, reject) => {
+  const requestedPort = options.port ?? DEFAULT_WEB_PORT;
+  try {
+    await listen(server, requestedPort);
+  } catch (error) {
+    if (!options.fallbackToEphemeral || (error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    await listen(server, 0);
+  }
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error("Web server did not return a TCP address");
+  }
+
+  security = createWebSecurity(address.port);
+  let closing: Promise<void> | undefined;
+  return {
+    server,
+    address,
+    port: address.port,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    security,
+    close: () => {
+      closing ??= new Promise<void>((resolve) => server.close(() => resolve()));
+      return closing;
+    },
+  };
+}
+
+function listen(server: Server, port: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => {
       server.off("listening", onListening);
       reject(error);
@@ -109,17 +160,18 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(requestedPort, "127.0.0.1");
+    server.listen(port, "127.0.0.1");
   });
+}
 
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    throw new Error("Web server did not return a TCP address");
-  }
-
-  security = createWebSecurity(address.port);
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+export async function startWebServer(options: WebServerOptions): Promise<WebServerHandle> {
+  const listening = await listenWebServer({
+    routes: options.routes,
+    port: options.port,
+    fallbackToEphemeral: options.fallbackToEphemeral,
+    serverFactory: options.serverFactory,
+  });
+  const { server, address, security, baseUrl } = listening;
   const pageUrl = new URL(options.initialPath, baseUrl).toString();
   const initialUrl = getTokenUrl(pageUrl, security.token);
   const log = options.log ?? ((message: string) => console.log(message));
@@ -135,15 +187,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const signalTarget = options.signalTarget ?? process;
   const exit = options.exit ?? ((code: number) => process.exit(code));
   let signalClose: Promise<void> | undefined;
-  let actualClose: Promise<void> | undefined;
   let shutdown = () => {};
   const close = (): Promise<void> => {
     signalTarget.off("SIGINT", shutdown);
     signalTarget.off("SIGTERM", shutdown);
-    if (!actualClose) {
-      actualClose = new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-    return actualClose;
+    return listening.close();
   };
   shutdown = () => {
     signalTarget.off("SIGINT", shutdown);
@@ -185,12 +233,30 @@ function dispatchRequest(
   }
 
   const route = routes.find((candidate) => candidate.path === pathname);
-  if (!checkWebRequest(request, response, security, { htmlPage: route?.kind === "page" })) return;
+  if (!checkWebRequest(request, response, security, { htmlPage: route?.kind === "page", api: route?.kind === "api" })) return;
   if (!route) {
     response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ error: "not found" }));
     return;
   }
 
-  route.handler(request, response);
+  try {
+    const result: unknown = route.handler(request, response);
+    if (isThenable(result)) result.then(undefined, (error: unknown) => failRequest(response, error));
+  } catch (error) {
+    failRequest(response, error);
+  }
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as PromiseLike<unknown> | undefined)?.then === "function";
+}
+
+function failRequest(response: http.ServerResponse, error: unknown): void {
+  if (response.headersSent) {
+    response.end();
+    return;
+  }
+  response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
 }

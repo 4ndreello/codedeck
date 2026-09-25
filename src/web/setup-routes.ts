@@ -564,16 +564,16 @@ export function createSetupRoutes(dependencies: SetupRoutesDependencies = {}): W
       if (method(request, response, "GET")) stateRoute(request, response);
     }),
     route("/api/setup/catalog", "api", (request, response) => {
-      if (method(request, response, "GET")) void catalogRoute(request, response);
+      if (method(request, response, "GET")) return catalogRoute(request, response);
     }),
     route("/api/setup/catalog/refresh", "api", (request, response) => {
-      if (method(request, response, "POST")) void refreshRoute(request, response);
+      if (method(request, response, "POST")) return refreshRoute(request, response);
     }),
     route("/api/setup/dry-run", "api", (request, response) => {
-      if (method(request, response, "POST")) void mutationRoute(request, response, true);
+      if (method(request, response, "POST")) return mutationRoute(request, response, true);
     }),
     route("/api/setup/apply", "api", (request, response) => {
-      if (method(request, response, "POST")) void mutationRoute(request, response, false);
+      if (method(request, response, "POST")) return mutationRoute(request, response, false);
     }),
   ];
 }

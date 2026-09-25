@@ -1185,7 +1185,7 @@ describe("setup command", () => {
     expect(setup?.options.map((option) => option.long)).toContain("--refresh");
   });
 
-  it("names the renamed CLI when setup has no terminal", async () => {
+  it("names the renamed CLI when setup --tui has no terminal", async () => {
     const previousCliName = process.env.CODEDECK_CLI_NAME;
     process.env.CODEDECK_CLI_NAME = "codedeck-dev";
     const errors: string[] = [];
@@ -1198,7 +1198,7 @@ describe("setup command", () => {
       const program = new Command();
       program.exitOverride();
       registerSetupCommand(program);
-      await program.parseAsync(["setup"], { from: "user" });
+      await program.parseAsync(["setup", "--tui"], { from: "user" });
 
       expect(errors.join("\n")).toContain("codedeck-dev setup needs a terminal");
       expect(process.exitCode).toBe(1);

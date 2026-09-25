@@ -206,8 +206,10 @@ function mergeWords(oldCode, newCode, lang) {
   }
   return out;
 }
-/* Drafts: key codedeck-review:<file>:<line>[-<endLine>] -> { code, body, deleted } */
-function draftKey(file, line, endLine) { return "codedeck-review:" + file + ":" + line + (endLine && endLine !== line ? "-" + endLine : ""); }
+/* Drafts: key codedeck-review:<repo>:<file>:<line>[-<endLine>] -> { code, body, deleted } */
+var REPO = new URLSearchParams(location.search).get("repo") || "";
+var DRAFT_PREFIX = "codedeck-review:" + REPO + ":";
+function draftKey(file, line, endLine) { return DRAFT_PREFIX + file + ":" + line + (endLine && endLine !== line ? "-" + endLine : ""); }
 function loadDraft(file, line, endLine) {
   try {
     var raw = localStorage.getItem(draftKey(file, line, endLine));
@@ -225,10 +227,10 @@ function allDrafts() {
   try {
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
-      if (!k || k.indexOf("codedeck-review:") !== 0) continue;
+      if (!k || k.indexOf(DRAFT_PREFIX) !== 0) continue;
       var v = JSON.parse(localStorage.getItem(k));
       if (v && v.body) {
-        var rest = k.slice("codedeck-review:".length);
+        var rest = k.slice(DRAFT_PREFIX.length);
         var li = rest.lastIndexOf(":");
         var spec = rest.slice(li + 1).split("-");
         var d = { file: rest.slice(0, li), line: Number(spec[0]), code: v.code, body: v.body, deleted: !!v.deleted };
@@ -626,7 +628,12 @@ function render(data) {
 function load() {
   var params = new URLSearchParams(location.search);
   var ref = params.get("ref") || "HEAD";
-  fetch("api/review?ref=" + encodeURIComponent(ref))
+  if (!REPO) {
+    meta.textContent = "";
+    main.innerHTML = '<div id="empty">Open this page with codedeck review inside a repository.</div>';
+    return;
+  }
+  fetch("api/review?ref=" + encodeURIComponent(ref) + "&repo=" + encodeURIComponent(REPO))
     .then(function (res) {
       if (!res.ok) throw new Error("review indisponível (HTTP " + res.status + ")");
       return res.json();
