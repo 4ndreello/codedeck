@@ -22,3 +22,4 @@
 | 18 | Use the requested capitalized commit subjects even though `check_commit.py` rejects them. | Decision | This continuation explicitly requires capitalized subjects and the exact T01 message; the checker requires lowercase descriptions. |
 | 19 | Commit T01 and T02 in separate commits from this continuation. | Deviation | The earlier worker left their source changes uncommitted after sandbox failures, and this continuation reran both gates before committing. |
 | 20 | Share base URL formatting from `src/config/web-host.ts`. | Decision | The supervisor and web server need the same host mapping, while the daemon import boundary forbids importing the web server into the supervisor. |
+| 21 | Print the plain HTTP warning after a listener succeeds. | Decision | A preferred port may fall back to an OS-assigned port, so the warning must name the actual listening port. |

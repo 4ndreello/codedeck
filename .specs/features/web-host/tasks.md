@@ -97,11 +97,12 @@ Status: Complete
 #### T07: Add `ui --host` and CLI host output
 
 Where: `src/cli/web-launch.ts`
+Supporting file: `src/cli/commands/ui.ts`.
 WH IDs: WH-03, WH-04, WH-05, WH-14, WH-15, WH-16
 Depends on: T06
 Tests: Update `tests/web-launch.test.ts` and `tests/web-cli.test.ts` for flag forwarding, pre-IPC validation, config warnings, wildcard links, warning text, and both listen failure paths.
 Gate: `npx vitest run --no-cache tests/web-launch.test.ts tests/web-cli.test.ts`
-Status: Pending
+Status: Complete
 
 ### Phase 3: Document the host setting
 

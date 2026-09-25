@@ -125,9 +125,9 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | --- | --- | --- | --- |
 | WH-01 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-02 | P1: Bind the console to a configured address | Tasks | Verified |
-| WH-03 | P1: Bind the console to a configured address | Tasks | Pending |
-| WH-04 | P1: Bind the console to a configured address | Tasks | Pending |
-| WH-05 | P1: Bind the console to a configured address | Tasks | Pending |
+| WH-03 | P1: Bind the console to a configured address | Tasks | Verified |
+| WH-04 | P1: Bind the console to a configured address | Tasks | Verified |
+| WH-05 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-06 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-07 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-08 | P1: Bind the console to a configured address | Tasks | Verified |
@@ -136,9 +136,9 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-11 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-12 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-13 | P1: Preserve the console's request protections | Tasks | Verified |
-| WH-14 | P2: Print usable links and bind errors | Tasks | Pending |
-| WH-15 | P2: Print usable links and bind errors | Tasks | Pending |
-| WH-16 | P2: Print usable links and bind errors | Tasks | Pending |
+| WH-14 | P2: Print usable links and bind errors | Tasks | Verified |
+| WH-15 | P2: Print usable links and bind errors | Tasks | Verified |
+| WH-16 | P2: Print usable links and bind errors | Tasks | Verified |
 
 **Coverage**: 16 requirements, 16 mapped to tasks, 0 unmapped.
 

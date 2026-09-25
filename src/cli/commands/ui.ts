@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { Command } from "commander";
 import { createReviewRoutes } from "./review.js";
 import { fetchUsageQuery } from "./usage.js";
@@ -10,6 +11,7 @@ import { launchWebPage } from "../web-launch.js";
 
 export interface UiCommandOptions {
   port?: string;
+  host?: string;
   open?: boolean;
 }
 
@@ -56,8 +58,15 @@ export function registerUiCommand(program: Command, dependencies: UiCommandDepen
     .command("ui")
     .description("Open the local CodeDeck console")
     .option("--port <n>", "port for a new console (default: web.port from config, else 7777)")
+    .option("--host <addr>", "IP address for the console to bind")
     .option("--no-open", "print the console URL without opening a browser")
     .action(async (opts: UiCommandOptions) => {
+      if (opts.host !== undefined && isIP(opts.host) === 0) {
+        console.error("--host must be an IP address");
+        process.exitCode = 1;
+        return;
+      }
+
       let port: number | undefined;
       try {
         port = parseOptionalWebPort(opts.port);
@@ -67,7 +76,13 @@ export function registerUiCommand(program: Command, dependencies: UiCommandDepen
         return;
       }
 
-      const code = await (dependencies.launch ?? launchWebPage)({ path: "/", title: "CodeDeck UI", port, open: opts.open !== false });
+      const code = await (dependencies.launch ?? launchWebPage)({
+        path: "/",
+        title: "CodeDeck UI",
+        port,
+        ...(opts.host === undefined ? {} : { host: opts.host }),
+        open: opts.open !== false,
+      });
       if (code !== 0) process.exitCode = code;
     });
 }
