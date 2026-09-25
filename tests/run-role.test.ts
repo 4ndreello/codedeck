@@ -13,7 +13,7 @@ vi.mock("../src/daemon/ipc.js", () => ({
   },
 }));
 
-const { registerRunCommand, runIdFromEnvironment } = await import("../src/cli/commands/run.js");
+const { registerRunCommand, runIdFromEnvironment, parentIdFromEnvironment } = await import("../src/cli/commands/run.js");
 
 class Exited extends Error {
   constructor(readonly code: number) {
@@ -71,6 +71,30 @@ describe("codedeck run --role", () => {
 
     const [, params] = request.mock.calls[0];
     expect(params.runId).toBe("run-from-open");
+  });
+
+  it("prefers the dispatching session over the run root as parent", () => {
+    expect(parentIdFromEnvironment({ CODEDECK_SESSION_ID: "w1", CODEDECK_RUN_ID: "r1" })).toBe("w1");
+    expect(parentIdFromEnvironment({ CODEDECK_RUN_ID: "r1" })).toBe("r1");
+    expect(parentIdFromEnvironment({ CODEDECK_SESSION_ID: "", CODEDECK_RUN_ID: "" })).toBeNull();
+  });
+
+  it("sends the dispatcher and the parsed role to session.create", async () => {
+    const previous = { run: process.env.CODEDECK_RUN_ID, session: process.env.CODEDECK_SESSION_ID };
+    process.env.CODEDECK_RUN_ID = "run-from-open";
+    process.env.CODEDECK_SESSION_ID = "worker-1";
+    try {
+      await expect(runProgram(["review it", "--agent", "codex", "--role", "rev", "--effort", "high", "--bg"]))
+        .rejects.toThrow(Exited);
+    } finally {
+      for (const [key, value] of [["CODEDECK_RUN_ID", previous.run], ["CODEDECK_SESSION_ID", previous.session]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+    const [, params] = request.mock.calls[0];
+    expect(params.parentId).toBe("worker-1");
+    expect(params.role).toBe("reviewer");
   });
 
   it("maps a missing run id to null", () => {

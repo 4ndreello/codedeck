@@ -37,6 +37,12 @@ export interface Session {
   id: string;
   runId?: string | null;
   origin?: "open" | "run" | string | null;
+  // Session that dispatched this one (the open session or a worker that ran
+  // `codedeck run` itself). runId groups a whole tree flat; parentId is the
+  // edge that says who instantiated whom.
+  parentId?: string | null;
+  // CodeDeck role the session was started with (general, reviewer, ...).
+  role?: string | null;
   name?: string;
   agent: AgentId;
   nativeSessionId?: string;

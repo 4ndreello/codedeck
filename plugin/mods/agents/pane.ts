@@ -100,8 +100,12 @@ function text(value: unknown): string {
   return value;
 }
 
-function toPaneRow(row: SessionRow): PaneRow {
+// `workers` is the set of ids the snapshot keeps: a parent outside it (the
+// run root, a row cut by the budget, a legacy row with no parent) leaves
+// parentId undefined, which draws the card under the root.
+function toPaneRow(row: SessionRow, workers: ReadonlySet<string>): PaneRow {
   const iso = typeof row.updatedAt === "string" ? row.updatedAt : undefined;
+  const parent = text(row.parentId);
   return {
     id: row.id,
     status: row.status || EMPTY_CELL,
@@ -110,6 +114,8 @@ function toPaneRow(row: SessionRow): PaneRow {
     effort: text(row.effort) || undefined,
     name: row.name || EMPTY_CELL,
     updatedAt: iso,
+    parentId: parent !== "" && parent !== row.id && workers.has(parent) ? parent : undefined,
+    role: text(row.role) || undefined,
   };
 }
 
@@ -118,7 +124,8 @@ function toPaneRow(row: SessionRow): PaneRow {
  *
  * Filters to `runId`, lifts the single `origin === "open"` row out as the
  * orchestrator, orders the rest by `updatedAt` descending with a total order,
- * and cuts to `budget`. With no explicit budget every matched row is kept and
+ * and cuts to `budget`. Each kept row carries the id of the kept row that
+ * dispatched it, so formatPane can draw who started whom. With no explicit budget every matched row is kept and
  * `hidden` is 0; dropping rows to fit the pane is formatPane's decision.
  */
 export function selectPane(rows: SessionRow[], runId: string, budget?: number): PaneSnapshot {
@@ -134,15 +141,17 @@ export function selectPane(rows: SessionRow[], runId: string, budget?: number): 
           agent: text(orchestratorRow.agent) || EMPTY_CELL,
           model: text(orchestratorRow.model) || undefined,
           effort: text(orchestratorRow.effort) || undefined,
+          role: text(orchestratorRow.role) || undefined,
         }
       : undefined;
     const workers = matching.filter((row) => row.origin !== "open");
     const ordered = [...workers].sort(compareRows);
     const kept = ordered.slice(0, limit);
+    const keptIds = new Set(kept.map((row) => row.id));
     return {
       runId: text(runId),
       orchestrator,
-      rows: kept.map(toPaneRow),
+      rows: kept.map((row) => toPaneRow(row, keptIds)),
       hidden: ordered.length - kept.length,
       total: matching.length,
     };
@@ -235,22 +244,30 @@ function rowAge(iso: unknown): number {
   return Number.isNaN(then) ? Number.NEGATIVE_INFINITY : then;
 }
 
-// One drawable piece of the pane: an orchestrator card, a worker card, or a
-// compact history section. `count` is how many sessions disappear if the block
-// is evicted to make room for the frame and footer. `size` counts only the
-// block's own lines; the assembled order adds any connector above it.
-type Block = {
-  kind: "card" | "history";
-  size: number;
-  age: number;
+// One card of the lineage tree. `children` holds only the cards drawn under
+// it; finished leaves go to the history section instead of the tree.
+type Card = {
   id: string;
-  count: number;
-  build: (connects: boolean, lead: boolean) => string[];
+  age: number;
+  body: (inner: number) => string[];
+  parent: Card | undefined;
+  children: Card[];
 };
+
+function roleLabel(role: unknown): string {
+  const clean = cell(role);
+  return clean === EMPTY_CELL ? "" : clean.charAt(0).toUpperCase() + clean.slice(1);
+}
 
 // One drawing pass, with the widths derived from the column budget. Kept inside
 // its own function so formatPane can wrap the whole thing in one guard.
 // `limit` is the usable body height in rows, or undefined for unbounded.
+//
+// The body is a tree: every card hangs from the session that dispatched it,
+// so a reviewer a worker started is drawn under that worker rather than under
+// the run root. A child card joins its parent through an elbow on the card's
+// first body line; the parent's bottom edge carries a tee where the trunk
+// leaves it.
 function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined): string[] {
   const source = (snapshot ?? {}) as Partial<PaneSnapshot>;
   const rows = (Array.isArray(source.rows) ? source.rows : []).map(
@@ -258,7 +275,7 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   );
   const orchestrator =
     source.orchestrator && typeof source.orchestrator === "object"
-      ? (source.orchestrator as Partial<{ agent: string; model: string; effort: string }>)
+      ? (source.orchestrator as Partial<{ agent: string; model: string; effort: string; role: string }>)
       : undefined;
   const hidden = count(source.hidden);
   const total = count(source.total);
@@ -267,23 +284,16 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   if (rows.length === 0 && orchestrator === undefined) return [];
 
   const workerTotal = rows.length + hidden;
+  const isLive = (row: Partial<PaneRow>) => LIVE.has(row.status ?? "") || WAIT.has(row.status ?? "");
   const working = rows.filter((row) => LIVE.has(row.status ?? "")).length;
   const waiting = rows.filter((row) => WAIT.has(row.status ?? "")).length;
   // The overflow is reported by count only, its statuses are not in the
   // snapshot, so it is folded into "finished": the most recently touched
   // sessions are the live ones and stay inside the budget.
   const finished = Math.max(0, workerTotal - working - waiting);
-  const finishedRows = rows.filter(
-    (row) => !LIVE.has(row.status ?? "") && !WAIT.has(row.status ?? ""),
-  );
 
   const W = Math.trunc(columns);
   const IN = W - 2;
-  // Rule 8: the card box caps at MAX_CARD_COLUMNS no matter how wide the dock
-  // gets; the outer frame still spans the full width. The two-space inset the
-  // cards have always sat at inside the frame is kept.
-  const CARD = Math.min(IN - 4, MAX_CARD_COLUMNS);
-  const INNER = Math.max(0, CARD - 2);
   const now = Date.now();
 
   // Everything routed through frame* is exactly W wide.
@@ -293,90 +303,154 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   const frameTop = (label: string) =>
     "┌" + fit(("─ " + label + " ").replace(CONTROL, " "), IN, "─") + "┐";
 
-  // A node card, indented inside the frame. The stem that joins it to whatever
-  // sits above is drawn by the assembly, not by the block: the first block is
-  // the root and never has one.
-  const stem = () => frameRow("  " + " ".repeat(Math.floor(INNER / 2) + 1) + "│");
-  const cardTop = () => frameRow("  ┌" + "─".repeat(INNER) + "┐");
-  const cardRow = (s: string) => frameRow("  │" + fit(s, INNER) + "│");
-  const stemAt = Math.floor(INNER / 2);
-  const cardBottom = (connects: boolean) =>
-    connects
-      ? frameRow("  └" + "─".repeat(stemAt) + "┬" + "─".repeat(INNER - stemAt - 1) + "┘")
-      : frameRow("  └" + "─".repeat(INNER) + "┘");
-
-  const cardBlock = (ageValue: number, id: string, body: string[]): Block => ({
-    kind: "card",
-    size: body.length + 2,
-    age: ageValue,
-    id,
-    count: 1,
-    build: (connects, lead) => [
-      ...(lead ? [stem()] : []),
-      cardTop(),
-      ...body.map(cardRow),
-      cardBottom(connects),
-    ],
-  });
-
-  const blocks: Block[] = [];
-
-  if (orchestrator !== undefined) {
-    blocks.push(
-      cardBlock(Number.POSITIVE_INFINITY, "", [
-        ` ${glyph(orchestrator.agent)} Orchestrator`,
-        `   ${harnessLabel(orchestrator.agent)} · ${workerTotal} agents`,
-        ...(text(orchestrator.model).trim() || text(orchestrator.effort).trim()
-          ? [detailLine(orchestrator.model, orchestrator.effort, "", "", INNER)]
-          : []),
-      ]),
-    );
-  }
-
-  for (const row of rows) {
-    const status = row.status ?? "";
-    // Live rows stay prominent because they need attention. Finished rows are
-    // collected below into one compact history section.
-    if (LIVE.has(status) || WAIT.has(status)) {
-      const when = age(row.updatedAt, now);
-      const word = statusWord(status);
-      blocks.push(
-        cardBlock(rowAge(row.updatedAt), cell(row.id), [
-          ` ${glyph(row.agent)} ${cell(row.id)}  ${harnessLabel(row.agent)}`,
-          `   ${cell(row.name)}`,
-          detailLine(row.model, row.effort, word, when, INNER),
-        ]),
-      );
+  // Lineage. A row whose parent is not in the snapshot hangs from the root;
+  // a parent chain that loops is cut there, so every row is reachable once.
+  const byId = new Map<string, Partial<PaneRow>>();
+  for (const row of rows) if (typeof row.id === "string" && !byId.has(row.id)) byId.set(row.id, row);
+  const declared = (row: Partial<PaneRow>): Partial<PaneRow> | undefined => {
+    const id = typeof row.parentId === "string" ? row.parentId : undefined;
+    return id !== undefined && id !== row.id ? byId.get(id) : undefined;
+  };
+  // A row on a parent loop hangs from the root instead.
+  const onLoop = (row: Partial<PaneRow>): boolean => {
+    const seen = new Set<Partial<PaneRow>>();
+    for (let up = declared(row); up !== undefined && !seen.has(up); up = declared(up)) {
+      if (up === row) return true;
+      seen.add(up);
     }
+    return false;
+  };
+  const parentOf = (row: Partial<PaneRow>): Partial<PaneRow> | undefined =>
+    onLoop(row) ? undefined : declared(row);
+  const ancestors = (row: Partial<PaneRow>): Partial<PaneRow>[] => {
+    const chain: Partial<PaneRow>[] = [];
+    const seen = new Set<Partial<PaneRow>>([row]);
+    for (let up = parentOf(row); up !== undefined && !seen.has(up); up = parentOf(up)) {
+      seen.add(up);
+      chain.push(up);
+    }
+    return chain;
+  };
+
+  // A card for every live row and for every ancestor of one, finished or
+  // not, so a live reviewer never floats free of the worker that started it.
+  const carded = new Set<Partial<PaneRow>>();
+  for (const row of rows) {
+    if (!isLive(row)) continue;
+    carded.add(row);
+    for (const up of ancestors(row)) carded.add(up);
+  }
+  const historyRows = rows.filter((row) => !carded.has(row));
+
+  const workerBody = (row: Partial<PaneRow>) => (inner: number): string[] => {
+    const role = roleLabel(row.role);
+    const status = row.status ?? "";
+    return [
+      ` ${glyph(row.agent)} ${cell(row.id)}  ${role ? `${role} · ` : ""}${harnessLabel(row.agent)}`,
+      `   ${cell(row.name)}`,
+      detailLine(row.model, row.effort, statusWord(status), age(row.updatedAt, now), inner),
+    ];
+  };
+
+  const root: Card | undefined =
+    orchestrator === undefined
+      ? undefined
+      : {
+          id: "",
+          age: Number.POSITIVE_INFINITY,
+          parent: undefined,
+          children: [],
+          body: (inner) => [
+            ` ${glyph(orchestrator.agent)} ${roleLabel(orchestrator.role) || "Orchestrator"}`,
+            `   ${harnessLabel(orchestrator.agent)} · ${workerTotal} agents`,
+            ...(text(orchestrator.model).trim() || text(orchestrator.effort).trim()
+              ? [detailLine(orchestrator.model, orchestrator.effort, "", "", inner)]
+              : []),
+          ],
+        };
+
+  // Rows arrive newest first, so siblings keep that order.
+  const cards = new Map<Partial<PaneRow>, Card>();
+  for (const row of rows) {
+    if (!carded.has(row)) continue;
+    cards.set(row, { id: cell(row.id), age: rowAge(row.updatedAt), body: workerBody(row), parent: undefined, children: [] });
+  }
+  const tops: Card[] = root ? [root] : [];
+  for (const row of rows) {
+    const card = cards.get(row);
+    if (!card) continue;
+    const chain = ancestors(row);
+    const up = chain.length > 0 ? cards.get(chain[0]) : undefined;
+    card.parent = up ?? root;
+    if (card.parent) card.parent.children.push(card);
+    else tops.push(card);
   }
 
-  if (finished > 0) {
-    const preview = finishedRows.slice(0, HISTORY_PREVIEW_ROWS);
-    const historyLines = [`  ─ HISTORY · ${finished} finished`];
+  // Card width at a depth: capped at MAX_CARD_COLUMNS, shrinking as the tree
+  // indents, never so narrow the frame cannot clip it cleanly.
+  const cardWidth = (depth: number) => Math.max(10, Math.min(IN - 4 - 4 * depth, MAX_CARD_COLUMNS));
+
+  // A finished worker kept as a card for a live child is not history.
+  const historyCount = historyRows.length + hidden;
+  const historyLines = (): string[] => {
+    if (historyCount === 0) return [];
+    const preview = historyRows.slice(0, HISTORY_PREVIEW_ROWS);
+    const lines = [`  ─ HISTORY · ${historyCount} finished`];
     for (const row of preview) {
       const when = age(row.updatedAt, now);
-      historyLines.push(
-        `   ${glyph(row.agent)} ${cell(row.id)}  ${cell(row.name)}${when === "" ? "" : ` · ${when}`}`,
+      const up = parentOf(row);
+      lines.push(
+        `   ${glyph(row.agent)} ${cell(row.id)}  ${cell(row.name)}` +
+          (up ? ` ← ${cell(up.id)}` : "") +
+          (when === "" ? "" : ` · ${when}`),
       );
     }
-    const older = finished - preview.length;
-    if (older > 0) historyLines.push(`   +${older} earlier`);
+    const older = historyCount - preview.length;
+    if (older > 0) lines.push(`   +${older} earlier`);
+    return lines;
+  };
 
-    blocks.push({
-      kind: "history",
-      size: historyLines.length,
-      age: rowAge(preview[0]?.updatedAt),
-      id: "history",
-      count: finished,
-      build: (_connects, lead) => [...(lead ? [stem()] : []), ...historyLines.map(frameRow)],
-    });
-  }
-
-  // Whether the block at index i hangs from the one above it by a stem. The
-  // first block is the root and never leads with one. A card is always joined
-  // to what sits above it; history only gets a stem when it follows a card.
-  const stemAbove = (list: Block[], i: number): boolean =>
-    i > 0 && (list[i].kind === "card" || list[i - 1].kind === "card");
+  // Draw the kept part of the tree. `kept` holds the cards still on screen;
+  // an evicted card's children were evicted before it, so the tree stays
+  // connected.
+  const render = (kept: Set<Card>, withHistory: boolean, hiddenTotal: number): string[] => {
+    const out: string[] = [];
+    // `rails[k]` says whether the ancestor at depth k+1 has a later sibling,
+    // which keeps its vertical rail running past this card.
+    const walk = (card: Card, depth: number, rails: boolean[], last: boolean) => {
+      const width = cardWidth(depth);
+      const inner = width - 2;
+      const shown = card.children.filter((child) => kept.has(child));
+      const lines = [
+        "┌" + "─".repeat(inner) + "┐",
+        ...card.body(inner).map((line) => "│" + fit(line, inner) + "│"),
+        shown.length > 0
+          ? "└─┬" + "─".repeat(Math.max(0, inner - 2)) + "┘"
+          : "└" + "─".repeat(inner) + "┘",
+      ];
+      lines.forEach((line, i) => {
+        let prefix = rails.map((rail) => (rail ? "  │ " : "    ")).join("");
+        let body = line;
+        if (depth > 0) {
+          if (i === 0) prefix += "  │ ";
+          else if (i === 1) {
+            prefix += last ? "  └─" : "  ├─";
+            body = "┤" + line.slice(1);
+          } else prefix += last ? "    " : "  │ ";
+        }
+        out.push(frameRow("  " + prefix + body));
+      });
+      shown.forEach((child, i) =>
+        walk(child, depth + 1, depth > 0 ? [...rails, !last] : rails, i === shown.length - 1),
+      );
+    };
+    for (const top of tops) if (kept.has(top)) walk(top, 0, [], true);
+    const history = withHistory ? historyLines() : [];
+    if (history.length > 0 && out.length > 0) out.push(frameRow(""));
+    out.push(...history.map(frameRow));
+    if (hiddenTotal > 0) out.push(frameRow(`  +${hiddenTotal} hidden agents`));
+    return out;
+  };
 
   // These frame lines are always drawn when the pane has content.
   const head = [
@@ -386,56 +460,45 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
     frameSep(),
     frameRow(""),
   ];
-  const harnessLegend = footerLegend(W);
-  const tail = [
-    frameSep(),
-    frameRow(harnessLegend),
-    frameBot(),
-  ];
+  const tail = [frameSep(), frameRow(footerLegend(W)), frameBot()];
   const fixed = head.length + tail.length;
-  // The hidden line keeps its own stem only when it hangs off a full card.
-  const hiddenSize = (list: Block[]): number =>
-    list.length > 0 && list[list.length - 1].kind === "card" ? 2 : 1;
 
-  let kept = blocks;
+  const all = new Set<Card>();
+  const collect = (card: Card) => {
+    all.add(card);
+    card.children.forEach(collect);
+  };
+  tops.forEach(collect);
+
+  let kept = all;
+  let withHistory = true;
   let dropped = 0;
-  let showHidden = false;
+  let hiddenTotal = 0;
   if (limit !== undefined) {
     // Rule 7: the frame alone does not fit, so nothing is drawn at all.
     if (limit < fixed) return [];
-    // History leaves first, then full cards, with the oldest block leaving
-    // first within each group. The hidden count follows the block's session
-    // count rather than its number of rendered lines.
-    const victims = [...blocks].sort(
-      (a, b) =>
-        Number(a.kind === "card") - Number(b.kind === "card") ||
-        a.age - b.age ||
-        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    );
-    const sizeOf = (list: Block[]) =>
-      list.reduce((sum, block, i) => sum + block.size + (stemAbove(list, i) ? 1 : 0), 0);
-    const needed = () => fixed + sizeOf(kept);
-    for (let vi = 0; needed() > limit && vi < victims.length; vi += 1) {
-      kept = kept.filter((block) => block !== victims[vi]);
-      dropped += victims[vi].count;
+    const needed = () => fixed + render(kept, withHistory, 0).length;
+    // History leaves first, then cards oldest first, and only a card with no
+    // child left on screen, so the tree never loses a link. The root carries
+    // +Infinity and is the last to go. The hidden count follows sessions,
+    // not rendered lines.
+    if (needed() > limit && historyLines().length > 0) {
+      withHistory = false;
+      dropped += historyCount;
+    }
+    kept = new Set(all);
+    while (needed() > limit && kept.size > 0) {
+      const leaves = [...kept].filter((card) => !card.children.some((child) => kept.has(child)));
+      leaves.sort((a, b) => a.age - b.age || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const victim = leaves[0];
+      kept.delete(victim);
+      if (victim !== root) dropped += 1;
     }
     // A hidden line is useful only when it does not displace a live card.
-    showHidden = dropped > 0 && fixed + sizeOf(kept) + hiddenSize(kept) <= limit;
+    if (dropped > 0 && fixed + render(kept, withHistory, dropped).length <= limit) hiddenTotal = dropped;
   }
 
-  // `hidden` is already represented by the history block: the source does not
-  // expose the statuses of rows that were cut before formatting.
-  const hiddenTotal = showHidden ? dropped : 0;
-  const hiddenRow = frameRow(`  +${hiddenTotal} hidden agents`);
-  const out: string[] = [...head];
-  for (let i = 0; i < kept.length; i += 1) {
-    const connects = i < kept.length - 1 || hiddenTotal > 0;
-    out.push(...kept[i].build(connects, stemAbove(kept, i)));
-  }
-  if (hiddenTotal > 0) {
-    if (kept.length > 0 && kept[kept.length - 1].kind === "card") out.push(stem(), hiddenRow);
-    else out.push(hiddenRow);
-  }
+  const out: string[] = [...head, ...render(kept, withHistory, hiddenTotal)];
   if (limit !== undefined) {
     const spare = limit - out.length - tail.length;
     for (let i = 0; i < spare; i += 1) out.push(frameRow(""));

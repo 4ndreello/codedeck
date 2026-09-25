@@ -11,6 +11,9 @@ export interface SessionRow {
   id: string;
   runId?: string;
   origin?: string | null;
+  /** Session that dispatched this one; absent on rows older than lineage. */
+  parentId?: string | null;
+  role?: string | null;
   name?: string;
   agent?: string;
   model?: string;
@@ -32,13 +35,20 @@ export interface PaneRow {
   effort?: string;
   name: string;
   updatedAt?: string;
+  /**
+   * Id of the card this one hangs from, or undefined when it hangs from the
+   * run root. A parent outside the run (or a legacy row with none) is folded
+   * onto the root so every row stays reachable.
+   */
+  parentId?: string;
+  role?: string;
 }
 
 /** Everything one drawing of the pane needs, already narrowed to one run. */
 export interface PaneSnapshot {
   runId: string;
   /** The orchestrator's own row, the only one whose origin is "open". */
-  orchestrator: { agent: string; model?: string; effort?: string } | undefined;
+  orchestrator: { agent: string; model?: string; effort?: string; role?: string } | undefined;
   rows: PaneRow[];
   /** Rows that matched the run but fell outside the budget. */
   hidden: number;

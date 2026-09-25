@@ -23,6 +23,7 @@ import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
+import { parseRole } from "../core/roles.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
 import { UsageLedger } from "../store/usage-ledger.js";
@@ -655,9 +656,16 @@ class Daemon {
         }
 
         const now = new Date();
+        // Only record an edge to a session the store knows: a stale or foreign
+        // CODEDECK_SESSION_ID must not invent a parent the tree cannot draw.
+        const parent = typeof p.parentId === "string" && p.parentId.length > 0
+          ? this.sessions.get(p.parentId)
+          : null;
         const session: any = {
           id: sessionId,
-          runId: typeof p.runId === "string" ? p.runId : undefined,
+          runId: typeof p.runId === "string" ? p.runId : parent?.runId ?? undefined,
+          parentId: parent?.id,
+          role: typeof p.role === "string" ? parseRole(p.role) : undefined,
           name: p.name,
           agent,
           model: p.model,
@@ -771,6 +779,7 @@ class Daemon {
           id: sessionId,
           runId: sessionId,
           origin: "open",
+          role: typeof p.role === "string" ? parseRole(p.role) : undefined,
           name: p.name,
           agent,
           model: p.model,
