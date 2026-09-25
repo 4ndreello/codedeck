@@ -9,54 +9,61 @@ export interface ModelPrice {
 
 /**
  * Static prices are USD per 1,000,000 tokens. Keep this table versioned with
- * the code. Models discovered at runtime but absent here deliberately have no
- * fallback price and therefore produce null from computeSessionCost().
+ * the code. All entries use OpenRouter list prices fetched 2026-09-25 unless
+ * noted otherwise. Models absent here deliberately have no fallback price and
+ * therefore produce null from computeSessionCost().
  */
 export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  // Codex models currently named by CodeDeck. These ids are specific to the
-  // installed Codex catalog, so the values are placeholders. TODO: ajustar preço.
-  "gpt-5": { input: 1, output: 5, cached: 0.5 },
-  "gpt-5.5": { input: 1, output: 5 },
-  "gpt-5.6-luna": { input: 1, output: 5 },
+  // OpenRouter list prices, fetched 2026-09-25.
+  "gpt-6-luna": { input: 0.1, output: 0.5, cached: 0.01 },
+  "gpt-5": { input: 1.25, output: 10, cached: 0.125 },
+  "gpt-5.5": { input: 5, output: 30, cached: 0.5 },
+  "gpt-5.6-luna": { input: 0.2, output: 1.2, cached: 0.02 },
+  // Still a placeholder.
   "gpt-5.7": { input: 1, output: 5 },
+  // This id is not listed on OpenRouter; keep the existing price.
   "meta/muse-spark-1.3-contributor": { input: 0.1, output: 0.2, cached: 0.002 },
-  "openrouter/z-ai/glm-5.3-flash": { input: 0.075, output: 0.25, cached: 0.015 },
-  "openai-codex/gpt-5.6-luna": { input: 1, output: 5 },
+  "openrouter/z-ai/glm-5.3-flash": { input: 0.045, output: 0.6, cached: 0.0285 },
+  "openai-codex/gpt-5.6-luna": { input: 0.2, output: 1.2, cached: 0.02 },
+  "deepseek-v4-flash-0731": { input: 0.03, output: 0.32, cached: 0.016 },
+  // Free tier by name; not listed on OpenRouter.
+  "muse-spark-1.3-contributor-free": { input: 0, output: 0, cached: 0 },
 
-  // Claude's current CodeDeck default and model examples. Claude normally
-  // reports its own cost, but these entries keep the fallback table complete.
-  // TODO: ajustar preço for these model ids if their catalog prices change.
-  "claude-opus-4-8": { input: 15, output: 75, cached: 1.5 },
-  "claude-opus-5": { input: 15, output: 75, cached: 1.5 },
+  "claude-opus-4-8": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-5": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-5-5": { input: 4, output: 20, cached: 0.2 },
+  "claude-fable-5": { input: 10, output: 50, cached: 1 },
+  "claude-fable-5-1": { input: 10, output: 50, cached: 0.25 },
   "claude-sonnet-4-6": { input: 3, output: 15, cached: 0.3 },
-  "claude-sonnet-5": { input: 3, output: 15, cached: 0.3 },
-  "claude-haiku-4-5": { input: 0.8, output: 4, cached: 0.08 },
+  "claude-sonnet-5": { input: 2, output: 10, cached: 0.2 },
+  "claude-haiku-4-5": { input: 1, output: 5, cached: 0.1 },
 
   // Alibaba Qwen models.
-  "qwen3.8-max": { input: 2, output: 6, cached: 0.2 },
-  "qwen3.8-flash": { input: 0.16, output: 0.47, cached: 0.016 },
+  "qwen3.8-max": { input: 2, output: 6, cached: 0.25 },
+  "qwen3.8-flash": { input: 0.15, output: 0.47, cached: 0.016 },
+  // qwen-max and qwen-turbo are not listed on OpenRouter; prices kept as before.
   "qwen-max": { input: 2, output: 6, cached: 0.2 },
-  "qwen-plus": { input: 0.4, output: 1.2, cached: 0.04 },
+  "qwen-plus": { input: 0.26, output: 0.78, cached: 0.052 },
   "qwen-turbo": { input: 0.05, output: 0.2, cached: 0.005 },
 
   // Google Antigravity (Gemini) models.
-  "gemini-3.8-flash": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.8-flash-high": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.8-flash-medium": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.8-flash-low": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.7-flash": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.7-flash-high": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.7-flash-medium": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.7-flash-low": { input: 0.1, output: 0.4, cached: 0.025 },
-  "gemini-3.6-flash": { input: 0.075, output: 0.3, cached: 0.01875 },
-  "gemini-3.6-flash-high": { input: 0.075, output: 0.3, cached: 0.01875 },
-  "gemini-3.6-flash-medium": { input: 0.075, output: 0.3, cached: 0.01875 },
-  "gemini-3.6-flash-low": { input: 0.075, output: 0.3, cached: 0.01875 },
-  "gemini-3.1-pro": { input: 1.25, output: 5, cached: 0.3125 },
-  "gemini-3.1-pro-high": { input: 1.25, output: 5, cached: 0.3125 },
-  "gemini-3.1-pro-low": { input: 1.25, output: 5, cached: 0.3125 },
-  "gemini-2.5-flash": { input: 0.075, output: 0.3, cached: 0.01875 },
-  "gemini-2.5-pro": { input: 1.25, output: 5, cached: 0.3125 },
+  "gemini-3.8-flash": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.8-flash-high": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.8-flash-medium": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.8-flash-low": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.7-flash": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.7-flash-high": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.7-flash-medium": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.7-flash-low": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.6-flash": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.6-flash-high": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.6-flash-medium": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.6-flash-low": { input: 0.75, output: 3.75, cached: 0.075 },
+  "gemini-3.1-pro": { input: 2, output: 12, cached: 0.2 },
+  "gemini-3.1-pro-high": { input: 2, output: 12, cached: 0.2 },
+  "gemini-3.1-pro-low": { input: 2, output: 12, cached: 0.2 },
+  "gemini-2.5-flash": { input: 0.3, output: 2.5, cached: 0.03 },
+  "gemini-2.5-pro": { input: 1.25, output: 10, cached: 0.125 },
 };
 
 export interface SessionCostUsage {
@@ -100,34 +107,47 @@ export function resolveModelPrice(model: string | undefined | null): ModelPrice 
   const trimmed = model.trim();
   if (!trimmed) return undefined;
 
-  // 1. Direct match with original string
-  if (MODEL_PRICES[trimmed]) return MODEL_PRICES[trimmed];
-
-  // 2. Strip trailing display labels (e.g. "model-id   Display Name")
   const idOnly = trimmed.split(/\s+/)[0] ?? trimmed;
-  if (MODEL_PRICES[idOnly]) return MODEL_PRICES[idOnly];
+  const candidates = [trimmed, idOnly];
 
-  // 3. Strip leading provider prefix (e.g. "opencode/...", "alibaba-token-plan/...", "openrouter/...")
+  // Strip leading provider prefixes such as "opencode/..." and "openrouter/...".
   const slashIdx = idOnly.indexOf("/");
   if (slashIdx !== -1) {
     const afterFirstSlash = idOnly.slice(slashIdx + 1);
-    if (MODEL_PRICES[afterFirstSlash]) return MODEL_PRICES[afterFirstSlash];
+    candidates.push(afterFirstSlash);
 
-    // If there's another slash (e.g. openrouter/meta/model-name), test last component
     const lastSlashIdx = idOnly.lastIndexOf("/");
     if (lastSlashIdx !== slashIdx) {
-      const lastComponent = idOnly.slice(lastSlashIdx + 1);
-      if (MODEL_PRICES[lastComponent]) return MODEL_PRICES[lastComponent];
+      candidates.push(idOnly.slice(lastSlashIdx + 1));
     }
   }
 
-  // 4. Case-insensitive fallback
+  for (const candidate of candidates) {
+    const price = resolvePriceCandidate(candidate);
+    if (price) return price;
+  }
+
+  // Case-insensitive fallback.
   const lower = idOnly.toLowerCase();
   if (lower !== idOnly) {
     return resolveModelPrice(lower);
   }
 
   return undefined;
+}
+
+function resolvePriceCandidate(candidate: string): ModelPrice | undefined {
+  const pending = [candidate];
+  for (const modelId of pending) {
+    const price = MODEL_PRICES[modelId];
+    if (price) return price;
+
+    const withoutDate = modelId.replace(/-\d{8}$/, "");
+    if (withoutDate !== modelId) pending.push(withoutDate);
+
+    const withoutContext = modelId.replace(/\[[^\]]+\]$/, "");
+    if (withoutContext !== modelId) pending.push(withoutContext);
+  }
 }
 
 /**

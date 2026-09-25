@@ -99,7 +99,7 @@ describe("aggregateRunUsage", () => {
         }),
       ]),
     ).toMatchObject({
-      costUsd: 3.5,
+      costUsd: 0.8,
       sessionCount: 2,
       activeSessionCount: 0,
       costComplete: true,
@@ -254,8 +254,8 @@ describe("aggregateRunUsage", () => {
       }),
     ]);
 
-    expect(summary.costUsd).toBe(1);
-    expect(summary.total.costUsd).toBe(1);
+    expect(summary.costUsd).toBe(0.038);
+    expect(summary.total.costUsd).toBe(0.038);
     expect(summary.costComplete).toBe(true);
   });
 
