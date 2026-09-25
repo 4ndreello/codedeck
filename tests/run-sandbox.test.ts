@@ -123,13 +123,32 @@ describe("codedeck run sandbox resolution", () => {
     expect(errors.join("\n")).toContain("implies --sandbox danger-full-access");
   });
 
-  it.each(["claude", "opencode", "omp", "antigravity"])("clears a global sandbox for %s and warns", async (agent) => {
+  it.each(["claude", "opencode", "omp", "antigravity"])("clears a global sandbox for %s without warning", async (agent) => {
     writeConfig({ defaultAgent: agent, defaultSandbox: "danger-full-access" });
 
     const params = await created(["do the thing", "--agent", agent]);
 
     expect(params.sandbox).toBeUndefined();
-    expect(errors.join("\n")).toContain(`--sandbox has no effect on ${agent}`);
+    expect(errors.join("\n")).not.toContain(`--sandbox has no effect on ${agent}`);
+    expect(errors.join("\n")).not.toContain("--dangerously-bypass-approvals-and-sandbox has no effect");
+  });
+
+  it("warns when an explicit sandbox flag is ignored by claude", async () => {
+    writeConfig({ defaultAgent: "claude", defaultSandbox: "danger-full-access" });
+
+    const params = await created(["do the thing", "--agent", "claude", "--sandbox", "read-only"]);
+
+    expect(params.sandbox).toBeUndefined();
+    expect(errors.join("\n")).toContain("--sandbox has no effect on claude");
+  });
+
+  it("warns when claude receives the bypass flag", async () => {
+    writeConfig({ defaultAgent: "claude" });
+
+    await created(["do the thing", "--agent", "claude", "--dangerously-bypass-approvals-and-sandbox"]);
+
+    expect(errors.join("\n")).toContain("--dangerously-bypass-approvals-and-sandbox has no effect on claude");
+    expect(errors.join("\n")).not.toContain("--sandbox has no effect on claude");
   });
 });
 
