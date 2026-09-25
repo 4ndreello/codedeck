@@ -79,6 +79,8 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 8. WHEN `web.ensure` supplies neither `host` nor `preferredHost` THEN the supervisor SHALL reuse a running child regardless of its bind host, and SHALL start a new child on `127.0.0.1` when none is running. <!-- WH-19 -->
 9. WHEN a page GET uses `Host: localhost:<port>` and the bind host is `127.0.0.1`, `0.0.0.0`, or `::` THEN the server SHALL respond with `302` to `http://127.0.0.1:<port>`; for any other bind host it SHALL skip this canonical redirect. <!-- WH-20 -->
 10. IF `web.ensure` supplies a `host` or `preferredHost` that `net.isIP` rejects THEN the supervisor SHALL return `WEB_BAD_HOST` before stopping a running child. <!-- WH-21 -->
+11. WHEN `web.ensure` succeeds THEN its result SHALL include `host`, the bind address selected for the running child, alongside the canonical `baseUrl`, port, and token. <!-- WH-22 -->
+12. WHEN the CLI receives a successful `web.ensure` result THEN it SHALL use the returned `host` for the plain HTTP warning and wildcard alternate-link decision, falling back to the requested host only for a response without `host`. <!-- WH-23 -->
 
 **Independent Test**: Bind to a wildcard address, send requests with a local interface Host, a hostile Host, and tokenized or untokenized page URLs, and verify the exact response behavior.
 
@@ -122,7 +124,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | Auth boundaries and rate limits | WH-11 through WH-13 keep the existing Host and token checks; rate limiting is N/A because this feature does not change request authorization behavior. |
 | Concurrency and ordering | WH-09 and WH-17 use the existing single-child supervisor transition when the requested host changes. |
 | Data lifecycle and expiry | N/A because the feature adds no persisted data. |
-| Observability | WH-03 reports invalid config, WH-15 warns about reachable plain HTTP, and WH-16 reports the listen host. |
+| Observability | WH-03 reports invalid config, WH-15 and WH-23 select the plain HTTP warning from the active bind, and WH-16 reports the listen host. |
 | External-dependency failure | WH-16 covers OS listen failures; no new external service is introduced. |
 | State-transition integrity | WH-09, WH-17 through WH-19, and WH-21 define host transitions, reuse, and validation order. |
 
@@ -151,8 +153,10 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-19 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-20 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-21 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-22 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-23 | P2: Print usable links and bind errors | Tasks | Implemented |
 
-**Coverage**: 21 requirements, 21 mapped to tasks, 0 unmapped.
+**Coverage**: 23 requirements, 23 mapped to tasks, 0 unmapped.
 
 ## Success Criteria
 

@@ -77,7 +77,8 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
     return serveInProcess(options, host, askedPort, deps, error);
   }
 
-  warnForPlainHttp(host, web.port, error);
+  const activeHost = web.host ?? host;
+  warnForPlainHttp(activeHost, web.port, error);
   if (web.port !== askedPort) log(`CodeDeck web is running on port ${web.port} instead of ${askedPort}`);
   const url = new URL(options.path, web.baseUrl);
   for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
@@ -89,7 +90,7 @@ export async function launchWebPage(options: LaunchWebPageOptions, deps: LaunchW
   } else {
     log(`${options.title} on ${pageUrl}`);
   }
-  printAlternateLinks(host, web.port, options, web.token, deps.networkInterfaces ?? os.networkInterfaces, log);
+  printAlternateLinks(activeHost, web.port, options, web.token, deps.networkInterfaces ?? os.networkInterfaces, log);
   return 0;
 }
 

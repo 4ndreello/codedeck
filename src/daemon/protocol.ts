@@ -249,6 +249,8 @@ export interface WebEnsureParams {
 
 export interface WebEnsureResult {
   baseUrl: string;
+  /** Actual bind address selected for the running child. */
+  host: string;
   port: number;
   token: string;
 }

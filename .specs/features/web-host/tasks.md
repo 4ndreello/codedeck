@@ -157,6 +157,16 @@ Tests: Update `tests/web-supervisor.test.ts`, `tests/daemon-web.test.ts`, and `t
 Gate: `npx vitest run --no-cache tests/web-supervisor.test.ts tests/daemon-web.test.ts tests/web-host-docs.test.ts`
 Status: Complete
 
+#### T13: Report the active bind host to the CLI
+
+Where: `src/daemon/protocol.ts`, `src/daemon/web-supervisor.ts`, and `src/cli/web-launch.ts`
+Supporting files: `README.md`, `docs/protocol.md`, and `.specs/features/web-host/spec.md`
+WH IDs: WH-22, WH-23
+Depends on: T09
+Tests: Update `tests/web-supervisor.test.ts`, `tests/daemon-web.test.ts`, `tests/web-launch.test.ts`, and `tests/web-host-docs.test.ts` for the returned bind host and CLI warnings/links when a retained explicit host differs from config.
+Gate: `npx vitest run --no-cache tests/web-supervisor.test.ts tests/daemon-web.test.ts tests/web-launch.test.ts tests/web-host-docs.test.ts`
+Status: Complete
+
 ## Task Completion Record
 
 Task completion and requirement traceability are updated in the same commit as each implementation task. The independent verifier owns `validation.md`.

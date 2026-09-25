@@ -65,7 +65,7 @@ describe("WebSupervisor.ensure", () => {
     const pending = supervisor.ensure({ build: "b1" });
     children[0].handshake(ok());
 
-    await expect(pending).resolves.toEqual({ baseUrl: "http://127.0.0.1:4100", port: 4100, token: "tok-1" });
+    await expect(pending).resolves.toEqual({ baseUrl: "http://127.0.0.1:4100", host: "127.0.0.1", port: 4100, token: "tok-1" });
     expect(spawns).toEqual([{ entry: ENTRY, args: ["--web-child", "--host", "127.0.0.1"] }]);
   });
 
@@ -210,7 +210,7 @@ describe("WebSupervisor.ensure", () => {
     await vi.waitFor(() => expect(t.children).toHaveLength(2));
     t.children[1].handshake(ok(4100, "tok-1"));
 
-    await expect(second).resolves.toEqual(first);
+    await expect(second).resolves.toMatchObject({ baseUrl: first.baseUrl, host: "0.0.0.0", port: first.port, token: first.token });
     expect(t.children[0].signals).toEqual(["SIGTERM"]);
     expect(t.spawns[1].args).toEqual(["--web-child", "--host", "0.0.0.0", "--preferred-port", "7777"]);
   });
@@ -325,7 +325,7 @@ describe("WebSupervisor port rules", () => {
   ])("formats the base URL for host %s", async (host, urlHost) => {
     const t = harness();
 
-    await expect(running(t, { host })).resolves.toMatchObject({ baseUrl: `http://${urlHost}:4100` });
+    await expect(running(t, { host })).resolves.toMatchObject({ baseUrl: `http://${urlHost}:4100`, host });
   });
 
   it.each([

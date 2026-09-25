@@ -293,7 +293,7 @@ function parseHandshake(line: string): Handshake {
 }
 
 function resultOf(running: RunningChild): WebEnsureResult {
-  return { baseUrl: running.baseUrl, port: running.port, token: running.token };
+  return { baseUrl: running.baseUrl, host: running.host, port: running.port, token: running.token };
 }
 
 function exitsWithin(exited: Promise<void>, ms: number): Promise<boolean> {

@@ -68,12 +68,15 @@ Request:
 - `entry` (opcional): caminho absoluto do `dist/web/child.js` do chamador. Sem
   ele, o daemon usa o próprio.
 
-Response:
+Resposta, em que `host` identifica o endereço de bind selecionado pelo supervisor para o processo filho em execução:
 ```json
-{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:7777", "port": 7777, "token": "..." } }
+{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:7777", "host": "0.0.0.0", "port": 7777, "token": "..." } }
 ```
 
-A página abre em `<baseUrl><path>?<query>&t=<token>`. O token vira cookie
+A página abre em `<baseUrl><path>?<query>&t=<token>`. O CLI usa `host` para
+escolher o aviso de HTTP simples e os links alternativos, mesmo quando o daemon
+reaproveita um filho iniciado com um bind explícito diferente de `web.host`. O
+token vira cookie
 (`303` sem `t`, `Max-Age` de 365 dias, renovado a cada página servida), e toda
 rota `/api/*` exige esse cookie. Uma página aberta sem token nem cookie responde
 `403 Run "codedeck ui" once in a terminal to open CodeDeck in this browser.`

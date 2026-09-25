@@ -35,5 +35,7 @@ describe("web host documentation", () => {
     expect(protocol).toContain("`0.0.0.0`");
     expect(protocol).toContain("`::`");
     expect(protocol).toContain("`WEB_BAD_HOST`");
+    expect(protocol).toContain('"host": "0.0.0.0"');
+    expect(protocol).toContain("endereço de bind selecionado pelo supervisor");
   });
 });

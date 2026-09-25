@@ -30,3 +30,4 @@
 | 26 | Restrict hostname suffixes to Tailscale MagicDNS FQDNs. | Bucket 1 decision | Finding R4: accept the exact machine hostname or one or more labels followed by `.ts.net`; reject broader suffix matches. |
 | 27 | Keep default-loopback Host checks explicit in regression tests. | Bucket 1 decision | Finding T1: injected machine hostnames and non-loopback interface IPs remain forbidden when the bind is `127.0.0.1`. |
 | 28 | Validate web.ensure host fields before changing child state. | Bucket 1 decision | Finding R5: reject non-IP `host` and `preferredHost` values with `WEB_BAD_HOST` before stopping or starting a child. |
+| 29 | Return the active bind host and use it for CLI warnings and alternate links. | Bucket 1 decision | CodeDeck reviewer finding: after R1 preserves an explicit child bind, the CLI must describe the host the child actually uses rather than the current config preference. |

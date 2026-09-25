@@ -186,6 +186,38 @@ describe("launchWebPage", () => {
     ]);
   });
 
+  it("uses the daemon's active wildcard bind for warnings and alternate links", async () => {
+    const t = setup({
+      ensure: async () => ({ ...BASE, host: "0.0.0.0" }),
+      networkInterfaces: () => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]),
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual([
+      "Warning: the console listens on 0.0.0.0 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
+    ]);
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+      "Also on http://100.101.102.103:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+  });
+
+  it("does not describe a configured wildcard when the daemon keeps an explicit loopback bind", async () => {
+    const t = setup({
+      config: { web: { host: "0.0.0.0" } },
+      ensure: async () => ({ ...BASE, host: "127.0.0.1" }),
+      networkInterfaces: () => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]),
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual([]);
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+  });
+
   it("prints alternate links after the in-process server URL for wildcard binds", async () => {
     const t = setup({
       config: { web: { host: "0.0.0.0" } },
