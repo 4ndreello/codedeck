@@ -76,8 +76,26 @@ to own the terminal.
   CR) arrives, THEN the next Enter SHALL NOT count as a submit. This is
   conservative: a control may drive a suggestion menu, and the cost of a wrong
   guess is a rename that lands one prompt later.
-- Terminal focus reports (`ESC[I`, `ESC[O`, sent as whole chunks) SHALL NOT
-  mark the box dirty.
+- Terminal focus reports (`ESC[I`, `ESC[O`) SHALL NOT mark the input box dirty
+  and SHALL NOT guard the next Enter, whether they arrive as a whole chunk or
+  inside a longer chunk.
+- A focus report split across chunks SHALL be handled like any other
+  unrecognised escape (dirty and guard), because a legacy Alt+[ followed by a
+  typed I or O is indistinguishable from it.
+- WHEN a chunk carries a focus report followed by SGR mouse reports (as a
+  terminal with focus-follows-mouse sends when the pointer enters the window),
+  THEN the gate state SHALL be the same as before the chunk.
+- WHEN a name is held, a focus-in plus mouse motion chunk arrives, the user
+  types a line and submits it, THEN the wrapper SHALL type the rename after
+  QUIET_MS of quiet.
+- WHEN one kitty keyboard Esc (`ESC[27u`) arrives, THEN it SHALL mark the input
+  box dirty and SHALL NOT guard the next Enter, so that Enter counts as a
+  submit.
+- WHEN two kitty keyboard Esc keys (`ESC[27u`) arrive with no non-neutral input
+  between them, THEN the next Enter SHALL be guarded because a double Esc
+  clears the input or opens Claude Code's rewind selector, where Enter selects
+  a message instead of submitting. Focus reports, SGR mouse reports, and
+  terminal replies SHALL NOT break the pair.
 - An SGR mouse report (`ESC[<` followed by three digit fields separated by
   semicolons and terminated by `M` or `m`) SHALL NOT mark the input box dirty.
 - An SGR mouse report SHALL NOT guard the next Enter.
@@ -104,6 +122,22 @@ to own the terminal.
   prompt and asserts the transcript carries the matching `custom-title` — the
   half only Claude Code can answer, which is that a queued `/rename` executes
   as a command rather than reaching the model as a prompt.
+
+### Block D: the trace
+
+- WHERE `CODEDECK_PTY_DEBUG` is set to a non-empty absolute path in the environment `codedeck open` runs under, the wrapper SHALL append one JSON object per line (NDJSON) to that file.
+- WHERE `CODEDECK_PTY_DEBUG` is unset or empty, the wrapper SHALL append the trace to `<sessionsDir()>/pty-trace-<pid>-<base36 timestamp>.ndjson`.
+- WHERE `CODEDECK_PTY_DEBUG` is `off` or `0`, no trace file SHALL be created.
+- WHERE `CODEDECK_PTY_DEBUG` is a relative path, no trace file SHALL be created.
+- Before creating a trace file, the wrapper SHALL delete all but the nine newest `pty-trace-*.ndjson` files in `sessionsDir()`, ordered by modification time, so at most ten remain after its own trace is created. Pruning failures SHALL be swallowed.
+- WHEN the gate observes a stdin chunk, THEN the trace SHALL record `kind: "input"`, the chunk as lowercase hex, whether it was ignored as a focus report or terminal reply (`ignored: "focus" | "reply" | null`), and the gate state after it (`dirty`, `guard`, `pending`, `used`).
+- WHEN a name is offered to the gate, THEN the trace SHALL record `kind: "offer"` with the gate state.
+- WHEN the gate types the rename, THEN the trace SHALL record `kind: "inject"`.
+- WHEN a quiet timer fires and the gate declines to inject, THEN the trace SHALL record `kind: "hold"` with the reason (`dirty`, `used`, or `no-pending`).
+- WHEN the sidecar watcher delivers a name, THEN the trace SHALL record `kind: "sidecar"` with the name.
+- Every trace line SHALL carry `t`, milliseconds since the pty session started.
+- The trace file SHALL be created with mode 0600, because it holds every keystroke the user types.
+- IF writing the trace fails, THEN the session SHALL continue unaffected (a trace never costs the session).
 
 ## Out of scope
 
