@@ -100,12 +100,23 @@ function text(value: unknown): string {
   return value;
 }
 
+/** Shorten a leading home directory without relying on a process global. */
+export function displayPath(path: string): string {
+  return path.replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, "~");
+}
+
 // `workers` is the set of ids the snapshot keeps: a parent outside it (the
 // run root, a row cut by the budget, a legacy row with no parent) leaves
 // parentId undefined, which draws the card under the root.
 function toPaneRow(row: SessionRow, workers: ReadonlySet<string>): PaneRow {
   const iso = typeof row.updatedAt === "string" ? row.updatedAt : undefined;
   const parent = text(row.parentId);
+  const path =
+    typeof row.worktree === "string" && row.worktree !== ""
+      ? row.worktree
+      : typeof row.cwd === "string" && row.cwd !== ""
+        ? row.cwd
+        : undefined;
   return {
     id: row.id,
     status: row.status || EMPTY_CELL,
@@ -117,6 +128,7 @@ function toPaneRow(row: SessionRow, workers: ReadonlySet<string>): PaneRow {
     createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
     parentId: parent !== "" && parent !== row.id && workers.has(parent) ? parent : undefined,
     role: text(row.role) || undefined,
+    path,
   };
 }
 
@@ -178,6 +190,17 @@ function fit(value: string, width: number, fill = " "): string {
   const tail = cut.charCodeAt(cut.length - 1);
   if (tail >= 0xd800 && tail <= 0xdbff) cut = cut.slice(0, -1);
   return (cut + "…").padEnd(width, fill);
+}
+
+// Keep the tail of a value, never leave half a surrogate pair after the marker,
+// and pad to the exact width used by the pane.
+function fitStart(value: string, width: number, fill = " "): string {
+  if (width <= 0) return "";
+  if (value.length <= width) return value.padEnd(width, fill);
+  let start = value.length - (width - 1);
+  const first = value.charCodeAt(start);
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1;
+  return ("…" + value.slice(start)).padEnd(width, fill);
 }
 
 function glyph(agent: unknown): string {
@@ -372,10 +395,15 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
   const workerBody = (row: Partial<PaneRow>) => (inner: number): string[] => {
     const role = roleLabel(row.role);
     const status = row.status ?? "";
+    const path =
+      typeof row.path === "string" && row.path !== ""
+        ? "   " + fitStart(displayPath(cell(row.path)), Math.max(0, inner - 3))
+        : undefined;
     return [
       ` ${glyph(row.agent)} ${cell(row.id)}  ${role ? `${role} · ` : ""}${harnessLabel(row.agent)}`,
       `   ${cell(row.name)}`,
       detailLine(row.model, row.effort, statusWord(status), cardElapsed(row, now), inner),
+      ...(path === undefined ? [] : [path]),
     ];
   };
 
