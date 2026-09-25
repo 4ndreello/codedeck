@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import vm from "node:vm";
 import { describe, expect, it, afterEach } from "vitest";
 import {
   formatReviewComment,
@@ -216,14 +217,13 @@ describe("review HTTP routes", () => {
     const seen: Array<{ root: string; ref: string; file?: string }> = [];
     const base = await listen(
       createReviewHandler({
-        root: "/repo",
         loadReview: async (root, ref, file) => {
           seen.push({ root, ref, file });
           return { root, ref, files: [] };
         },
       }),
     );
-    const res = await fetch(`${base}/api/review?ref=HEAD&file=a.txt`);
+    const res = await fetch(`${base}/api/review?ref=HEAD&file=a.txt&repo=%2Frepo`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ root: "/repo", ref: "HEAD", files: [] });
     expect(seen).toEqual([{ root: "/repo", ref: "HEAD", file: "a.txt" }]);
@@ -237,7 +237,94 @@ describe("review HTTP routes", () => {
         },
       }),
     );
-    const res = await fetch(`${base}/api/review`);
+    const res = await fetch(`${base}/api/review?repo=%2Ftmp%2Fx`);
     expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not a git repository: /tmp/x" });
+  });
+
+  it("rejects a request without a repo parameter", async () => {
+    const base = await listen(createReviewHandler({ loadReview: async () => ({}) }));
+    const res = await fetch(`${base}/api/review?ref=HEAD`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "repo query parameter is required" });
+  });
+
+  it("rejects a relative repo path", async () => {
+    const base = await listen(createReviewHandler({ loadReview: async () => ({}) }));
+    const res = await fetch(`${base}/api/review?repo=relative%2Frepo`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "repo must be an absolute path" });
+  });
+});
+
+describe("review page script", () => {
+  function fakeElement() {
+    return {
+      innerHTML: "",
+      textContent: "",
+      style: {},
+      children: [],
+      addEventListener: () => {},
+      appendChild: () => {},
+      querySelectorAll: () => [],
+    };
+  }
+
+  function runPage(search: string, stored: Record<string, string> = {}) {
+    const elements = new Map<string, ReturnType<typeof fakeElement>>();
+    const fetched: string[] = [];
+    const store = new Map(Object.entries(stored));
+    const localStorage = {
+      get length() { return store.size; },
+      key: (i: number) => [...store.keys()][i] ?? null,
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v); },
+      removeItem: (k: string) => { store.delete(k); },
+    };
+    const context = vm.createContext({
+      location: { search },
+      URLSearchParams,
+      localStorage,
+      setTimeout,
+      fetch: (url: string) => { fetched.push(url); return new Promise(() => {}); },
+      document: {
+        getElementById: (id: string) => {
+          if (!elements.has(id)) elements.set(id, fakeElement());
+          return elements.get(id);
+        },
+        addEventListener: () => {},
+        querySelectorAll: () => [],
+      },
+    });
+    const script = /<script>([\s\S]*)<\/script>/.exec(REVIEW_PAGE)?.[1];
+    if (!script) throw new Error("review page has no script");
+    vm.runInContext(script, context);
+    return { context, elements, fetched, store };
+  }
+
+  it("sends the repo from the page query on the review request", () => {
+    const page = runPage("?repo=%2Ftmp%2Fx&ref=HEAD");
+    expect(page.fetched).toHaveLength(1);
+    const url = new URL(page.fetched[0], "http://127.0.0.1/");
+    expect(url.pathname).toBe("/api/review");
+    expect(url.searchParams.get("repo")).toBe("/tmp/x");
+    expect(url.searchParams.get("ref")).toBe("HEAD");
+  });
+
+  it("shows the no-repo message and fetches nothing without a repo", () => {
+    const page = runPage("?ref=HEAD");
+    expect(page.fetched).toEqual([]);
+    expect(page.elements.get("main")?.innerHTML).toContain("Open this page with codedeck review inside a repository.");
+  });
+
+  it("keys drafts by repo and ignores drafts from another repo", () => {
+    const draft = JSON.stringify({ code: "two", body: "other repo note" });
+    const page = runPage("?repo=%2Ftmp%2Fx", { "codedeck-review:/tmp/other:a.txt:2": draft });
+
+    vm.runInContext('saveDraft("a.txt", 3, { code: "three", body: "note" })', page.context);
+
+    expect([...page.store.keys()]).toContain("codedeck-review:/tmp/x:a.txt:3");
+    const drafts = vm.runInContext("allDrafts()", page.context) as Array<{ file: string; line: number; body: string }>;
+    expect(drafts.map((d) => ({ file: d.file, line: d.line, body: d.body }))).toEqual([{ file: "a.txt", line: 3, body: "note" }]);
   });
 });

@@ -286,13 +286,13 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-30 | P1: Long-lived server authentication | Tasks | Verified |
 | WD-31 | P1: Long-lived server authentication | Tasks | Verified |
 | WD-32 | P1: Long-lived server authentication | Tasks | Verified |
-| WD-33 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-34 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-35 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-36 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-37 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-38 | P1: Review reads the requested repository | Tasks | Pending |
-| WD-39 | P1: Review reads the requested repository | Tasks | Pending |
+| WD-33 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-34 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-35 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-36 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-37 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-38 | P1: Review reads the requested repository | Tasks | Verified |
+| WD-39 | P1: Review reads the requested repository | Tasks | Verified |
 | WD-40 | P2: Web child restarts on build change | Tasks | Pending |
 | WD-41 | P2: Web child restarts on build change | Tasks | Pending |
 | WD-42 | P2: Web child restarts on build change | Tasks | Pending |

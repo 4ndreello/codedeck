@@ -1,4 +1,5 @@
 import http from "node:http";
+import path from "node:path";
 import type { Command } from "commander";
 import { REVIEW_PAGE } from "../../web/review-page.js";
 import { getLocalReview } from "../../git/review.js";
@@ -13,8 +14,6 @@ export function parseReviewPort(raw: string | undefined): number {
 export { openBrowser };
 
 export interface ReviewDeps {
-  /** Repo root for /api/review. Defaults to process.cwd() at request time. */
-  root?: string;
   loadReview?: (root: string, ref: string, file?: string) => Promise<unknown>;
 }
 
@@ -41,7 +40,15 @@ export function createReviewHandler(reviewDeps?: ReviewDeps): http.RequestListen
         if (req.method === "GET" && url.pathname === "/api/review") {
           const ref = url.searchParams.get("ref") || "HEAD";
           const file = url.searchParams.get("file") || undefined;
-          const root = reviewDeps?.root ?? process.cwd();
+          const root = url.searchParams.get("repo");
+          if (!root) {
+            sendJson(res, 400, { error: "repo query parameter is required" });
+            return;
+          }
+          if (!path.isAbsolute(root)) {
+            sendJson(res, 400, { error: "repo must be an absolute path" });
+            return;
+          }
           try {
             const load = reviewDeps?.loadReview ?? ((r: string, q: string, f?: string) => getLocalReview(r, { ref: q, file: f }));
             sendJson(res, 200, await load(root, ref, file));
@@ -101,7 +108,7 @@ export function registerReviewCommand(program: Command, dependencies: ReviewComm
         await (dependencies.startServer ?? startWebServer)({
           routes: createReviewRoutes(dependencies),
           port,
-          initialPath: "/",
+          initialPath: `/review?${new URLSearchParams({ repo: process.cwd() })}`,
           title: "CodeDeck review",
           open: opts.open,
         });

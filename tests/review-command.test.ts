@@ -51,7 +51,10 @@ describe("registerReviewCommand", () => {
 
     await program.parseAsync(["node", "codedeck", "review", "--no-open"], { from: "node" });
 
-    expect(started?.initialUrl).toContain("?t=");
+    const initial = new URL(started?.initialUrl ?? "");
+    expect(initial.searchParams.get("t")).toBe(started?.security.token);
+    expect(initial.pathname).toBe("/review");
+    expect(initial.searchParams.get("repo")).toBe(process.cwd());
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
     const root = await sessionFetch(started)(`${started?.baseUrl}/`);
     const alias = await sessionFetch(started)(`${started?.baseUrl}/review`);
@@ -60,7 +63,8 @@ describe("registerReviewCommand", () => {
     expect(await root.text()).toContain("Review local");
     expect(await alias.text()).toContain("Review local");
 
-    const api = await sessionFetch(started)(`${started?.baseUrl}/api/review?file=src/web/server.ts`);
+    const repo = encodeURIComponent(process.cwd());
+    const api = await sessionFetch(started)(`${started?.baseUrl}/api/review?file=src/web/server.ts&repo=${repo}`);
     expect(api.status).toBe(200);
     expect(await api.json()).toEqual({ ref: "HEAD", file: "src/web/server.ts" });
 

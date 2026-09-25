@@ -199,16 +199,17 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `repo=/abs/path` → loader called with `/abs/path`
-- [ ] Missing `repo` → 400 `repo query parameter is required`; relative → 400 `repo must be an absolute path`; `not a git repository` → 404
-- [ ] Page script in `node:vm` with `?repo=%2Ftmp%2Fx&ref=HEAD` fetches a URL whose `repo` is `/tmp/x`
-- [ ] Page script without `repo` renders `Open this page with codedeck review inside a repository.` and calls `fetch` zero times
-- [ ] Draft saved under repo `/tmp/x` uses a key starting `codedeck-review:/tmp/x:`, and a draft from another repo is not loaded
-- [ ] The in-process review command's initial path is `/review?repo=<cwd>`
-- [ ] Gate check passes: `npx vitest run tests/review.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
+- [x] `repo=/abs/path` → loader called with `/abs/path`
+- [x] Missing `repo` → 400 `repo query parameter is required`; relative → 400 `repo must be an absolute path`; `not a git repository` → 404
+- [x] Page script in `node:vm` with `?repo=%2Ftmp%2Fx&ref=HEAD` fetches a URL whose `repo` is `/tmp/x`
+- [x] Page script without `repo` renders `Open this page with codedeck review inside a repository.` and calls `fetch` zero times
+- [x] Draft saved under repo `/tmp/x` uses a key starting `codedeck-review:/tmp/x:`, and a draft from another repo is not loaded
+- [x] The in-process review command's initial path is `/review?repo=<cwd>`
+- [x] Gate check passes: `npx vitest run tests/review.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(review): Scope the review page to a repo query parameter`
 
