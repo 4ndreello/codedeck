@@ -16,10 +16,10 @@ CodeDeck is not an agent. It manages the lifecycle of existing harnesses:
 The `codedeck` CLI provides a single unified interface for all of them:
 
 ```bash
-npx codedeck run "implement authentication" --agent claude
-npx codedeck run "fix the tests" --agent codex
+npx codedeck run "implement authentication" --agent claude --effort medium
+npx codedeck run "fix the tests" --agent codex --effort medium
 npx codedeck run "investigate this bug" --agent opencode
-npx codedeck run "refactor this module" --agent omp
+npx codedeck run "refactor this module" --agent omp --effort medium
 
 npx codedeck ps
 npx codedeck logs a83f --follow
@@ -84,7 +84,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck open [role] [--no-bypass] [--no-theme] [--no-pty] [-- <claude args>]` | Open an opinionated Claude Code session with the CodeDeck plugin loaded |
 | `npx codedeck setup` | Choose the harness and model each agent should run on |
 | `npx codedeck doctor` | Check Node, Git, harnesses, daemon, and database |
-| `npx codedeck run "<prompt>" --agent <id> [--model <m>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
+| `npx codedeck run "<prompt>" [--agent <id>] [--model <m>] [--effort <level>] [--role <r>] [--name <n>] [--worktree] [--bg|--detach]` | Start a session; blocks and follows logs by default |
 | `npx codedeck wait <id> [--json]` | Wait for a session to reach a terminal state without polling |
 | `npx codedeck ps [--all] [--json]` | List recent sessions |
 | `npx codedeck show <id> [--json]` | Show session details |
@@ -140,8 +140,10 @@ Two things worth knowing before you edit an agent file. `--agent` layers on top 
 
 `codedeck run --role <role>` gives a worker the same contract. `--agent` is Claude's flag and no other harness has it, so there the role body is prefixed to the prompt instead, frontmatter stripped. The text travels; the allowlist does not, so a codex or opencode worker is held to the role by prose alone.
 
+Bind `reviewer` to codex with an effort in `codedeck setup`, then run it:
+
 ```bash
-npx codedeck run "review the diff on this branch" --agent codex --role reviewer
+npx codedeck run "review the diff on this branch" --role reviewer
 ```
 
 `--no-bypass` drops the bypass flag, `--no-theme` keeps the status line but drops everything else the look changes, `--no-pty` opts out of the session naming itself, and `--model`/`--effort`/`--resume`/`--worktree` override the defaults. Interactive opens ask about a worktree when neither `--worktree` nor `--no-worktree` is set.
@@ -211,9 +213,9 @@ The prefix is required, because a bare id names half a binding and there is no h
 
 The catalog is cached for four hours. `codedeck setup --refresh` rediscovers it when the web console opens. Add `--tui` to use the frozen terminal picker instead.
 
-`codedeck run --role reviewer "<prompt>"` then needs no other flag: the role's binding supplies both the harness and the model. `--agent` and `--model` still win over it, and a `--role` whose harness disagrees with an explicit `--agent` keeps the flag and drops the bound model, rather than hand one harness another's id.
+`codedeck run --role reviewer "<prompt>"` uses `reviewer`'s binding for both the harness and model. Every harness except opencode also needs effort from the binding or `--effort`; the flag overrides a bound effort. Opencode has no effort channel. If you pass a conflicting `--agent` or `--model` with a bound role, CodeDeck ignores it and prints a warning. Use `codedeck setup` to change the pairing. Without a role binding, `--agent` and `--model` still choose the harness and model, whether you omit `--role` or use an unbound role.
 
-Anything the bindings do not answer falls back the way it always did. The harness comes from `defaultAgent`, then claude; the model from `models[harness]`, then `defaultModel`, then whatever the driver picks for itself. A role nobody bound, because it was skipped in setup, lands in that same fallback instead of failing.
+Without a role binding, explicit flags take precedence over the defaults. If `--agent` is omitted, the harness comes from `defaultAgent`, then claude. If `--model` is omitted, the model comes from `models[harness]`, then `defaultModel`, then whatever the driver picks for itself. An unbound role, including one skipped in setup, prints a warning and uses this selection path.
 
 ## Session
 
@@ -326,7 +328,7 @@ never a silent `completed`.
 ## Worktrees
 
 ```bash
-npx codedeck run "implement oauth" --worktree
+npx codedeck run "implement oauth" --worktree --effort medium
 # creates ~/.run-agent/worktrees/<repo-hash>/<session-id>
 # branch: ra/<slug>-<session-id>
 ```
@@ -387,8 +389,8 @@ npm test
 ```bash
 cd example-project
 npx codedeck doctor
-npx codedeck run "find one improvement and implement it" --agent claude --worktree --bg
-npx codedeck run "find one improvement and implement it" --agent codex --worktree --bg
+npx codedeck run "find one improvement and implement it" --agent claude --worktree --bg --effort medium
+npx codedeck run "find one improvement and implement it" --agent codex --worktree --bg --effort medium
 npx codedeck ps
 npx codedeck wait <claude-session>
 npx codedeck logs <claude-session> --follow
