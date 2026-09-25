@@ -64,11 +64,42 @@ export async function getDiff(options: {
     } catch { diff = "No diff available"; }
   }
 
+  const untrackedFilesArgs = [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "--full-name",
+    "-z",
+    ":/",
+  ];
+  let untrackedFiles = "";
+  if (base) {
+    try {
+      const { stdout } = await execFileAsync("git", untrackedFilesArgs, { cwd });
+      untrackedFiles = stdout;
+    } catch {}
+  }
+  const untrackedPaths = untrackedFiles.split("\0").filter(Boolean);
+
   try {
     if (base) {
-      const { stdout } = await execFileAsync("git", ["diff", "--stat", `${base}...HEAD`], { cwd });
-      const { stdout: wdStat } = await execFileAsync("git", ["diff", "--stat"], { cwd });
-      stat = [stdout, wdStat].filter(Boolean).join("\n");
+      const { stdout } = await execFileAsync(
+        "git",
+        ["diff", "--stat", `${base}...HEAD`],
+        { cwd },
+      );
+      const { stdout: wdStat } = await execFileAsync(
+        "git",
+        ["diff", "--stat"],
+        { cwd },
+      );
+      const { stdout: stagedStat } = await execFileAsync(
+        "git",
+        ["diff", "--cached", "--stat"],
+        { cwd },
+      );
+      const untrackedStat = untrackedPaths.map((file) => `${file} | untracked`).join("\n");
+      stat = [stdout, wdStat, stagedStat, untrackedStat].filter(Boolean).join("\n");
     } else {
       const { stdout } = await execFileAsync("git", ["diff", "--stat", "HEAD"], { cwd });
       stat = stdout;
@@ -77,9 +108,27 @@ export async function getDiff(options: {
 
   try {
     if (base) {
-      const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}...HEAD`], { cwd });
-      const { stdout: wd } = await execFileAsync("git", ["diff", "--name-only"], { cwd });
-      const all = new Set([...stdout.split("\n").filter(Boolean), ...wd.split("\n").filter(Boolean)]);
+      const { stdout } = await execFileAsync(
+        "git",
+        ["diff", "--name-only", "-z", `${base}...HEAD`],
+        { cwd },
+      );
+      const { stdout: wd } = await execFileAsync(
+        "git",
+        ["diff", "--name-only", "-z"],
+        { cwd },
+      );
+      const { stdout: staged } = await execFileAsync(
+        "git",
+        ["diff", "--cached", "--name-only", "-z"],
+        { cwd },
+      );
+      const all = new Set([
+        ...stdout.split("\0").filter(Boolean),
+        ...wd.split("\0").filter(Boolean),
+        ...staged.split("\0").filter(Boolean),
+        ...untrackedPaths,
+      ]);
       files = [...all];
     } else {
       const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd });
