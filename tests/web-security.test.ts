@@ -10,6 +10,7 @@ interface ResponseValue {
 }
 
 const handles: WebServerHandle[] = [];
+const PAGE_FORBIDDEN = 'Run "codedeck ui" once in a terminal to open CodeDeck in this browser.';
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map((handle) => handle.close()));
@@ -86,7 +87,7 @@ describe("web request security", () => {
     expect(handle.security.token).toMatch(/^[0-9a-f]{64}$/);
 
     const cookie = `codedeck_ui_token_${handle.port}=${handle.security.token}`;
-    const accepted = await request(handle, { path: "/page", host: `LOCALHOST:${handle.port}`, cookie });
+    const accepted = await request(handle, { path: "/action", host: `LOCALHOST:${handle.port}`, cookie });
     expect(accepted.status).toBe(200);
 
     const acceptedIp = await request(handle, { path: "/page", host: `127.0.0.1:${handle.port}`, cookie });
@@ -115,7 +116,7 @@ describe("web request security", () => {
     expect(response.status).toBe(303);
     expect(response.headers.location).toBe("/page?keep=yes");
     expect(response.headers["set-cookie"]).toEqual([
-      `codedeck_ui_token_${handle.port}=${handle.security.token}; Path=/; HttpOnly; SameSite=Strict`,
+      `codedeck_ui_token_${handle.port}=${handle.security.token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
     ]);
   });
 
@@ -137,7 +138,7 @@ describe("web request security", () => {
     for (const path of ["/page", "/page?t=stale-token"]) {
       const response = await request(handle, { path, host: `127.0.0.1:${handle.port}` });
       expect(response.status).toBe(403);
-      expect(response.body).toBe("open this page with codedeck ui");
+      expect(response.body).toBe(PAGE_FORBIDDEN);
       expect(response.headers["set-cookie"]).toBeUndefined();
       expect(response.headers["content-security-policy"]).toBe("frame-ancestors 'none'");
     }
@@ -147,7 +148,7 @@ describe("web request security", () => {
       cookie: `codedeck_ui_token_${handle.port}=stale`,
     });
     expect(stale.status).toBe(403);
-    expect(stale.body).toBe("open this page with codedeck ui");
+    expect(stale.body).toBe(PAGE_FORBIDDEN);
     expect(calls).toEqual([]);
   });
 
@@ -163,6 +164,38 @@ describe("web request security", () => {
     expect(response.status).toBe(200);
     expect(response.body).toBe("page");
     expect(calls).toEqual(["page"]);
+  });
+
+  it("renews the year-long cookie on a page GET served with a valid cookie, with or without an invalid t", async () => {
+    const { handle, calls } = await makeServer();
+    const cookie = `codedeck_ui_token_${handle.port}=${handle.security.token}`;
+
+    for (const path of ["/page", "/page?t=stale-token"]) {
+      const response = await request(handle, { path, host: `127.0.0.1:${handle.port}`, cookie });
+      expect(response.status).toBe(200);
+      expect(response.headers["set-cookie"]).toEqual([
+        `codedeck_ui_token_${handle.port}=${handle.security.token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
+      ]);
+    }
+    expect(calls).toEqual(["page", "page"]);
+  });
+
+  it("sends a localhost page GET to 127.0.0.1 with its path and query before any credential check", async () => {
+    const { handle, calls } = await makeServer();
+    const base = `http://127.0.0.1:${handle.port}`;
+
+    const bare = await request(handle, { path: "/page?repo=%2Fx", host: `LocalHost:${handle.port}` });
+    const withToken = await request(handle, { path: `/page?t=${handle.security.token}`, host: `localhost:${handle.port}` });
+    const absolute = await request(handle, { path: "http://evil.test/page?keep=1", host: `localhost:${handle.port}` });
+
+    expect(bare.status).toBe(302);
+    expect(bare.headers.location).toBe(`${base}/page?repo=%2Fx`);
+    expect(bare.headers["set-cookie"]).toBeUndefined();
+    expect(withToken.status).toBe(302);
+    expect(withToken.headers.location).toBe(`${base}/page?t=${handle.security.token}`);
+    expect(absolute.status).toBe(302);
+    expect(absolute.headers.location).toBe(`${base}/page?keep=1`);
+    expect(calls).toEqual([]);
   });
 
   it("rejects API GETs without the current cookie before dispatch", async () => {

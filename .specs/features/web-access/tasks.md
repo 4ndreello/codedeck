@@ -96,15 +96,16 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] Valid `?t=` → 303 with the exact WA-06 `Set-Cookie`
-- [ ] Valid cookie, no `t` and invalid `t` → page served with the same `Set-Cookie`
-- [ ] `localhost` Host page GET with and without `t` → 302 to the `127.0.0.1` URL keeping the query; an absolute-form request target does not leak its host into `Location`
-- [ ] No cookie, no `t` on `127.0.0.1` → 403 with the WA-08 body
-- [ ] Existing rejections (foreign Host, POST without cookie/Origin, `/api/*` without cookie) still answer 403 `forbidden`
-- [ ] Gate check passes: `npx vitest run tests/web-security.test.ts`; `npx vitest run tests/web-server.test.ts`; `npx tsc --noEmit`
+- [x] Valid `?t=` → 303 with the exact WA-06 `Set-Cookie`
+- [x] Valid cookie, no `t` and invalid `t` → page served with the same `Set-Cookie`
+- [x] `localhost` Host page GET with and without `t` → 302 to the `127.0.0.1` URL keeping the query; an absolute-form request target does not leak its host into `Location`
+- [x] No cookie, no `t` on `127.0.0.1` → 403 with the WA-08 body
+- [x] Existing rejections (foreign Host, POST without cookie/Origin, `/api/*` without cookie) still answer 403 `forbidden`
+- [x] Gate check passes: `npx vitest run tests/web-security.test.ts`; `npx vitest run tests/web-server.test.ts`; `npx tsc --noEmit`
 
 **Tests**: integration
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(web): Keep the console cookie and canonicalize the host`
 

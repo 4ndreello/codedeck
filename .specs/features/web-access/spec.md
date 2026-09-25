@@ -195,11 +195,11 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-03 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-04 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-05 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-06 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-07 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-08 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-09 | P1: Bookmark survives restarts | Tasks | Pending |
-| WA-10 | P1: Bookmark survives restarts | Tasks | Pending |
+| WA-06 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-07 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-08 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-09 | P1: Bookmark survives restarts | Tasks | Verified |
+| WA-10 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-11 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-12 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-13 | P1: Console answers while the daemon runs | Tasks | Pending |
