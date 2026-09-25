@@ -1,7 +1,9 @@
+import fs from "node:fs";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { Daemon, type WebHost } from "../src/daemon/daemon.js";
+import { getPaths } from "../src/config/paths.js";
 import { WebEnsureError, WebSupervisor, type WebChildProcess } from "../src/daemon/web-supervisor.js";
 import { fakeSocket, makeDaemonTestContext, registerDaemonTestHooks, seam, seed } from "./helpers/daemon-seam.js";
 
@@ -58,6 +60,34 @@ describe("daemon web.ensure", () => {
 
     expect(host.close).toHaveBeenCalledTimes(1);
     expect(statusAtClose).toBe("working");
+  });
+
+  it("writes the listening and exit lines to daemon.log without the token and respawns after an exit", async () => {
+    const children: EventEmitter[] = [];
+    daemon = new Daemon({
+      spawnWebChild: () => {
+        const child = Object.assign(new EventEmitter(), {
+          stdin: new PassThrough(),
+          stdout: new PassThrough(),
+          kill: () => true,
+        });
+        children.push(child);
+        const port = 4100 + children.length;
+        queueMicrotask(() => child.stdout.write(`${JSON.stringify({ port, token: `secret-${port}`, build: "b1" })}\n`));
+        return child as unknown as WebChildProcess;
+      },
+    });
+
+    expect((await ensure({})).result.port).toBe(4101);
+    children[0].emit("exit", 3, null);
+    expect((await ensure({})).result.port).toBe(4102);
+
+    const log = fs.readFileSync(getPaths().daemonLog, "utf8");
+    expect(log).toMatch(/\] web listening port=4101\n/);
+    expect(log).toMatch(/\] web child exited code=3\n/);
+    expect(log).toMatch(/\] web listening port=4102\n/);
+    expect(log).not.toContain("secret-");
+    expect(children).toHaveLength(2);
   });
 
   it("leaves session rows untouched while restarting the web child", async () => {

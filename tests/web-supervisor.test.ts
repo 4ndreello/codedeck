@@ -100,15 +100,18 @@ describe("WebSupervisor.ensure", () => {
     await expect(pending).rejects.toMatchObject({ code: "WEB_START_FAILED" });
   });
 
-  it("kills the child and fails the start when no handshake arrives in time", async () => {
+  it("kills the child and fails the start when no handshake arrives within 5000 ms", async () => {
     vi.useFakeTimers();
-    const { supervisor, children } = harness({ startTimeoutMs: 5000 });
+    const { supervisor, children } = harness();
 
-    const pending = supervisor.ensure({});
-    const settled = expect(pending).rejects.toMatchObject({ code: "WEB_START_FAILED" });
-    await vi.advanceTimersByTimeAsync(5000);
+    let outcome: unknown = "pending";
+    supervisor.ensure({}).then((value) => { outcome = value; }, (error: unknown) => { outcome = error; });
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(outcome).toBe("pending");
+    expect(children[0].signals).toEqual([]);
 
-    await settled;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toMatchObject({ code: "WEB_START_FAILED" });
     expect(children[0].signals).toEqual(["SIGKILL"]);
   });
 
@@ -192,7 +195,7 @@ describe("WebSupervisor.ensure", () => {
 
   it("stops an old build with SIGTERM, escalates to SIGKILL after the stop timeout, and returns the new child", async () => {
     vi.useFakeTimers();
-    const { supervisor, children } = harness({ stopTimeoutMs: 3000 });
+    const { supervisor, children } = harness();
     const first = supervisor.ensure({ build: "b1" });
     children[0].handshake(ok());
     await first;
@@ -219,6 +222,26 @@ describe("WebSupervisor.ensure", () => {
 
     expect(lines).toEqual(["web listening port=4100"]);
     expect(lines.join("\n")).not.toContain("secret-token");
+  });
+});
+
+describe("WebSupervisor default entry", () => {
+  it("spawns the web child next to the supervisor module when no entry is given", async () => {
+    const spawns: string[] = [];
+    const child = new FakeChild();
+    const supervisor = new WebSupervisor({
+      log: () => {},
+      spawnChild: (entry) => {
+        spawns.push(entry);
+        return child as unknown as WebChildProcess;
+      },
+    });
+
+    const pending = supervisor.ensure({});
+    child.handshake(ok());
+    await pending;
+
+    expect(spawns).toEqual([path.join(import.meta.dirname, "..", "src", "web", "child.js")]);
   });
 });
 
@@ -259,9 +282,25 @@ describe("spawnWebChild", () => {
 });
 
 describe("daemon import boundary", () => {
-  it.each(["src/daemon/web-supervisor.ts", "src/daemon/daemon.ts"])("%s imports nothing from web or cli", (file) => {
-    const source = fs.readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
-    expect(source).not.toMatch(/from\s+["']\.\.\/(web|cli)\//);
-    expect(source).not.toMatch(/import\(\s*["']\.\.\/(web|cli)\//);
+  function localImports(file: string): string[] {
+    const source = fs.readFileSync(file, "utf8");
+    const specifiers = [...source.matchAll(/(?:from\s+|import\(\s*)["'](\.{1,2}\/[^"']+)["']/g)].map((match) => match[1]);
+    return specifiers.map((specifier) => path.resolve(path.dirname(file), specifier.replace(/\.js$/, ".ts")));
+  }
+
+  it.each(["src/daemon/web-supervisor.ts", "src/daemon/daemon.ts"])("%s reaches nothing in src/web or src/cli", (file) => {
+    const root = path.join(import.meta.dirname, "..");
+    const seen = new Set<string>();
+    const queue = [path.join(root, file)];
+    while (queue.length > 0) {
+      const next = queue.pop()!;
+      if (seen.has(next) || !fs.existsSync(next)) continue;
+      seen.add(next);
+      queue.push(...localImports(next));
+    }
+
+    const reached = [...seen].map((module) => path.relative(root, module));
+    expect(reached.length).toBeGreaterThan(1);
+    expect(reached.filter((module) => module.startsWith("src/web/") || module.startsWith("src/cli/"))).toEqual([]);
   });
 });

@@ -730,6 +730,17 @@ describe("setup web command", () => {
     );
   });
 
+  it("rejects an invalid port without launching", async () => {
+    const launch = vi.fn(async () => 0);
+    const stderr = new MemoryWritable();
+
+    const result = await executeSetupAction(["--port", "abc"], { isTTY: true, launch, stderr });
+
+    expect(result.code).toBe(1);
+    expect(stderr.text()).toBe("--port must be a positive integer\n");
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it("returns 1 when the launcher fails", async () => {
     const result = await executeSetupAction(["--port", "3201"], { isTTY: true, launch: vi.fn(async () => 1) });
 

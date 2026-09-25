@@ -1,4 +1,7 @@
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -72,6 +75,18 @@ describe("runWebChild", () => {
       });
       expect(response.status, path).toBe(200);
     }
+  });
+
+  it("computes its build identity from its dist tree when none is given", async () => {
+    const distRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-child-dist-"));
+    cleanups.push(() => fs.rmSync(distRoot, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(distRoot, "web"));
+    fs.writeFileSync(path.join(distRoot, "web", "child.js"), "");
+    fs.utimesSync(path.join(distRoot, "web", "child.js"), 4_000, 4_000);
+
+    const { handshake } = await startChild({ build: undefined, distRoot, routes: () => [] });
+
+    expect(handshake.build).toBe("4000000");
   });
 
   it("asks for the ephemeral fallback only when no port was given", async () => {

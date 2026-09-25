@@ -12,6 +12,8 @@ export interface RunWebChildOptions {
   listen?: typeof listenWebServer;
   routes?: () => WebRoute[];
   build?: string;
+  /** Tree the build identity is computed from; defaults to this module's dist root. */
+  distRoot?: string;
   exit?: (code: number) => void;
   signalTarget?: EventEmitter;
 }
@@ -23,7 +25,7 @@ export interface RunWebChildOptions {
  */
 export async function runWebChild(options: RunWebChildOptions): Promise<void> {
   const exit = options.exit ?? ((code: number) => process.exit(code));
-  const build = options.build ?? computeBuildId(distRootFor(import.meta.url));
+  const build = options.build ?? computeBuildId(options.distRoot ?? distRootFor(import.meta.url));
   // The daemon may close the pipe after the handshake; a failed write must not crash the child.
   options.stdout.on("error", () => {});
 

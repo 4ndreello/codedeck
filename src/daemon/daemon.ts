@@ -10,7 +10,7 @@ import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
 import { createIpcServer } from "./ipc.js";
 import type { IpcRequest, IpcResponse, UsageQueryParams, WebEnsureParams, WebEnsureResult } from "./protocol.js";
-import { WebEnsureError, WebSupervisor } from "./web-supervisor.js";
+import { WebEnsureError, WebSupervisor, type WebSupervisorOptions } from "./web-supervisor.js";
 import { getRegistry } from "../drivers/registry.js";
 import { isActiveStatus, isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
@@ -101,6 +101,8 @@ export interface WebHost {
 
 export interface DaemonOptions {
   webSupervisor?: WebHost;
+  /** Spawn used by the default supervisor; tests replace the real child process. */
+  spawnWebChild?: WebSupervisorOptions["spawnChild"];
 }
 
 function appendDaemonLog(line: string): void {
@@ -132,6 +134,7 @@ class Daemon {
   private inhibitChild: ChildProcess | null = null;
   // Supervisor of the web console child, created on the first web.ensure.
   private web?: WebHost;
+  private readonly spawnWebChild?: WebSupervisorOptions["spawnChild"];
   private inhibitExitHookInstalled = false;
   private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
   private inFlightOpenUsageReconciliations = new Map<string, Promise<boolean>>();
@@ -311,6 +314,7 @@ class Daemon {
 
   constructor(options: DaemonOptions = {}) {
     this.web = options.webSupervisor;
+    this.spawnWebChild = options.spawnWebChild;
     ensureDirs();
     this.db = new Database();
     const handle = this.db.getHandle();
@@ -1370,7 +1374,7 @@ class Daemon {
 
       case "web.ensure": {
         const p = (params || {}) as WebEnsureParams;
-        this.web ??= new WebSupervisor({ log: appendDaemonLog });
+        this.web ??= new WebSupervisor({ log: appendDaemonLog, spawnChild: this.spawnWebChild });
         try {
           send({ result: await this.web.ensure(p) });
         } catch (error) {

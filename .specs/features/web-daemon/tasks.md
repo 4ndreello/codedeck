@@ -539,6 +539,27 @@ T12 → T13 → T14 → T15 → T16
 
 ---
 
+### T17: Pin the values the Verifier found unpinned
+
+**What**: Fix task from validation round 1: tests for the 5000 ms and 3000 ms defaults, the default entry, the child's own build id, the daemon.log wiring, WEB_START_FAILED and WEB_BAD_ENTRY fallback, the transitive import boundary, and invalid `--port` on setup and usage.
+**Where**: `tests/web-supervisor.test.ts`, `tests/daemon-web.test.ts`, `tests/web-child.test.ts`, `tests/web-launch.test.ts`, `tests/setup-cli-contract.test.ts`, `tests/usage-cli.test.ts`; seams `DaemonOptions.spawnWebChild` and `RunWebChildOptions.distRoot`
+**Depends on**: T16
+**Reuses**: existing fakes
+**Requirement**: WD-01, WD-06, WD-07, WD-11, WD-28, WD-40, WD-41, WD-44
+
+**Done when**:
+
+- [x] Surviving mutants M6, M7, M8, M10, M18, M21, M22 each break a test
+- [x] Gate check passes: the six test files above, one run each; `npx tsc --noEmit`
+
+**Tests**: unit
+**Gate**: quick
+**Status**: ✅ Done
+
+**Commit**: `test(web): Pin the defaults and wiring the verifier found unpinned`
+
+---
+
 ## Phase Execution Map
 
 ```
@@ -547,7 +568,7 @@ Phase 1 → Phase 2 → Phase 3 → Phase 4
 Phase 1:  T1 → T2 → T3 → T4
 Phase 2:  T5 → T6 → T7
 Phase 3:  T8 → T9 → T10 → T11
-Phase 4:  T12 → T13 → T14 → T15 → T16
+Phase 4:  T12 → T13 → T14 → T15 → T16 → T17
 ```
 
 ## Diagram-Definition Cross-Check

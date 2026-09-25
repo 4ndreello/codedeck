@@ -324,6 +324,16 @@ describe("usage web options", () => {
     });
   });
 
+  it("rejects an invalid --port without launching", async () => {
+    const launch = vi.fn(async () => 0);
+
+    await runProgramWithDependencies(["--web", "--port", "abc"], { launch });
+
+    expect(launch).not.toHaveBeenCalled();
+    expect(errors).toEqual(["--port must be a positive integer"]);
+    expect(process.exitCode).toBe(1);
+  });
+
   it("forwards a raw polling interval for the page to normalize", async () => {
     const launch = vi.fn(async () => 0);
 

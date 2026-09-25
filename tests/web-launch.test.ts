@@ -87,7 +87,7 @@ describe("launchWebPage", () => {
     expect(t.startServer).not.toHaveBeenCalled();
   });
 
-  it.each(["UNKNOWN_METHOD", "SERVICE_UNAVAILABLE"])("serves in-process with the full route table after %s", async (code) => {
+  it.each(["UNKNOWN_METHOD", "SERVICE_UNAVAILABLE", "WEB_START_FAILED", "WEB_BAD_ENTRY"])("serves in-process with the full route table after %s", async (code) => {
     const t = setup({ ensure: async () => { throw ipcError(code, "nope"); } });
 
     expect(await t.launch({ query: { repo: "/work/my app&co" } })).toBe(0);
