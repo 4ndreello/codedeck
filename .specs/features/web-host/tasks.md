@@ -7,7 +7,7 @@
 | Code Layer | Required Test Type | Coverage Expectation | Test File | Vitest Command |
 | ---------- | ------------------ | -------------------- | ---------- | -------------- |
 | config | unit | WH-01 through WH-03: default, accepted IPv4/IPv6, invalid values, and exact warning text | `tests/web-port.test.ts` | `npx vitest run --no-cache tests/web-port.test.ts` |
-| web security | integration | WH-11 through WH-13: exact loopback allowlist, dynamic interfaces and hostnames, hostile Host rejection, token and cookie behavior, and same-origin POST checks | `tests/web-security.test.ts` | `npx vitest run --no-cache tests/web-security.test.ts` |
+| web security | integration | WH-11 through WH-13: exact loopback allowlist, bound-address acceptance, dynamic interfaces and MagicDNS hostnames, hostile Host rejection, token and cookie behavior, and same-origin POST checks | `tests/web-security.test.ts` | `npx vitest run --no-cache tests/web-security.test.ts` |
 | web server | integration | WH-07 and WH-10: bind host, default host, returned base URL, and IPv6 URL formatting | `tests/web-server.test.ts` | `npx vitest run --no-cache tests/web-server.test.ts` |
 | web child | unit | WH-06: parse explicit host and default to loopback, then pass the host into the listener | `tests/web-child.test.ts` | `npx vitest run --no-cache tests/web-child.test.ts` |
 | daemon supervisor | unit | WH-09 and WH-10: pass host argument, restart on host changes, reuse matching host, and return the host-specific base URL | `tests/web-supervisor.test.ts` | `npx vitest run --no-cache tests/web-supervisor.test.ts` |
@@ -30,7 +30,7 @@
 Tasks run in order. Each task includes its tests, `tasks.md` status update, and its own commit.
 
 ```text
-T01 -> T02 -> T03 -> T04 -> T05 -> T06 -> T07 -> T08 -> T09 -> T10
+T01 -> T02 -> T03 -> T04 -> T05 -> T06 -> T07 -> T08 -> T09 -> T10 -> T11
 ```
 
 ### Phase 1: Resolve, secure, and bind
@@ -134,6 +134,16 @@ Supporting files: `docs/protocol.md` and `.specs/features/web-host/spec.md`
 WH IDs: WH-20
 Depends on: T09
 Tests: Update `tests/web-security.test.ts` and `tests/web-host-docs.test.ts` for wildcard and specific bind redirect behavior.
+Gate: `npx vitest run --no-cache tests/web-security.test.ts tests/web-host-docs.test.ts`
+Status: Complete
+
+#### T11: Restrict trusted console Host values
+
+Where: `src/web/security.ts`
+Supporting files: `README.md`, `docs/protocol.md`, and `.specs/features/web-host/spec.md`
+WH IDs: WH-11, WH-12
+Depends on: T10
+Tests: Update `tests/web-security.test.ts` and `tests/web-host-docs.test.ts` for unlisted bind addresses, MagicDNS-only suffixes, hostile hostname prefixes, and default loopback rejection.
 Gate: `npx vitest run --no-cache tests/web-security.test.ts tests/web-host-docs.test.ts`
 Status: Complete
 

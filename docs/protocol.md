@@ -82,6 +82,13 @@ quando o bind é `127.0.0.1`, `0.0.0.0` ou `::`, que anunciam a URL canônica de
 loopback. O servidor não faz esse redirecionamento para outros binds específicos.
 O cookie de `127.0.0.1` não vai para `localhost`.
 
+Em um bind específico fora do loopback padrão, o `Host` também aceita o IP do
+bind, mesmo que ele não apareça nas interfaces do sistema. Para binds não
+loopback, aceita ainda IPs atuais das interfaces, o `os.hostname()` exato e
+nomes Tailscale no formato `<hostname>.<label>.ts.net`, com um ou mais labels.
+Outros sufixos são recusados. O bind padrão continua aceitando apenas
+`127.0.0.1` e `localhost`.
+
 O token fica em `~/.run-agent/web-token` (modo 0600) e vale para todo servidor
 do console, inclusive o fallback no próprio processo, então um bookmark
 sobrevive a restarts do filho e do daemon. Para trocar o token, apague o arquivo:

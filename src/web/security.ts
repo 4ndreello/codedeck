@@ -54,7 +54,8 @@ export function isAllowedWebHost(host: string | undefined, port: number, securit
   if (!name || name.includes("%")) return false;
   const normalizedName = name.toLowerCase();
   const hostname = security.hostname().toLowerCase();
-  if (normalizedName === hostname || normalizedName.startsWith(`${hostname}.`)) return true;
+  if (security.host !== "0.0.0.0" && security.host !== "::" && normalizedName === security.host.toLowerCase()) return true;
+  if (isTrustedMachineHostname(normalizedName, hostname)) return true;
 
   for (const entries of Object.values(security.networkInterfaces())) {
     for (const entry of entries ?? []) {
@@ -63,6 +64,18 @@ export function isAllowedWebHost(host: string | undefined, port: number, securit
     }
   }
   return false;
+}
+
+function isTrustedMachineHostname(name: string, hostname: string): boolean {
+  if (name === hostname) return true;
+  if (!hostname || !name.startsWith(`${hostname}.`)) return false;
+  const labels = name.slice(hostname.length + 1).split(".");
+  return (
+    labels.length >= 3 &&
+    labels[labels.length - 2] === "ts" &&
+    labels[labels.length - 1] === "net" &&
+    labels.slice(0, -2).every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))
+  );
 }
 
 function hostHeaderName(host: string, port: number): string | undefined {

@@ -26,3 +26,6 @@
 | 22 | Separate explicit and preferred web host requests. | Bucket 1 decision | Finding R1: an explicit `ui --host` bind pins its child, `web.host` is a preference, and omitted host fields reuse a running child or start on loopback. |
 | 23 | Capitalize commit subjects after the Conventional Commit prefix. | Decision | The remediation follows repository history; `check_commit.py` requires lowercase subjects, so the repository convention takes precedence as requested. |
 | 24 | Redirect localhost to loopback for binds that advertise the loopback base URL. | Bucket 1 decision | Finding R2: `127.0.0.1`, `0.0.0.0`, and `::` share the canonical `127.0.0.1` URL; other bind addresses skip this redirect. |
+| 25 | Accept the configured non-wildcard bind address as a trusted Host. | Bucket 1 decision | Finding R3: the configured bind IP is trusted even when `os.networkInterfaces()` does not list it. |
+| 26 | Restrict hostname suffixes to Tailscale MagicDNS FQDNs. | Bucket 1 decision | Finding R4: accept the exact machine hostname or one or more labels followed by `.ts.net`; reject broader suffix matches. |
+| 27 | Keep default-loopback Host checks explicit in regression tests. | Bucket 1 decision | Finding T1: injected machine hostnames and non-loopback interface IPs remain forbidden when the bind is `127.0.0.1`. |

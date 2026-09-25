@@ -2,6 +2,7 @@ import http from "node:http";
 import os from "node:os";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { webBaseUrl } from "../src/config/web-host.js";
 import { createWebServer, startWebServer, type WebRoute, type WebServerHandle } from "../src/web/server.js";
 import { createWebSecurity, type WebSecurity } from "../src/web/security.js";
 
@@ -20,7 +21,7 @@ afterEach(async () => {
 
 function request(
   handle: WebServerHandle,
-  options: { method?: string; path: string; host?: string; origin?: string; cookie?: string },
+  options: { method?: string; path: string; host?: string; origin?: string; cookie?: string; connectHost?: string },
 ): Promise<ResponseValue> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = {};
@@ -29,7 +30,7 @@ function request(
     if (options.cookie !== undefined) headers.cookie = options.cookie;
     const req = http.request(
       {
-        hostname: "127.0.0.1",
+        hostname: options.connectHost ?? "127.0.0.1",
         port: handle.port,
         path: options.path,
         method: options.method ?? "GET",
@@ -103,6 +104,7 @@ function makeInterfaces(
 async function makeExtendedServer(
   networkInterfaces: typeof os.networkInterfaces,
   hostname: typeof os.hostname = () => "deck-host",
+  options: { host?: string; listenHost?: string } = {},
 ): Promise<{ handle: WebServerHandle; calls: string[] }> {
   const calls: string[] = [];
   const routes: WebRoute[] = [
@@ -129,7 +131,7 @@ async function makeExtendedServer(
   const server = createWebServer({ routes, getSecurity: () => security });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, options.listenHost ?? "127.0.0.1", () => {
       server.off("error", reject);
       resolve();
     });
@@ -137,7 +139,7 @@ async function makeExtendedServer(
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("no TCP address");
   security = createWebSecurity(address.port, "test-token", {
-    host: "100.101.102.103",
+    host: options.host ?? "100.101.102.103",
     networkInterfaces,
     hostname,
   });
@@ -145,8 +147,8 @@ async function makeExtendedServer(
     server,
     address,
     port: address.port,
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    initialUrl: `http://127.0.0.1:${address.port}/page?t=test-token`,
+    baseUrl: webBaseUrl(options.host ?? "100.101.102.103", address.port),
+    initialUrl: `${webBaseUrl(options.host ?? "100.101.102.103", address.port)}/page?t=test-token`,
     security,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
@@ -372,7 +374,7 @@ describe("web request security", () => {
       `100.101.102.103:${port}`,
       `[fd7a:115c:a1e0::1]:${port}`,
       `deck-host:${port}`,
-      `DECK-HOST.tailnet.ts.net:${port}`,
+      `DECK-HOST.tail1234.ts.net:${port}`,
     ]) {
       const response = await request(handle, { path: tokenPath, host });
       expect(response.status).toBe(303);
@@ -381,6 +383,8 @@ describe("web request security", () => {
 
     for (const host of [
       `evil.example:${port}`,
+      `deck-host.evil.com:${port}`,
+      `deck-hostile:${port}`,
       `100.101.102.103:${port + 1}`,
       `[deck-host]:${port}`,
       `[fe80::1%tailscale0]:${port}`,
@@ -393,10 +397,47 @@ describe("web request security", () => {
     }
   });
 
+  it("accepts the specific bind address when it is missing from local interfaces", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([]));
+    const { handle } = await makeExtendedServer(networkInterfaces, () => "deck-host", {
+      host: "127.0.0.2",
+      listenHost: "127.0.0.2",
+    });
+    const link = new URL("/page", handle.baseUrl);
+    link.searchParams.set("t", handle.security.token);
+
+    const response = await request(handle, {
+      path: `${link.pathname}${link.search}`,
+      host: `127.0.0.2:${handle.port}`,
+      connectHost: "127.0.0.2",
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.location).toBe("/page");
+  });
+
+  it("rejects machine hostname and non-loopback interface Hosts on the default bind", async () => {
+    const { handle, calls } = await makeServer();
+    handle.security.hostname = () => "deck-host";
+    handle.security.networkInterfaces = () => makeInterfaces([{ address: "192.168.1.25", family: "IPv4" }]);
+
+    const hostname = await request(handle, { path: `/page?t=${handle.security.token}`, host: `deck-host:${handle.port}` });
+    const interfaceAddress = await request(handle, {
+      path: `/page?t=${handle.security.token}`,
+      host: `192.168.1.25:${handle.port}`,
+    });
+
+    expect(hostname.status).toBe(403);
+    expect(hostname.body).toBe("forbidden");
+    expect(interfaceAddress.status).toBe(403);
+    expect(interfaceAddress.body).toBe("forbidden");
+    expect(calls).toEqual([]);
+  });
+
   it("evaluates interface addresses on each request", async () => {
     let interfaces = makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]);
     const networkInterfaces = vi.fn(() => interfaces);
-    const { handle } = await makeExtendedServer(networkInterfaces);
+    const { handle } = await makeExtendedServer(networkInterfaces, () => "deck-host", { host: "100.101.102.99" });
     const tokenPath = `/page?t=${handle.security.token}`;
 
     const beforeChange = await request(handle, { path: tokenPath, host: `100.101.102.103:${handle.port}` });

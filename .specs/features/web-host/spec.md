@@ -70,7 +70,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 **Acceptance Criteria**:
 
 1. WHILE the bind host is `127.0.0.1` THEN the server SHALL allow exactly `127.0.0.1:<port>` and `localhost:<port>` as Host headers. <!-- WH-11 -->
-2. WHILE the bind host is anything other than `127.0.0.1` THEN the server SHALL also allow case-insensitive Host `<name>:<port>` values for current local interface addresses, `os.hostname()`, and names beginning with `os.hostname() + "."`; interface addresses SHALL be evaluated per request through an injectable seam, IPv6 addresses SHALL use brackets, and addresses with a `%` zone SHALL be skipped. <!-- WH-12 -->
+2. WHILE the bind host is anything other than `127.0.0.1` THEN the server SHALL allow the exact non-wildcard bind address, current local interface addresses, the exact `os.hostname()`, and `<hostname>.<one or more labels>.ts.net` Host names with the exact console port; names such as `<hostname>.evil.com` SHALL be rejected, interface addresses SHALL be evaluated per request through an injectable seam, IPv6 addresses SHALL use brackets, and addresses with a `%` zone SHALL be skipped. <!-- WH-12 -->
 3. WHEN a Host header is accepted THEN the server SHALL apply the existing token, cookie, same-origin POST, and `/api/*` checks unchanged; a page GET on a Tailscale IP without a token or cookie SHALL return the existing 403 page body, and a GET with the correct `t` token SHALL return 303 and set the session cookie. <!-- WH-13 -->
 4. WHEN `web.ensure` supplies an explicit `host` different from the running child's host THEN the supervisor SHALL stop that child and start a child on the requested host; an omitted `host` SHALL NOT request a move to `127.0.0.1`, and existing port reuse rules SHALL remain unchanged. <!-- WH-09 -->
 5. WHEN the bind host is `127.0.0.1`, `0.0.0.0`, or `::` THEN the supervisor and `listenWebServer` SHALL return `http://127.0.0.1:<port>` as the base URL; for any other host they SHALL return `http://<host>:<port>`, with IPv6 in brackets. <!-- WH-10 -->
@@ -105,7 +105,8 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 - A child started with no `--host` must retain the current loopback behavior.
 - A host change must restart a running child even when its port selection otherwise permits reuse.
 - Host headers with an unlisted name or a wrong port must remain forbidden.
-- Hostname suffix matching is limited to names beginning with the machine hostname followed by a dot.
+- Hostname matching is limited to the exact machine hostname or one or more labels followed by `.ts.net`.
+- A non-wildcard bind address remains accepted as a Host even if it is absent from the current interface list.
 - IPv6 zone-scoped interface addresses must not enter the allowlist.
 - A failed `--host` validation must occur before starting or contacting the daemon.
 
@@ -138,7 +139,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-09 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-10 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-11 | P1: Preserve the console's request protections | Tasks | Verified |
-| WH-12 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-12 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-13 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-14 | P2: Print usable links and bind errors | Tasks | Verified |
 | WH-15 | P2: Print usable links and bind errors | Tasks | Verified |

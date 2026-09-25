@@ -109,6 +109,8 @@ The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` t
 
 `web.host` accepts IP addresses only. `codedeck ui --host <addr>` explicitly binds that address for the launch. The CLI sends it as `host` to `web.ensure`; without the flag, it sends the resolved config value as `preferredHost`. The daemon passes the selected address to the child as `--host <addr>`. An explicit host change restarts the child. A preferred host moves a child started for a preferred host or with no host request, and never moves a child started for an explicit host. If both host fields are absent, the supervisor reuses a running child at any address and starts a new child on `127.0.0.1`.
 
+For a specific bind address, the console accepts that address in the request `Host` with the exact console port, even when it is missing from the system's interface list. Other accepted hosts on non-loopback binds are current interface IPs, the exact `os.hostname()`, and Tailscale MagicDNS names in the form `<hostname>.<label>.ts.net`, with one or more labels allowed. Names such as `<hostname>.evil.com` are rejected. The default `127.0.0.1` bind continues to accept only `127.0.0.1` and `localhost`.
+
 ## Open
 
 `codedeck open` launches a session on the harness bound to the role in `codedeck setup`: Claude Code with the CodeDeck plugin, an appended system prompt, Opus 4.8 at `xhigh` effort, and permissions bypassed; or the opencode TUI with the role contract injected, `--auto` on, and a stock look. Nothing is written to `~/.claude/` or `~/.config/opencode`; everything loads for that session only.

@@ -19,6 +19,8 @@ describe("web host documentation", () => {
     expect(readme).toContain("`host`");
     expect(readme).toContain("`preferredHost`");
     expect(readme).toContain("explicit host");
+    expect(readme).toContain("os.hostname()");
+    expect(readme).toContain(".ts.net");
   });
 
   it("documents the host parameter in Portuguese in the protocol section", () => {
