@@ -21,7 +21,7 @@ async function ensure(params: unknown): Promise<Record<string, any>> {
 
 function fakeHost(overrides: Partial<WebHost> = {}): WebHost {
   return {
-    ensure: vi.fn(async () => ({ baseUrl: "http://127.0.0.1:4100", port: 4100, token: "tok" })),
+    ensure: vi.fn(async () => ({ baseUrl: "http://127.0.0.1:4100", host: "127.0.0.1", port: 4100, token: "tok" })),
     close: vi.fn(),
     ...overrides,
   };
@@ -32,10 +32,10 @@ describe("daemon web.ensure", () => {
     const host = fakeHost();
     daemon = new Daemon({ webSupervisor: host });
 
-    const response = await ensure({ port: 4100, build: "b1", entry: "/opt/codedeck/dist/web/child.js" });
+    const response = await ensure({ host: "100.64.0.5", port: 4100, build: "b1", entry: "/opt/codedeck/dist/web/child.js" });
 
-    expect(response.result).toEqual({ baseUrl: "http://127.0.0.1:4100", port: 4100, token: "tok" });
-    expect(host.ensure).toHaveBeenCalledWith({ port: 4100, build: "b1", entry: "/opt/codedeck/dist/web/child.js" });
+    expect(response.result).toEqual({ baseUrl: "http://127.0.0.1:4100", host: "127.0.0.1", port: 4100, token: "tok" });
+    expect(host.ensure).toHaveBeenCalledWith({ host: "100.64.0.5", port: 4100, build: "b1", entry: "/opt/codedeck/dist/web/child.js" });
   });
 
   it("maps a supervisor error to an IPC error with the same code, message and details", async () => {
@@ -48,6 +48,23 @@ describe("daemon web.ensure", () => {
     const response = await ensure({ port: 4567 });
 
     expect(response.error).toEqual({ code: "WEB_LISTEN_FAILED", message: "listen EADDRINUSE", details: { port: 4567 } });
+  });
+
+  it("returns WEB_BAD_HOST for an invalid web.ensure host before spawning a child", async () => {
+    const spawnChild = vi.fn(() => { throw new Error("unexpected child spawn"); });
+    daemon = new Daemon({
+      webSupervisor: new WebSupervisor({
+        log: () => {},
+        defaultEntry: "/opt/codedeck/dist/web/child.js",
+        entryExists: () => true,
+        spawnChild,
+      }),
+    });
+
+    const response = await ensure({ preferredHost: "deck.local" });
+
+    expect(response.error).toMatchObject({ code: "WEB_BAD_HOST" });
+    expect(spawnChild).not.toHaveBeenCalled();
   });
 
   it("stops the web child before marking sessions during shutdown", async () => {
@@ -141,28 +158,28 @@ describe("daemon web autostart", () => {
   const daemonLog = () => fs.readFileSync(getPaths().daemonLog, "utf8");
 
   it("asks the supervisor once for the preferred port from config, with no port, entry or build", async () => {
-    useConfig({ web: { port: 7788 } });
+    useConfig({ web: { port: 7788, host: "100.64.0.5" } });
     const host = fakeHost();
     daemon = new Daemon({ webSupervisor: host });
 
     daemon.autostartWeb();
 
     expect(host.ensure).toHaveBeenCalledTimes(1);
-    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7788 });
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7788, preferredHost: "100.64.0.5" });
   });
 
   it("logs a failed autostart and keeps serving web.ensure", async () => {
     useConfig({});
     const hostEnsure = vi.fn()
       .mockRejectedValueOnce(new WebEnsureError("WEB_START_FAILED", "web child exited before its handshake (code=1)"))
-      .mockResolvedValue({ baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" });
+      .mockResolvedValue({ baseUrl: "http://127.0.0.1:7777", host: "127.0.0.1", port: 7777, token: "tok" });
     daemon = new Daemon({ webSupervisor: fakeHost({ ensure: hostEnsure }) });
 
     daemon.autostartWeb();
 
     await vi.waitFor(() => expect(daemonLog()).toMatch(/\] web autostart failed: web child exited before its handshake \(code=1\)\n/));
-    expect(hostEnsure).toHaveBeenNthCalledWith(1, { preferredPort: 7777 });
-    expect((await ensure({})).result).toEqual({ baseUrl: "http://127.0.0.1:7777", port: 7777, token: "tok" });
+    expect(hostEnsure).toHaveBeenNthCalledWith(1, { preferredPort: 7777, preferredHost: "127.0.0.1" });
+    expect((await ensure({})).result).toEqual({ baseUrl: "http://127.0.0.1:7777", host: "127.0.0.1", port: 7777, token: "tok" });
   });
 
   it("logs an invalid web.port and falls back to 7777", async () => {
@@ -173,7 +190,21 @@ describe("daemon web autostart", () => {
     daemon.autostartWeb();
 
     expect(daemonLog()).toMatch(/\] Ignoring invalid web.port in config: "7788"\n/);
-    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777 });
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, preferredHost: "127.0.0.1" });
+  });
+
+  it("logs an invalid web.host and autostarts on loopback", async () => {
+    useConfig({ web: { host: "deck.local" } });
+    const logPath = getPaths().daemonLog;
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, "");
+    const host = fakeHost();
+    daemon = new Daemon({ webSupervisor: host });
+
+    daemon.autostartWeb();
+
+    expect(daemonLog()).toMatch(/\] Ignoring invalid web\.host in config: "deck\.local"\n/);
+    expect(host.ensure).toHaveBeenCalledWith({ preferredPort: 7777, preferredHost: "127.0.0.1" });
   });
 
   it("does not start the web child from start()", async () => {

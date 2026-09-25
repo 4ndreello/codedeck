@@ -47,6 +47,13 @@ function harness(overrides: Partial<WebSupervisorOptions> = {}) {
 
 const ok = (port = 4100, token = "tok-1", build = "b1") => ({ port, token, build });
 
+async function running(t: ReturnType<typeof harness>, params: Parameters<WebSupervisor["ensure"]>[0], port = 4100) {
+  const pending = t.supervisor.ensure(params);
+  await vi.waitFor(() => expect(t.children.length).toBeGreaterThan(0));
+  t.children[t.children.length - 1].handshake(ok(port, `tok-${port}`));
+  return pending;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -58,8 +65,8 @@ describe("WebSupervisor.ensure", () => {
     const pending = supervisor.ensure({ build: "b1" });
     children[0].handshake(ok());
 
-    await expect(pending).resolves.toEqual({ baseUrl: "http://127.0.0.1:4100", port: 4100, token: "tok-1" });
-    expect(spawns).toEqual([{ entry: ENTRY, args: ["--web-child"] }]);
+    await expect(pending).resolves.toEqual({ baseUrl: "http://127.0.0.1:4100", host: "127.0.0.1", port: 4100, token: "tok-1" });
+    expect(spawns).toEqual([{ entry: ENTRY, args: ["--web-child", "--host", "127.0.0.1"] }]);
   });
 
   it("reuses the running child for the same build or no build, and shares a start in flight", async () => {
@@ -88,7 +95,7 @@ describe("WebSupervisor.ensure", () => {
       message: "listen EADDRINUSE: address already in use 127.0.0.1:4567",
       details: { port: 4567 },
     });
-    expect(spawns[0].args).toEqual(["--web-child", "--port", "4567"]);
+    expect(spawns[0].args).toEqual(["--web-child", "--host", "127.0.0.1", "--port", "4567"]);
   });
 
   it("fails the start when the child exits before its handshake", async () => {
@@ -193,6 +200,82 @@ describe("WebSupervisor.ensure", () => {
     expect(spawns).toHaveLength(2);
   });
 
+  it("restarts a matching-port child when the requested host changes", async () => {
+    const t = harness();
+    const firstPending = t.supervisor.ensure({ preferredPort: 7777, host: "127.0.0.1" });
+    t.children[0].handshake(ok());
+    const first = await firstPending;
+
+    const second = t.supervisor.ensure({ preferredPort: 7777, host: "0.0.0.0" });
+    await vi.waitFor(() => expect(t.children).toHaveLength(2));
+    t.children[1].handshake(ok(4100, "tok-1"));
+
+    await expect(second).resolves.toMatchObject({ baseUrl: first.baseUrl, host: "0.0.0.0", port: first.port, token: first.token });
+    expect(t.children[0].signals).toEqual(["SIGTERM"]);
+    expect(t.spawns[1].args).toEqual(["--web-child", "--host", "0.0.0.0", "--preferred-port", "7777"]);
+  });
+
+  it("reuses a child when the requested host stays the same", async () => {
+    const t = harness();
+    const firstPending = t.supervisor.ensure({ preferredPort: 7777, host: "100.64.0.5" });
+    t.children[0].handshake(ok());
+    const first = await firstPending;
+
+    await expect(t.supervisor.ensure({ preferredPort: 7777, host: "100.64.0.5" })).resolves.toEqual(first);
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
+  it("does not move an explicitly bound child for a preferred host", async () => {
+    const t = harness();
+    const first = await running(t, { preferredPort: 7777, host: "0.0.0.0" });
+
+    await expect(t.supervisor.ensure({ preferredPort: 7777, preferredHost: "127.0.0.1" })).resolves.toEqual(first);
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
+  it.each([
+    ["preferred", { preferredPort: 7777, preferredHost: "127.0.0.1" }],
+    ["none", { preferredPort: 7777 }],
+  ])("moves a child started for %s when its preferred host changes", async (_label, firstParams) => {
+    const t = harness();
+    await running(t, firstParams);
+
+    const second = t.supervisor.ensure({ preferredPort: 7777, preferredHost: "0.0.0.0" });
+    await vi.waitFor(() => expect(t.children).toHaveLength(2));
+    t.children[1].handshake(ok(4101, "tok-2"));
+
+    await expect(second).resolves.toMatchObject({ port: 4101, token: "tok-2" });
+    expect(t.children[0].signals).toEqual(["SIGTERM"]);
+    expect(t.spawns[1].args).toEqual(["--web-child", "--host", "0.0.0.0", "--preferred-port", "7777"]);
+  });
+
+  it("reuses the running host when neither host field is supplied", async () => {
+    const t = harness();
+    const first = await running(t, { host: "100.64.0.5" });
+
+    await expect(t.supervisor.ensure({})).resolves.toEqual(first);
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
+  it.each([
+    ["host", { host: "deck.local" }],
+    ["preferredHost", { preferredHost: "deck.local" }],
+  ])("rejects an invalid %s without stopping a running child", async (_field, params) => {
+    const t = harness({ startTimeoutMs: 25 });
+    await running(t, { host: "0.0.0.0" });
+
+    await expect(t.supervisor.ensure(params)).rejects.toMatchObject({ code: "WEB_BAD_HOST" });
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
   it("stops an old build with SIGTERM, escalates to SIGKILL after the stop timeout, and returns the new child", async () => {
     vi.useFakeTimers();
     const { supervisor, children } = harness();
@@ -226,19 +309,23 @@ describe("WebSupervisor.ensure", () => {
 });
 
 describe("WebSupervisor port rules", () => {
-  async function running(t: ReturnType<typeof harness>, params: Parameters<WebSupervisor["ensure"]>[0], port = 4100) {
-    const pending = t.supervisor.ensure(params);
-    await vi.waitFor(() => expect(t.children.length).toBeGreaterThan(0));
-    t.children[t.children.length - 1].handshake(ok(port, `tok-${port}`));
-    return pending;
-  }
-
   it("passes a preferred port as --preferred-port", async () => {
     const t = harness();
 
     await running(t, { preferredPort: 7777 });
 
-    expect(t.spawns[0].args).toEqual(["--web-child", "--preferred-port", "7777"]);
+    expect(t.spawns[0].args).toEqual(["--web-child", "--host", "127.0.0.1", "--preferred-port", "7777"]);
+  });
+
+  it.each([
+    ["0.0.0.0", "127.0.0.1"],
+    ["::", "127.0.0.1"],
+    ["100.64.0.5", "100.64.0.5"],
+    ["::1", "[::1]"],
+  ])("formats the base URL for host %s", async (host, urlHost) => {
+    const t = harness();
+
+    await expect(running(t, { host })).resolves.toMatchObject({ baseUrl: `http://${urlHost}:4100`, host });
   });
 
   it.each([
@@ -255,7 +342,7 @@ describe("WebSupervisor port rules", () => {
 
     await expect(second).resolves.toMatchObject({ port: 7788, token: "tok-2" });
     expect(t.children[0].signals).toEqual(["SIGTERM"]);
-    expect(t.spawns[1].args).toEqual(["--web-child", "--preferred-port", "7788"]);
+    expect(t.spawns[1].args).toEqual(["--web-child", "--host", "127.0.0.1", "--preferred-port", "7788"]);
   });
 
   it("reuses a child started for the same preferred port, even when it fell back to another port", async () => {
@@ -306,7 +393,7 @@ describe("WebSupervisor port rules", () => {
     await expect(a).resolves.toMatchObject({ port: 7777 });
     await expect(b).resolves.toMatchObject({ port: 7788 });
     await expect(c).resolves.toMatchObject({ port: 7799 });
-    expect(t.spawns.map((spawned) => spawned.args[2])).toEqual(["7777", "7788", "7799"]);
+    expect(t.spawns.map((spawned) => spawned.args[4])).toEqual(["7777", "7788", "7799"]);
     expect(aliveAtSpawn).toEqual([0, 0, 0]);
   });
 });

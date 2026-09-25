@@ -1,7 +1,10 @@
 import http from "node:http";
+import os from "node:os";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startWebServer, type WebRoute, type WebServerHandle } from "../src/web/server.js";
+import { webBaseUrl } from "../src/config/web-host.js";
+import { createWebServer, startWebServer, type WebRoute, type WebServerHandle } from "../src/web/server.js";
+import { createWebSecurity, type WebSecurity } from "../src/web/security.js";
 
 interface ResponseValue {
   status: number;
@@ -18,7 +21,7 @@ afterEach(async () => {
 
 function request(
   handle: WebServerHandle,
-  options: { method?: string; path: string; host?: string; origin?: string; cookie?: string },
+  options: { method?: string; path: string; host?: string; origin?: string; cookie?: string; connectHost?: string },
 ): Promise<ResponseValue> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = {};
@@ -27,7 +30,7 @@ function request(
     if (options.cookie !== undefined) headers.cookie = options.cookie;
     const req = http.request(
       {
-        hostname: "127.0.0.1",
+        hostname: options.connectHost ?? "127.0.0.1",
         port: handle.port,
         path: options.path,
         method: options.method ?? "GET",
@@ -46,7 +49,7 @@ function request(
   });
 }
 
-async function makeServer(): Promise<{ handle: WebServerHandle; calls: string[] }> {
+async function makeServer(listenHost = "127.0.0.1"): Promise<{ handle: WebServerHandle; calls: string[] }> {
   const calls: string[] = [];
   const routes: WebRoute[] = [
     {
@@ -70,6 +73,7 @@ async function makeServer(): Promise<{ handle: WebServerHandle; calls: string[] 
   ];
   const handle = await startWebServer({
     routes,
+    host: listenHost,
     port: 0,
     initialPath: "/page",
     open: false,
@@ -77,6 +81,77 @@ async function makeServer(): Promise<{ handle: WebServerHandle; calls: string[] 
     signalTarget: new EventEmitter(),
     exit: vi.fn(),
   });
+  handles.push(handle);
+  return { handle, calls };
+}
+
+function makeInterfaces(
+  addresses: Array<{ address: string; family: "IPv4" | "IPv6"; internal?: boolean }>,
+): ReturnType<typeof os.networkInterfaces> {
+  return {
+    tailscale0: addresses.map(({ address, family, internal = false }) => ({
+      address,
+      family,
+      internal,
+      netmask: family === "IPv4" ? "255.255.255.255" : "ffff:ffff:ffff:ffff::",
+      mac: "00:00:00:00:00:00",
+      cidr: null,
+      ...(family === "IPv6" ? { scopeid: 0 } : {}),
+    })),
+  };
+}
+
+async function makeExtendedServer(
+  networkInterfaces: typeof os.networkInterfaces,
+  hostname: typeof os.hostname = () => "deck-host",
+  options: { host?: string; listenHost?: string } = {},
+): Promise<{ handle: WebServerHandle; calls: string[] }> {
+  const calls: string[] = [];
+  const routes: WebRoute[] = [
+    {
+      path: "/page",
+      kind: "page",
+      handler: (_request, response) => {
+        calls.push("page");
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end("page");
+      },
+    },
+    {
+      path: "/action",
+      kind: "api",
+      handler: (_request, response) => {
+        calls.push("action");
+        response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ saved: true }));
+      },
+    },
+  ];
+  let security: WebSecurity | undefined;
+  const server = createWebServer({ routes, getSecurity: () => security });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, options.listenHost ?? "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("no TCP address");
+  security = createWebSecurity(address.port, "test-token", {
+    host: options.host ?? "100.101.102.103",
+    networkInterfaces,
+    hostname,
+  });
+  const handle: WebServerHandle = {
+    server,
+    address,
+    port: address.port,
+    baseUrl: webBaseUrl(options.host ?? "100.101.102.103", address.port),
+    initialUrl: `${webBaseUrl(options.host ?? "100.101.102.103", address.port)}/page?t=test-token`,
+    security,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
   handles.push(handle);
   return { handle, calls };
 }
@@ -200,6 +275,32 @@ describe("web request security", () => {
     expect(calls).toEqual([]);
   });
 
+  it("redirects localhost to 127.0.0.1 for a wildcard bind", async () => {
+    const { handle } = await makeServer("0.0.0.0");
+
+    const response = await request(handle, {
+      path: "/page?repo=%2Fx",
+      host: `localhost:${handle.port}`,
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(`http://127.0.0.1:${handle.port}/page?repo=%2Fx`);
+  });
+
+  it("does not redirect localhost to 127.0.0.1 for a specific non-loopback bind", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]));
+    const { handle } = await makeExtendedServer(networkInterfaces);
+
+    const response = await request(handle, {
+      path: "/page",
+      host: `localhost:${handle.port}`,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toBe(PAGE_FORBIDDEN);
+    expect(response.headers.location).toBeUndefined();
+  });
+
   it("rejects API GETs without the current cookie before dispatch", async () => {
     const { handle, calls } = await makeServer();
     const host = `127.0.0.1:${handle.port}`;
@@ -257,5 +358,162 @@ describe("web request security", () => {
     expect(accepted.status).toBe(200);
     expect(JSON.parse(accepted.body)).toEqual({ saved: true });
     expect(calls).toEqual(["action"]);
+  });
+
+  it("allows current interface addresses, the machine hostname, and its MagicDNS suffix", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([
+      { address: "100.101.102.103", family: "IPv4" },
+      { address: "fd7a:115c:a1e0::1", family: "IPv6" },
+      { address: "fe80::1%tailscale0", family: "IPv6" },
+    ]));
+    const { handle } = await makeExtendedServer(networkInterfaces);
+    const port = handle.port;
+    const tokenPath = `/page?t=${handle.security.token}`;
+
+    for (const host of [
+      `100.101.102.103:${port}`,
+      `[fd7a:115c:a1e0::1]:${port}`,
+      `deck-host:${port}`,
+      `DECK-HOST.tail1234.ts.net:${port}`,
+    ]) {
+      const response = await request(handle, { path: tokenPath, host });
+      expect(response.status).toBe(303);
+      expect(response.headers.location).toBe("/page");
+    }
+
+    for (const host of [
+      `evil.example:${port}`,
+      `deck-host.evil.com:${port}`,
+      `deck-hostile:${port}`,
+      `deck-hostile.tail1234.ts.net:${port}`,
+      `deck-host.ts.net:${port}`,
+      `deck-host..ts.net:${port}`,
+      `deck-host.a_b.ts.net:${port}`,
+      `100.101.102.103:${port + 1}`,
+      `[deck-host]:${port}`,
+      `[fe80::1%tailscale0]:${port}`,
+      `[100.101.102.103]:${port}`,
+      `fd7a:115c:a1e0::1:${port}`,
+    ]) {
+      const response = await request(handle, { path: tokenPath, host });
+      expect(response.status).toBe(403);
+      expect(response.body).toBe("forbidden");
+    }
+  });
+
+  it.each([
+    { bindHost: "0.0.0.0", connectHost: "127.0.0.1", hostHeader: (port: number) => `0.0.0.0:${port}` },
+    { bindHost: "::", connectHost: "::1", hostHeader: (port: number) => `[::]:${port}` },
+  ])("rejects wildcard bind $bindHost as a Host header", async ({ bindHost, connectHost, hostHeader }) => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([]));
+    const { handle, calls } = await makeExtendedServer(networkInterfaces, () => "deck-host", {
+      host: bindHost,
+      listenHost: bindHost,
+    });
+    const response = await request(handle, {
+      path: `/page?t=${handle.security.token}`,
+      host: hostHeader(handle.port),
+      connectHost,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toBe("forbidden");
+    expect(calls).toEqual([]);
+  });
+
+  it("accepts the specific bind address when it is missing from local interfaces", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([]));
+    const { handle } = await makeExtendedServer(networkInterfaces, () => "deck-host", {
+      host: "127.0.0.2",
+      listenHost: "127.0.0.2",
+    });
+    const link = new URL("/page", handle.baseUrl);
+    link.searchParams.set("t", handle.security.token);
+
+    const response = await request(handle, {
+      path: `${link.pathname}${link.search}`,
+      host: `127.0.0.2:${handle.port}`,
+      connectHost: "127.0.0.2",
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.location).toBe("/page");
+  });
+
+  it("rejects machine hostname and non-loopback interface Hosts on the default bind", async () => {
+    const { handle, calls } = await makeServer();
+    handle.security.hostname = () => "deck-host";
+    handle.security.networkInterfaces = () => makeInterfaces([{ address: "192.168.1.25", family: "IPv4" }]);
+
+    const hostname = await request(handle, { path: `/page?t=${handle.security.token}`, host: `deck-host:${handle.port}` });
+    const interfaceAddress = await request(handle, {
+      path: `/page?t=${handle.security.token}`,
+      host: `192.168.1.25:${handle.port}`,
+    });
+
+    expect(hostname.status).toBe(403);
+    expect(hostname.body).toBe("forbidden");
+    expect(interfaceAddress.status).toBe(403);
+    expect(interfaceAddress.body).toBe("forbidden");
+    expect(calls).toEqual([]);
+  });
+
+  it("evaluates interface addresses on each request", async () => {
+    let interfaces = makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]);
+    const networkInterfaces = vi.fn(() => interfaces);
+    const { handle } = await makeExtendedServer(networkInterfaces, () => "deck-host", { host: "100.101.102.99" });
+    const tokenPath = `/page?t=${handle.security.token}`;
+
+    const beforeChange = await request(handle, { path: tokenPath, host: `100.101.102.103:${handle.port}` });
+    interfaces = makeInterfaces([{ address: "100.101.102.104", family: "IPv4" }]);
+    const removedAddress = await request(handle, { path: tokenPath, host: `100.101.102.103:${handle.port}` });
+    const addedAddress = await request(handle, { path: tokenPath, host: `100.101.102.104:${handle.port}` });
+
+    expect(beforeChange.status).toBe(303);
+    expect(removedAddress.status).toBe(403);
+    expect(addedAddress.status).toBe(303);
+    expect(networkInterfaces).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps page tokens, API cookies, and same-origin POST checks on an accepted interface Host", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]));
+    const { handle, calls } = await makeExtendedServer(networkInterfaces);
+    const host = `100.101.102.103:${handle.port}`;
+    const token = handle.security.token;
+    const cookie = `codedeck_ui_token_${handle.port}=${token}`;
+
+    const barePage = await request(handle, { path: "/page", host });
+    const tokenPage = await request(handle, { path: `/page?t=${token}`, host });
+    const apiWithoutCookie = await request(handle, { path: "/action", host });
+    const apiWithCookie = await request(handle, { path: "/action", host, cookie });
+    const crossOriginPost = await request(handle, {
+      method: "POST",
+      path: "/action",
+      host,
+      cookie,
+      origin: `http://evil.example:${handle.port}`,
+    });
+    const sameOriginPost = await request(handle, {
+      method: "POST",
+      path: "/action",
+      host,
+      cookie,
+      origin: `http://${host}`,
+    });
+
+    expect(barePage.status).toBe(403);
+    expect(barePage.body).toBe(PAGE_FORBIDDEN);
+    expect(tokenPage.status).toBe(303);
+    expect(tokenPage.headers["set-cookie"]).toEqual([
+      `${cookie}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict`,
+    ]);
+    expect(apiWithoutCookie.status).toBe(403);
+    expect(apiWithoutCookie.body).toBe("forbidden");
+    expect(apiWithCookie.status).toBe(200);
+    expect(crossOriginPost.status).toBe(403);
+    expect(crossOriginPost.body).toBe("forbidden");
+    expect(sameOriginPost.status).toBe(200);
+    expect(JSON.parse(sameOriginPost.body)).toEqual({ saved: true });
+    expect(calls).toEqual(["action", "action"]);
   });
 });

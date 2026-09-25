@@ -106,6 +106,31 @@ describe("ui CLI command", () => {
     expect(launch).toHaveBeenCalledWith({ path: "/", title: "CodeDeck UI", port: 4200, open: true });
   });
 
+  it("sends an explicit host to the launcher", async () => {
+    const launch = vi.fn(async () => 0);
+    const program = new Command();
+    program.exitOverride();
+    registerUiCommand(program, { launch });
+
+    await program.parseAsync(["node", "codedeck", "ui", "--host", "100.64.0.5"], { from: "node" }).catch(() => {});
+
+    expect(launch).toHaveBeenCalledWith({ path: "/", title: "CodeDeck UI", port: undefined, host: "100.64.0.5", open: true });
+  });
+
+  it("rejects an invalid host without launching", async () => {
+    const launch = vi.fn(async () => 0);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerUiCommand(program, { launch });
+
+    await program.parseAsync(["node", "codedeck", "ui", "--host", "deck.local"], { from: "node" }).catch(() => {});
+
+    expect(launch).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("--host must be an IP address");
+    expect(process.exitCode).toBe(1);
+  });
+
   it("rejects an invalid port without launching", async () => {
     const launch = vi.fn(async () => 0);
     const error = vi.spyOn(console, "error").mockImplementation(() => {});

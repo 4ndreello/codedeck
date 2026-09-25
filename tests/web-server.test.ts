@@ -232,6 +232,38 @@ describe("listenWebServer", () => {
     return (blocker.address() as { port: number }).port;
   }
 
+  it.each([
+    ["0.0.0.0", "127.0.0.1"],
+    ["::", "127.0.0.1"],
+    ["127.0.0.2", "127.0.0.2"],
+    ["::1", "[::1]"],
+  ])("binds to %s and advertises %s", async (host, urlHost) => {
+    const listening = await listenWebServer({ routes: testRoutes([]), port: 0, host });
+    listeners.push(listening);
+
+    expect(listening.address.address).toBe(host);
+    expect(listening.baseUrl).toBe(`http://${urlHost}:${listening.port}`);
+    expect(listening.security.host).toBe(host);
+  });
+
+  it("passes the configured host from startWebServer to its listener", async () => {
+    const handle = await startWebServer({
+      routes: testRoutes([]),
+      port: 0,
+      host: "0.0.0.0",
+      initialPath: "/",
+      open: false,
+      log: vi.fn(),
+      signalTarget: new EventEmitter(),
+      exit: vi.fn(),
+    });
+    handles.push(handle);
+
+    expect(handle.address.address).toBe("0.0.0.0");
+    expect(handle.baseUrl).toBe(`http://127.0.0.1:${handle.port}`);
+    expect(handle.security.host).toBe("0.0.0.0");
+  });
+
   it("listens and serves without installing signal handlers", async () => {
     const sigint = process.listenerCount("SIGINT");
     const sigterm = process.listenerCount("SIGTERM");

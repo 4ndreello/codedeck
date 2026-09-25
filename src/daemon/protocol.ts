@@ -234,6 +234,10 @@ export interface QueryUsageRequest {
 }
 
 export interface WebEnsureParams {
+  /** Explicit bind address from `ui --host`; omitted does not move a running child. */
+  host?: string;
+  /** Resolved `web.host`; only moves a child that was not started for an explicit host. */
+  preferredHost?: string;
   /** Explicit port (`--port`): used only when a child has to start, never a fallback. */
   port?: number;
   /** The caller's resolved preferred port (`web.port` or 7777), sent when there is no explicit port. */
@@ -245,6 +249,8 @@ export interface WebEnsureParams {
 
 export interface WebEnsureResult {
   baseUrl: string;
+  /** Actual bind address selected for the running child. */
+  host: string;
   port: number;
   token: string;
 }

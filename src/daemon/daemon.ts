@@ -23,6 +23,7 @@ import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } fr
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
+import { invalidWebHostMessage, resolveWebHost } from "../config/web-host.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
 import { classifyFailure, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { parseRole } from "../core/roles.js";
@@ -1512,10 +1513,13 @@ class Daemon {
    * prior web command. Not awaited: IPC never waits on the web stack.
    */
   autostartWeb(): void {
-    const { port, invalid } = resolveWebPort(loadConfig());
+    const config = loadConfig();
+    const { port, invalid } = resolveWebPort(config);
+    const { host, invalid: invalidHost } = resolveWebHost(config);
     if (invalid !== undefined) appendDaemonLog(invalidWebPortMessage(invalid));
+    if (invalidHost !== undefined) appendDaemonLog(invalidWebHostMessage(invalidHost));
     this.webHost()
-      .ensure({ preferredPort: port })
+      .ensure({ preferredPort: port, preferredHost: host })
       .catch((error: unknown) => appendDaemonLog(`web autostart failed: ${error instanceof Error ? error.message : String(error)}`));
   }
 

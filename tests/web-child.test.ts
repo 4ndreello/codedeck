@@ -120,6 +120,15 @@ describe("runWebChild", () => {
     ]);
   });
 
+  it("passes the requested host to the listener and defaults it to loopback", async () => {
+    const listen = vi.fn(async () => fakeListening());
+
+    await startChild({ host: "0.0.0.0", listen, routes: () => [] });
+    await startChild({ listen, routes: () => [] });
+
+    expect(listen.mock.calls.map(([options]) => options.host)).toEqual(["0.0.0.0", "127.0.0.1"]);
+  });
+
   it("serves with the resolved console token and reports it in the handshake", async () => {
     const listen = vi.fn(async () => fakeListening());
 
@@ -131,10 +140,11 @@ describe("runWebChild", () => {
   });
 
   it.each([
-    [["node", "child.js", "--web-child", "--preferred-port", "7788"], { preferredPort: 7788 }],
-    [["node", "child.js", "--web-child", "--port", "7788"], { port: 7788 }],
-    [["node", "child.js", "--web-child"], {}],
-  ])("parses the port arguments of %j", (argv, expected) => {
+    [["node", "child.js", "--web-child", "--preferred-port", "7788"], { preferredPort: 7788, host: "127.0.0.1" }],
+    [["node", "child.js", "--web-child", "--port", "7788"], { port: 7788, host: "127.0.0.1" }],
+    [["node", "child.js", "--web-child", "--host", "0.0.0.0"], { host: "0.0.0.0" }],
+    [["node", "child.js", "--web-child"], { host: "127.0.0.1" }],
+  ])("parses the web child arguments of %j", (argv, expected) => {
     expect(parseWebChildArgs(argv)).toEqual(expected);
   });
 

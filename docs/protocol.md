@@ -44,9 +44,17 @@ o shell. Se o start junto com o daemon falhar, o `daemon.log` recebe
 
 Request:
 ```json
-{ "id": "w1", "method": "web.ensure", "params": { "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
+{ "id": "w1", "method": "web.ensure", "params": { "host": "100.101.102.103", "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
 ```
 
+- `host` (opcional): endereço IP explícito, enviado por `codedeck ui --host
+  <addr>`. Se diferir do filho atual, o supervisor encerra o filho e inicia
+  outro nesse endereço.
+- `preferredHost` (opcional): endereço resolvido de `web.host`, enviado quando
+  não há `ui --host`. Ele move um filho iniciado para uma preferência ou sem
+  pedido de host, mas não move um filho iniciado para um `host` explícito.
+  Quando ambos os campos faltam, um filho atual é reaproveitado em qualquer
+  endereço; se não houver filho, o supervisor inicia em `127.0.0.1`.
 - `port` (opcional): porta explícita (`--port`). Só vale quando um filho
   precisa subir, e nunca cai para outra porta. Um filho já rodando é
   reaproveitado em qualquer porta.
@@ -60,17 +68,29 @@ Request:
 - `entry` (opcional): caminho absoluto do `dist/web/child.js` do chamador. Sem
   ele, o daemon usa o próprio.
 
-Response:
+Resposta, em que `host` identifica o endereço de bind selecionado pelo supervisor para o processo filho em execução:
 ```json
-{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:7777", "port": 7777, "token": "..." } }
+{ "id": "w1", "result": { "baseUrl": "http://127.0.0.1:7777", "host": "0.0.0.0", "port": 7777, "token": "..." } }
 ```
 
-A página abre em `<baseUrl><path>?<query>&t=<token>`. O token vira cookie
+A página abre em `<baseUrl><path>?<query>&t=<token>`. O CLI usa `host` para
+escolher o aviso de HTTP simples e os links alternativos, mesmo quando o daemon
+reaproveita um filho iniciado com um bind explícito diferente de `web.host`. O
+token vira cookie
 (`303` sem `t`, `Max-Age` de 365 dias, renovado a cada página servida), e toda
 rota `/api/*` exige esse cookie. Uma página aberta sem token nem cookie responde
 `403 Run "codedeck ui" once in a terminal to open CodeDeck in this browser.`
-Uma página pedida em `localhost:<port>` responde `302` para `127.0.0.1:<port>`,
-porque o cookie de `127.0.0.1` não vai para `localhost`.
+Uma página pedida em `localhost:<port>` responde `302` para `127.0.0.1:<port>`
+quando o bind é `127.0.0.1`, `0.0.0.0` ou `::`, que anunciam a URL canônica de
+loopback. O servidor não faz esse redirecionamento para outros binds específicos.
+O cookie de `127.0.0.1` não vai para `localhost`.
+
+Em um bind específico fora do loopback padrão, o `Host` também aceita o IP do
+bind, mesmo que ele não apareça nas interfaces do sistema. Para binds não
+loopback, aceita ainda IPs atuais das interfaces, o `os.hostname()` exato e
+nomes Tailscale no formato `<hostname>.<label>.ts.net`, com um ou mais labels.
+Outros sufixos são recusados. O bind padrão continua aceitando apenas
+`127.0.0.1` e `localhost`.
 
 O token fica em `~/.run-agent/web-token` (modo 0600) e vale para todo servidor
 do console, inclusive o fallback no próprio processo, então um bookmark
@@ -83,15 +103,17 @@ Erros:
 
 | `code` | Quando | `details` |
 | --- | --- | --- |
-| `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on 127.0.0.1:<port>: ...` e sai com 1) | `{ "port": n }` |
+| `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on <host>:<port>: ...`, com IPv6 entre colchetes, e sai com 1) | `{ "port": n }` |
 | `WEB_START_FAILED` | o filho morreu antes do handshake, não respondeu em 5 s ou mandou um handshake inválido | |
 | `WEB_BAD_ENTRY` | `entry` não é absoluto, não termina em `/web/child.js` ou não existe | |
+| `WEB_BAD_HOST` | `host` ou `preferredHost` não é um endereço IP aceito por `net.isIP`; o supervisor retorna o erro antes de parar o filho atual | |
 
 Ciclo de vida do filho:
 
 - Existe no máximo um filho e no máximo um start por vez. Um pedido que chega
   durante um start espera ele terminar e decide pelos próprios parâmetros.
-- Argumentos do filho: `--port <n>` (explícita, sem fallback),
+- Argumentos do filho: `--host <addr>` (ausente, usa `127.0.0.1`),
+  `--port <n>` (explícita, sem fallback),
   `--preferred-port <n>` (fallback efêmero) ou nenhum (7777 com fallback).
 - Handshake: a primeira linha do stdout do filho é `{ port, token, build }` ou
   `{ error: { message, port } }`. O stderr vai para `~/.run-agent/logs/web-child.log`.

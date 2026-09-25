@@ -1,9 +1,11 @@
 import fs from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Readable, Writable } from "node:stream";
 import { getPaths } from "../config/paths.js";
+import { DEFAULT_WEB_HOST, webBaseUrl } from "../config/web-host.js";
 import type { WebEnsureParams, WebEnsureResult } from "./protocol.js";
 
 // The daemon never imports the web server itself (WD-28): it only spawns and watches
@@ -14,7 +16,7 @@ export type { WebEnsureParams, WebEnsureResult };
 export const WEB_START_TIMEOUT_MS = 5000;
 export const WEB_STOP_TIMEOUT_MS = 3000;
 
-export type WebEnsureErrorCode = "WEB_LISTEN_FAILED" | "WEB_START_FAILED" | "WEB_BAD_ENTRY";
+export type WebEnsureErrorCode = "WEB_LISTEN_FAILED" | "WEB_START_FAILED" | "WEB_BAD_ENTRY" | "WEB_BAD_HOST";
 
 export class WebEnsureError extends Error {
   constructor(
@@ -46,9 +48,12 @@ export interface WebSupervisorOptions {
 
 /** What a child was started for; decides whether a later request may reuse it. */
 type StartedFor = { kind: "explicit"; port: number } | { kind: "preferred"; port: number } | { kind: "none" };
+type HostFor = "explicit" | "preferred" | "none";
 
 interface RunningChild extends WebEnsureResult {
   child: WebChildProcess;
+  host: string;
+  hostFor: HostFor;
   entry: string;
   build: string | undefined;
   startedFor: StartedFor;
@@ -102,6 +107,13 @@ export class WebSupervisor {
   }
 
   async ensure(params: WebEnsureParams): Promise<WebEnsureResult> {
+    if (
+      [params.host, params.preferredHost].some(
+        (host) => host !== undefined && (typeof host !== "string" || isIP(host) === 0),
+      )
+    ) {
+      throw new WebEnsureError("WEB_BAD_HOST", "web.ensure host and preferredHost must be IP addresses");
+    }
     if (params.entry !== undefined && !this.isValidEntry(params.entry)) {
       throw new WebEnsureError("WEB_BAD_ENTRY", `invalid web child entry: ${params.entry}`);
     }
@@ -109,12 +121,14 @@ export class WebSupervisor {
     // then judges the outcome by its own params.
     while (this.state.kind === "starting") await this.state.promise.catch(() => {});
     const state = this.state;
-    if (state.kind === "running" && this.matches(state.running, params)) return resultOf(state.running);
+    const running = state.kind === "running" ? state.running : undefined;
+    const requestedHost = this.requestedHost(running, params);
+    if (running && this.matches(running, params, requestedHost.host)) return resultOf(running);
 
-    const previous = state.kind === "running" ? state.running : undefined;
+    const previous = running;
     const promise = (async () => {
       if (previous) await this.stop(previous);
-      return this.start(params);
+      return this.start(params, requestedHost.host, requestedHost.hostFor);
     })();
     this.state = { kind: "starting", promise };
     promise.catch(() => {
@@ -132,7 +146,17 @@ export class WebSupervisor {
     return path.isAbsolute(entry) && entry.endsWith("/web/child.js") && this.entryExists(entry);
   }
 
-  private matches(running: RunningChild, params: WebEnsureParams): boolean {
+  private requestedHost(running: RunningChild | undefined, params: WebEnsureParams): { host: string; hostFor: HostFor } {
+    if (params.host !== undefined) return { host: params.host, hostFor: "explicit" };
+    if (params.preferredHost !== undefined && running?.hostFor !== "explicit") {
+      return { host: params.preferredHost, hostFor: "preferred" };
+    }
+    if (running) return { host: running.host, hostFor: running.hostFor };
+    return { host: DEFAULT_WEB_HOST, hostFor: "none" };
+  }
+
+  private matches(running: RunningChild, params: WebEnsureParams, requestedHost: string): boolean {
+    if (running.host !== requestedHost) return false;
     if (params.entry !== undefined && params.entry !== running.entry) return false;
     if (params.build !== undefined && ((params.entry ?? this.defaultEntry) !== running.entry || params.build !== running.build)) {
       return false;
@@ -150,7 +174,7 @@ export class WebSupervisor {
     await exitsWithin(running.exited, this.stopTimeoutMs);
   }
 
-  private start(params: WebEnsureParams): Promise<WebEnsureResult> {
+  private start(params: WebEnsureParams, host: string, hostFor: HostFor): Promise<WebEnsureResult> {
     const entry = params.entry ?? this.defaultEntry;
     const startedFor: StartedFor =
       params.port !== undefined
@@ -160,6 +184,8 @@ export class WebSupervisor {
           : { kind: "none" };
     const args = [
       "--web-child",
+      "--host",
+      host,
       ...(startedFor.kind === "explicit" ? ["--port", String(startedFor.port)] : []),
       ...(startedFor.kind === "preferred" ? ["--preferred-port", String(startedFor.port)] : []),
     ];
@@ -219,10 +245,12 @@ export class WebSupervisor {
         }
         listening = true;
         const running: RunningChild = {
-          baseUrl: `http://127.0.0.1:${handshake.port}`,
+          baseUrl: webBaseUrl(host, handshake.port),
           port: handshake.port,
           token: handshake.token,
           child,
+          host,
+          hostFor,
           entry,
           build: handshake.build ?? params.build,
           startedFor,
@@ -265,7 +293,7 @@ function parseHandshake(line: string): Handshake {
 }
 
 function resultOf(running: RunningChild): WebEnsureResult {
-  return { baseUrl: running.baseUrl, port: running.port, token: running.token };
+  return { baseUrl: running.baseUrl, host: running.host, port: running.port, token: running.token };
 }
 
 function exitsWithin(exited: Promise<void>, ms: number): Promise<boolean> {

@@ -92,7 +92,26 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
 | `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
 | `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
+| `npx codedeck ui [--host <addr>] [--port <n>] [--no-open]` | Open the local web console |
 | `npx codedeck review [--port <n>] [--no-open]` | Open a local review of the current git changes |
+
+## Web console
+
+The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` to an IPv4 or IPv6 address to bind another interface, such as a Tailscale address:
+
+```json
+{
+  "web": {
+    "host": "100.101.102.103"
+  }
+}
+```
+
+`web.host` accepts IP addresses only. `codedeck ui --host <addr>` explicitly binds that address for the launch. The CLI sends it as `host` to `web.ensure`; without the flag, it sends the resolved config value as `preferredHost`. The daemon passes the selected address to the child as `--host <addr>`. An explicit host change restarts the child. A preferred host moves a child started for a preferred host or with no host request, and never moves a child started for an explicit host. If both host fields are absent, the supervisor reuses a running child at any address and starts a new child on `127.0.0.1`.
+
+Warnings and alternate links use the bind address reported by the running child, so a retained explicit bind remains visible even when it differs from `web.host`.
+
+For a specific bind address, the console accepts that address in the request `Host` with the exact console port, even when it is missing from the system's interface list. Other accepted hosts on non-loopback binds are current interface IPs, the exact `os.hostname()`, and Tailscale MagicDNS names in the form `<hostname>.<label>.ts.net`, with one or more labels allowed. Names such as `<hostname>.evil.com` are rejected. The default `127.0.0.1` bind continues to accept only `127.0.0.1` and `localhost`.
 
 ## Open
 

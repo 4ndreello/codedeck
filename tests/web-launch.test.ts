@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { computeBuildId } from "../src/daemon/build-id.js";
@@ -21,16 +22,33 @@ function ipcError(code: string, message: string, details?: unknown): Error {
 
 const TOKEN = "9".repeat(64);
 
+function makeInterfaces(
+  addresses: Array<{ address: string; family: "IPv4" | "IPv6"; internal?: boolean }>,
+): ReturnType<typeof os.networkInterfaces> {
+  return {
+    test0: addresses.map(({ address, family, internal = false }) => ({
+      address,
+      family,
+      internal,
+      netmask: family === "IPv4" ? "255.255.255.0" : "ffff:ffff:ffff:ffff::",
+      mac: "00:00:00:00:00:00",
+      cidr: null,
+      ...(family === "IPv6" ? { scopeid: 0 } : {}),
+    })),
+  };
+}
+
 function setup(overrides: {
   ensure?: () => Promise<unknown>;
   start?: () => Promise<void>;
   opener?: boolean;
   config?: { web?: unknown };
+  networkInterfaces?: LaunchWebPageDependencies["networkInterfaces"];
 } = {}) {
   const request = vi.fn(async (_method: string, _params: unknown) => (overrides.ensure ?? (async () => BASE))());
   const ensureDaemonStarted = vi.fn(overrides.start ?? (async () => {}));
   const openBrowser = vi.fn(async (_url: string) => overrides.opener ?? true);
-  const startServer = vi.fn(async () => ({}) as WebServerHandle);
+  const startServer = vi.fn(async () => ({ port: BASE.port, security: { token: BASE.token } }) as WebServerHandle);
   const logs: string[] = [];
   const errors: string[] = [];
   const deps: LaunchWebPageDependencies = {
@@ -41,6 +59,7 @@ function setup(overrides: {
     error: (message) => errors.push(message),
     build: "build-1",
     loadConfig: () => overrides.config ?? {},
+    ...(overrides.networkInterfaces ? { networkInterfaces: overrides.networkInterfaces } : {}),
     resolveToken: () => TOKEN,
   };
   const launch = (options: Partial<LaunchWebPageOptions> = {}) =>
@@ -62,6 +81,8 @@ describe("launchWebPage", () => {
     expect(method).toBe("web.ensure");
     expect(params.build).toBe("build-1");
     expect(params.entry).toBe(path.join(REPO_ROOT, "src", "web", "child.js"));
+    expect(params).toMatchObject({ preferredHost: "127.0.0.1" });
+    expect(params).not.toHaveProperty("host");
     expect(t.startServer).not.toHaveBeenCalled();
   });
 
@@ -103,6 +124,127 @@ describe("launchWebPage", () => {
     expect(explicit).not.toHaveProperty("preferredPort");
     expect(preferred).toMatchObject({ preferredPort: 7788, build: "build-1" });
     expect(preferred).not.toHaveProperty("port");
+  });
+
+  it("uses web.host unless the launch provides a host override", async () => {
+    const t = setup({ config: { web: { host: "100.64.0.5" } } });
+
+    await t.launch({ open: false });
+    await t.launch({ host: "192.168.1.25", open: false });
+
+    expect(t.request.mock.calls.map(([, params]) => params)).toEqual([
+      expect.objectContaining({ preferredHost: "100.64.0.5" }),
+      expect.objectContaining({ host: "192.168.1.25" }),
+    ]);
+    expect(t.request.mock.calls[0][1]).not.toHaveProperty("host");
+    expect(t.request.mock.calls[1][1]).not.toHaveProperty("preferredHost");
+    expect(t.errors).toEqual([
+      "Warning: the console listens on 100.64.0.5 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
+      "Warning: the console listens on 192.168.1.25 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
+    ]);
+  });
+
+  it("warns about an invalid configured host and falls back to loopback", async () => {
+    const t = setup({ config: { web: { host: "deck.local" } } });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual(['Ignoring invalid web.host in config: "deck.local"']);
+    expect(t.request.mock.calls[0][1]).toMatchObject({ preferredHost: "127.0.0.1" });
+  });
+
+  it("passes the resolved host to the in-process server", async () => {
+    const t = setup({ config: { web: { host: "100.64.0.5" } }, start: async () => { throw new Error("no daemon"); } });
+
+    await t.launch({ open: false });
+
+    const options = (t.startServer.mock.calls[0] as unknown as [Record<string, any>])[0];
+    expect(options.host).toBe("100.64.0.5");
+    expect(t.errors).toContain("Warning: the console listens on 100.64.0.5 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.");
+  });
+
+  it.each(["0.0.0.0", "::"])("prints alternate interface links for wildcard host %s", async (host) => {
+    const t = setup({
+      config: { web: { host } },
+      networkInterfaces: () => makeInterfaces([
+        { address: "100.101.102.103", family: "IPv4" },
+        { address: "192.168.1.9", family: "IPv4" },
+        { address: "127.0.0.1", family: "IPv4", internal: true },
+        { address: "fd7a:115c:a1e0::1", family: "IPv6" },
+      ]),
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+      "Also on http://100.101.102.103:7777/review?repo=%2Fwork%2Fapp&t=tok",
+      "Also on http://192.168.1.9:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+    expect(t.errors).toEqual([
+      `Warning: the console listens on ${host} over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.`,
+    ]);
+  });
+
+  it("uses the daemon's active wildcard bind for warnings and alternate links", async () => {
+    const t = setup({
+      ensure: async () => ({ ...BASE, host: "0.0.0.0" }),
+      networkInterfaces: () => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]),
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual([
+      "Warning: the console listens on 0.0.0.0 over plain HTTP. Anyone who can reach port 7777 with the link gets full access; use it only on a trusted network such as Tailscale.",
+    ]);
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+      "Also on http://100.101.102.103:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+  });
+
+  it("does not describe a configured wildcard when the daemon keeps an explicit loopback bind", async () => {
+    const t = setup({
+      config: { web: { host: "0.0.0.0" } },
+      ensure: async () => ({ ...BASE, host: "127.0.0.1" }),
+      networkInterfaces: () => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]),
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual([]);
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+  });
+
+  it("prints alternate links after the in-process server URL for wildcard binds", async () => {
+    const t = setup({
+      config: { web: { host: "0.0.0.0" } },
+      ensure: async () => { throw ipcError("UNKNOWN_METHOD", "nope"); },
+      networkInterfaces: () => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]),
+    });
+    const initialUrl = "http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok";
+    const listening = { port: 7777, initialUrl, security: { token: "tok" } } as WebServerHandle;
+    t.deps.startServer = vi.fn(async (options) => {
+      options.log?.(`CodeDeck review on ${initialUrl}`);
+      return listening;
+    });
+
+    await t.launch({ open: false });
+
+    expect(t.logs).toEqual([
+      "CodeDeck review on http://127.0.0.1:7777/review?repo=%2Fwork%2Fapp&t=tok",
+      "Also on http://100.101.102.103:7777/review?repo=%2Fwork%2Fapp&t=tok",
+    ]);
+  });
+
+  it.each(["127.0.0.2", "::1"])("does not warn for loopback host %s", async (host) => {
+    const t = setup({ config: { web: { host } } });
+
+    await t.launch({ open: false });
+
+    expect(t.errors).toEqual([]);
   });
 
   it("prefers 7777 when the config has no web.port", async () => {
@@ -149,10 +291,22 @@ describe("launchWebPage", () => {
   it("reports WEB_LISTEN_FAILED, returns 1 and does not fall back", async () => {
     const t = setup({ ensure: async () => { throw ipcError("WEB_LISTEN_FAILED", "listen EADDRINUSE", { port: 4200 }); } });
 
-    expect(await t.launch({ port: 4200 })).toBe(1);
+    expect(await t.launch({ host: "::1", port: 4200 })).toBe(1);
 
-    expect(t.errors).toEqual(["Failed to listen on 127.0.0.1:4200: listen EADDRINUSE"]);
+    expect(t.errors).toEqual(["Failed to listen on [::1]:4200: listen EADDRINUSE"]);
     expect(t.startServer).not.toHaveBeenCalled();
+  });
+
+  it("names the bind host in in-process listen failures", async () => {
+    const t = setup({ ensure: async () => { throw ipcError("UNKNOWN_METHOD", "nope"); } });
+    t.deps.startServer = vi.fn(async () => { throw new Error("listen EADDRINUSE"); });
+
+    expect(await t.launch({ host: "::1", port: 4200 })).toBe(1);
+
+    expect(t.errors).toEqual([
+      "CodeDeck daemon cannot host the web console (UNKNOWN_METHOD); serving from this process.",
+      "Failed to listen on [::1]:4200: listen EADDRINUSE",
+    ]);
   });
 
   it.each(["UNKNOWN_METHOD", "SERVICE_UNAVAILABLE", "WEB_START_FAILED", "WEB_BAD_ENTRY"])("serves in-process with the full route table after %s", async (code) => {
