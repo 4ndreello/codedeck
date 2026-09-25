@@ -252,7 +252,7 @@ Resume with: ${getCliName()} send <id> "continue"
         if (opts.json) {
           console.log(JSON.stringify(ev));
         } else if (ev.type === "message") {
-          console.log(`[${ev.role || "assistant"}] ${ev.content.slice(0, 500)}`);
+          console.log(`[${ev.role || "assistant"}] ${ev.content}`);
         } else if (ev.type === "text.delta") {
           process.stdout.write(ev.delta);
         } else if (ev.type === "tool.started") {

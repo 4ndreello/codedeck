@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 
-function formatEvent(ev: any): string {
+export function formatEvent(ev: any): string {
   const t = new Date(ev.timestamp).toLocaleTimeString();
   switch (ev.type) {
     case "session.started":
@@ -9,7 +9,7 @@ function formatEvent(ev: any): string {
     case "turn.started":
       return `[${t}] ▶ Turn started${ev.prompt ? `: ${String(ev.prompt).slice(0, 100)}` : ""}`;
     case "message":
-      return `[${t}] ${ev.role === "user" ? "▶" : "●"} ${ev.role}: ${String(ev.content).slice(0, 500)}`;
+      return `[${t}] ${ev.role === "user" ? "▶" : "●"} ${ev.role}: ${String(ev.content)}`;
     case "text.delta":
       return ev.delta;
     case "tool.started":
