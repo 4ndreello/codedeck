@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionFetch } from "./helpers/web-session.js";
 import { Command } from "commander";
 import { createCliProgram } from "../src/cli/index.js";
-import { registerUiCommand } from "../src/cli/commands/ui.js";
+import { createUiRoutes, registerUiCommand } from "../src/cli/commands/ui.js";
 import { registerSetupCommand } from "../src/cli/commands/setup.js";
 import { registerUsageCommand, type UsageCommandDependencies } from "../src/cli/commands/usage.js";
 import { DEFAULT_CONFIG, serializeConfig, type SetupConfigRead } from "../src/config/config.js";
@@ -82,31 +82,57 @@ const emptyUsage: UsageQueryResult = {
 };
 
 describe("ui CLI command", () => {
-  it("appears in root help and serves its registered home, review, setup, and usage pages", async () => {
+  it("appears in root help and opens the home page through the launcher", async () => {
     const root = createCliProgram();
     expect(root.helpInformation()).toContain("ui");
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    let started: WebServerHandle | undefined;
+    const launch = vi.fn(async () => 0);
     const program = new Command();
-    registerUiCommand(program, {
-      startServer: async (options) => {
-        started = await startWebServer({
-          ...options,
-          port: 0,
-          signalTarget: new EventEmitter(),
-          exit: vi.fn(),
-        });
-        handles.push(started);
-        return started;
-      },
-    });
+    registerUiCommand(program, { launch });
     await program.parseAsync(["node", "codedeck", "ui", "--no-open"], { from: "node" });
 
-    expect(started).toBeDefined();
-    expect(started?.initialUrl).toContain("?t=");
-    expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    const rootResponse = await sessionFetch(started)(`${started?.baseUrl}/`);
+    expect(launch).toHaveBeenCalledWith({ path: "/", title: "CodeDeck UI", port: undefined, open: false });
+    expect(process.exitCode).toBe(originalExitCode);
+  });
+
+  it("sends an explicit port to the launcher", async () => {
+    const launch = vi.fn(async () => 0);
+    const program = new Command();
+    registerUiCommand(program, { launch });
+
+    await program.parseAsync(["node", "codedeck", "ui", "--port", "4200"], { from: "node" });
+
+    expect(launch).toHaveBeenCalledWith({ path: "/", title: "CodeDeck UI", port: 4200, open: true });
+  });
+
+  it("rejects an invalid port without launching", async () => {
+    const launch = vi.fn(async () => 0);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const program = new Command();
+    registerUiCommand(program, { launch });
+
+    await program.parseAsync(["node", "codedeck", "ui", "--port", "0"], { from: "node" });
+
+    expect(launch).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith("--port must be a positive integer");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("exits with the launcher's failure code", async () => {
+    const program = new Command();
+    registerUiCommand(program, { launch: vi.fn(async () => 1) });
+
+    await program.parseAsync(["node", "codedeck", "ui", "--no-open"], { from: "node" });
+
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+describe("ui route table", () => {
+  it("serves its registered home, review, setup, and usage pages", async () => {
+    const started = await startEphemeralServer({ routes: createUiRoutes(), initialPath: "/", open: false, log: vi.fn() });
+
+    const rootResponse = await sessionFetch(started)(`${started.baseUrl}/`);
     const rootHtml = await rootResponse.text();
     expect(rootResponse.status).toBe(200);
     expect(rootHtml).not.toContain('href="/"');
@@ -114,14 +140,14 @@ describe("ui CLI command", () => {
     expect(rootHtml).toContain('href="/setup"');
     expect(rootHtml).toContain('href="/usage"');
 
-    const reviewResponse = await sessionFetch(started)(`${started?.baseUrl}/review`);
+    const reviewResponse = await sessionFetch(started)(`${started.baseUrl}/review`);
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
     expect(await reviewResponse.text()).toContain("Review local");
 
-    const setupResponse = await sessionFetch(started)(`${started?.baseUrl}/setup`);
+    const setupResponse = await sessionFetch(started)(`${started.baseUrl}/setup`);
     const setupHtml = await setupResponse.text();
-    const usageResponse = await sessionFetch(started)(`${started?.baseUrl}/usage`);
+    const usageResponse = await sessionFetch(started)(`${started.baseUrl}/usage`);
     const setupNav = setupHtml.split('<nav aria-label="Main navigation">')[1]?.split("</nav>")[0] ?? "";
     expect(setupResponse.status).toBe(200);
     expect(setupNav).toContain('href="/">Home</a>');
@@ -131,54 +157,20 @@ describe("ui CLI command", () => {
     expect(usageResponse.status).toBe(200);
   });
 
-  it("rejects an invalid port without starting a server", async () => {
-    const startServer = vi.fn();
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const program = new Command();
-    registerUiCommand(program, { startServer });
-
-    await program.parseAsync(["node", "codedeck", "ui", "--port", "0"], { from: "node" });
-
-    expect(startServer).not.toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith("--port must be a positive integer");
-    expect(process.exitCode).toBe(1);
-  });
-
-  it("reports a listen failure without printing a started URL", async () => {
-    const startServer = vi.fn(async () => {
-      throw new Error("EADDRINUSE");
-    });
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const program = new Command();
-    registerUiCommand(program, { startServer });
-
-    await program.parseAsync(["node", "codedeck", "ui", "--no-open"], { from: "node" });
-
-    expect(startServer).toHaveBeenCalledOnce();
-    expect(error).toHaveBeenCalledWith("Failed to listen on 127.0.0.1:3100: EADDRINUSE");
-    expect(log).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(1);
-  });
-});
-
-describe("ui setup and usage routes", () => {
   it("serves setup state, catalog, actions, and usage query routes", async () => {
     const getBatchModels = vi.fn(async (_options: BatchModelsOptions) => emptyCatalog);
     const fetchUsageQuery = vi.fn(async () => emptyUsage);
-    let started: WebServerHandle | undefined;
-    const program = new Command();
-    registerUiCommand(program, {
-      setup: { readConfig: () => setupRead, getBatchModels },
-      usage: { fetchUsageQuery, cwd: "/repo" },
-      startServer: async (options) => {
-        started = await startEphemeralServer(options);
-        return started;
-      },
+    const started = await startEphemeralServer({
+      routes: createUiRoutes({
+        setup: { readConfig: () => setupRead, getBatchModels },
+        usage: { fetchUsageQuery, cwd: "/repo" },
+      }),
+      initialPath: "/",
+      open: false,
+      log: vi.fn(),
     });
-    await program.parseAsync(["node", "codedeck", "ui", "--no-open"], { from: "node" });
 
-    const baseUrl = started!.baseUrl;
+    const baseUrl = started.baseUrl;
     const home = await sessionFetch(started)(`${baseUrl}/`);
     const homeHtml = await home.text();
     expect(homeHtml).toContain('href="/setup"');
@@ -187,7 +179,7 @@ describe("ui setup and usage routes", () => {
     expect((await sessionFetch(started)(`${baseUrl}/api/setup/catalog`)).status).toBe(200);
 
     const headers = {
-      cookie: `codedeck_ui_token_${started!.port}=${started!.security.token}`,
+      cookie: `codedeck_ui_token_${started.port}=${started.security.token}`,
       origin: baseUrl,
       "content-type": "application/json",
     };
@@ -237,30 +229,6 @@ describe("setup and usage web commands", () => {
     expect(started?.initialUrl).toContain("?t=");
     expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
     expect((await sessionFetch(started)(`${started?.baseUrl}/setup`)).status).toBe(200);
-  });
-
-  it("prints the token URL and keeps serving when the browser opener fails", async () => {
-    let started: WebServerHandle | undefined;
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const program = new Command();
-    registerUiCommand(program, {
-      startServer: async (options) => {
-        started = await startWebServer({
-          ...options,
-          port: 0,
-          openBrowser: () => false,
-          signalTarget: new EventEmitter(),
-          exit: vi.fn(),
-        });
-        handles.push(started);
-        return started;
-      },
-    });
-
-    await program.parseAsync(["node", "codedeck", "ui"], { from: "node" });
-
-    expect(log.mock.calls.flat().join(" ")).toContain(started?.initialUrl);
-    expect((await sessionFetch(started)(`${started?.baseUrl}/`)).status).toBe(200);
   });
 
   it("opens aggregate usage with the selected filters, breakdown, interval, and token URL", async () => {

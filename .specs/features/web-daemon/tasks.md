@@ -440,13 +440,14 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `ui` → `launchWebPage` with path `/`, no port when `--port` is omitted
-- [ ] `review` → path `/review`, `repo` = cwd
-- [ ] Invalid `--port` → exit 1, launcher not called
-- [ ] Gate check passes: `npx vitest run tests/web-cli.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
+- [x] `ui` → `launchWebPage` with path `/`, no port when `--port` is omitted
+- [x] `review` → path `/review`, `repo` = cwd
+- [x] Invalid `--port` → exit 1, launcher not called
+- [x] Gate check passes: `npx vitest run tests/web-cli.test.ts`, `npx vitest run tests/review-command.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(cli): Open ui and review from the daemon web server`
 

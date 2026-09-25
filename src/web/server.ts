@@ -71,6 +71,11 @@ export function parseWebPort(raw: string | undefined): number {
   return port;
 }
 
+/** Like `parseWebPort`, but an omitted `--port` stays undefined so the daemon picks the port. */
+export function parseOptionalWebPort(raw: string | undefined): number | undefined {
+  return raw === undefined ? undefined : parseWebPort(raw);
+}
+
 export function openBrowser(url: string): Promise<boolean> {
   const opener =
     process.platform === "darwin"

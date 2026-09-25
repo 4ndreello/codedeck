@@ -3,7 +3,8 @@ import path from "node:path";
 import type { Command } from "commander";
 import { REVIEW_PAGE } from "../../web/review-page.js";
 import { getLocalReview } from "../../git/review.js";
-import { DEFAULT_WEB_PORT, openBrowser, parseWebPort, startWebServer, type WebRoute } from "../../web/server.js";
+import { DEFAULT_WEB_PORT, openBrowser, parseOptionalWebPort, parseWebPort, type WebRoute } from "../../web/server.js";
+import { launchWebPage } from "../web-launch.js";
 
 export const DEFAULT_REVIEW_PORT = DEFAULT_WEB_PORT;
 
@@ -17,8 +18,8 @@ export interface ReviewDeps {
   loadReview?: (root: string, ref: string, file?: string) => Promise<unknown>;
 }
 
-export interface ReviewCommandDependencies extends ReviewDeps {
-  startServer?: typeof startWebServer;
+export interface ReviewCommandDependencies {
+  launch?: typeof launchWebPage;
 }
 
 function sendJson(res: http.ServerResponse, code: number, value: unknown): void {
@@ -92,29 +93,25 @@ export function registerReviewCommand(program: Command, dependencies: ReviewComm
   program
     .command("review")
     .description("Open a local review of the current git changes")
-    .option("--port <n>", "port to listen on (default: 3100)", String(DEFAULT_REVIEW_PORT))
-    .option("--no-open", "serve the review without opening a browser")
+    .option("--port <n>", "port to listen on (default: 3100)")
+    .option("--no-open", "print the review URL without opening a browser")
     .action(async (opts: ReviewCommandOptions) => {
-      let port: number;
+      let port: number | undefined;
       try {
-        port = parseReviewPort(opts.port);
+        port = parseOptionalWebPort(opts.port);
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         process.exitCode = 1;
         return;
       }
 
-      try {
-        await (dependencies.startServer ?? startWebServer)({
-          routes: createReviewRoutes(dependencies),
-          port,
-          initialPath: `/review?${new URLSearchParams({ repo: process.cwd() })}`,
-          title: "CodeDeck review",
-          open: opts.open,
-        });
-      } catch (error) {
-        console.error(`Failed to listen on 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}`);
-        process.exitCode = 1;
-      }
+      const code = await (dependencies.launch ?? launchWebPage)({
+        path: "/review",
+        query: { repo: process.cwd() },
+        title: "CodeDeck review",
+        port,
+        open: opts.open !== false,
+      });
+      if (code !== 0) process.exitCode = code;
     });
 }

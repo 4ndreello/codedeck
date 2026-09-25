@@ -265,18 +265,18 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-09 | P1: Daemon supervises one web server | Tasks | Verified |
 | WD-10 | P1: Daemon supervises one web server | Tasks | Verified |
 | WD-11 | P1: Daemon supervises one web server | Tasks | Verified |
-| WD-12 | P1: Web commands delegate to the daemon | Tasks | Pending |
-| WD-13 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-12 | P1: Web commands delegate to the daemon | Tasks | Verified |
+| WD-13 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-14 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-15 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-16 | P1: Web commands delegate to the daemon | Tasks | Pending |
 | WD-17 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-18 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-19 | P1: Web commands delegate to the daemon | Tasks | Verified |
-| WD-20 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-20 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-21 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-22 | P1: Web commands delegate to the daemon | Tasks | Verified |
-| WD-23 | P1: Web commands delegate to the daemon | Tasks | Pending |
+| WD-23 | P1: Web commands delegate to the daemon | Tasks | Verified |
 | WD-24 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-25 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-26 | P1: Web failures stay isolated | Tasks | Verified |
