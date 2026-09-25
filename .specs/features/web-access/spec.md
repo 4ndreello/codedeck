@@ -89,6 +89,8 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Stray gate daemons | `scripts/pty-gate.sh` and `scripts/rename-gate.sh` stop the daemon they started (from `$RUN_AGENT_DIR/daemon.pid`) in their EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
 | 403 page text | `Run "codedeck ui" once in a terminal to open CodeDeck in this browser.` | The old text did not say the step is one-time. | n |
 
+| Port notice in the in-process fallback | None: WA-17 covers URLs the daemon returns. The fallback already prints `serving from this process` and its own URL line. | `startWebServer` prints the page line itself, so a notice could not come before it without reshaping that function. | n |
+
 **Open questions:** none - all resolved or logged above.
 
 ---
@@ -145,7 +147,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 
 1. The preferred port SHALL be `web.port` from `config.json` when it is an integer in 1-65535, and 7777 otherwise.  <!-- WA-15 -->
 2. WHEN a web command runs without `--port` THEN it SHALL send the preferred port as `preferredPort` in `web.ensure` and no `port`.  <!-- WA-16 -->
-3. WHEN a web command gets a console URL whose port differs from its `--port`, or from the preferred port when `--port` is absent, THEN it SHALL print `CodeDeck web is running on port <actual> instead of <asked>` before the page line.  <!-- WA-17 -->
+3. WHEN a web command gets a console URL from the daemon whose port differs from its `--port`, or from the preferred port when `--port` is absent, THEN it SHALL print `CodeDeck web is running on port <actual> instead of <asked>` before the page line.  <!-- WA-17 -->
 4. WHEN the supervisor starts a child for a `preferredPort` THEN it SHALL pass `--preferred-port <n>`, and the child SHALL listen on that port and, on any listen error, on an OS-assigned port.  <!-- WA-18 -->
 5. WHEN a `web.ensure` without `port` and with a `preferredPort` finds a running child that was not started for that same preferred port (started for an explicit port, for another preferred port, or with no port argument) THEN the supervisor SHALL restart the child for the requested preferred port.  <!-- WA-19 -->
 6. WHEN a `web.ensure` with `port` finds a running child whose entry and build match THEN the supervisor SHALL reuse it, whatever the child was started for.  <!-- WA-20 -->
@@ -194,7 +196,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-02 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-03 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-04 | P1: Bookmark survives restarts | Tasks | Verified |
-| WA-05 | P1: Bookmark survives restarts | Tasks | Pending |
+| WA-05 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-06 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-07 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-08 | P1: Bookmark survives restarts | Tasks | Verified |
@@ -205,13 +207,13 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-13 | P1: Console answers while the daemon runs | Tasks | Verified |
 | WA-14 | P1: Console answers while the daemon runs | Tasks | Verified |
 | WA-15 | P2: Fixed, configurable port | Tasks | Verified |
-| WA-16 | P2: Fixed, configurable port | Tasks | Pending |
-| WA-17 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-16 | P2: Fixed, configurable port | Tasks | Verified |
+| WA-17 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-18 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-19 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-20 | P2: Fixed, configurable port | Tasks | Verified |
-| WA-21 | P2: Fixed, configurable port | Tasks | Pending |
-| WA-22 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-21 | P2: Fixed, configurable port | Tasks | Verified |
+| WA-22 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-23 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-24 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-25 | P2: Fixed, configurable port | Tasks | Verified |

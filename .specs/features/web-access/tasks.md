@@ -245,14 +245,15 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] No `--port` → params `{ preferredPort: <resolved>, build, entry }` without `port`; with `--port` → `port` sent, no `preferredPort`
-- [ ] URL port ≠ asked port → notice line before the page line; equal → no notice (both with and without `--port`)
-- [ ] Invalid `web.port` → the WA-22 line on stderr, once
-- [ ] Fallback without `--port` → `startServer` gets the preferred port, `fallbackToEphemeral: true`, and the resolver's token; with `--port` → that port, no fallback
-- [ ] Gate check passes: `npx vitest run tests/web-launch.test.ts`; `npx tsc --noEmit`
+- [x] No `--port` → params `{ preferredPort: <resolved>, build, entry }` without `port`; with `--port` → `port` sent, no `preferredPort`
+- [x] URL port ≠ asked port → notice line before the page line; equal → no notice (both with and without `--port`)
+- [x] Invalid `web.port` → the WA-22 line on stderr, once
+- [x] Fallback without `--port` → `startServer` gets the preferred port, `fallbackToEphemeral: true`, and the resolver's token; with `--port` → that port, no fallback
+- [x] Gate check passes: `npx vitest run tests/web-launch.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(cli): Ask for the preferred web port`
 
