@@ -48,6 +48,36 @@ describe("run skill catalog", () => {
     expect(section).toContain("that file's directory");
   });
 
+  it("parses folded and literal description blocks into one catalog line", () => {
+    const root = pluginDir();
+    writeSkill(
+      root,
+      "folded",
+      "---\nname: folded\ndescription: >-\n  Use this skill\n  when x: y.\nother: ignored\n---\n",
+    );
+    writeSkill(
+      root,
+      "literal",
+      "---\nname: literal\ndescription: |+\n  Keep these words\n  from the next line.\nother: ignored\n---\n",
+    );
+
+    expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([
+      { name: "folded", description: "Use this skill when x: y." },
+      { name: "literal", description: "Keep these words from the next line." },
+    ]);
+  });
+
+  it("keeps quoted descriptions followed by a YAML comment", () => {
+    const root = pluginDir();
+    writeSkill(
+      root,
+      "commented",
+      '---\nname: commented\ndescription: "Use when x: y"  # c\n---\n',
+    );
+
+    expect(readRunSkills(root).map(({ description }) => description)).toEqual(["Use when x: y"]);
+  });
+
   it.each(["missing", "empty"])("omits the catalog for a %s skills directory", (kind) => {
     const root = pluginDir();
     if (kind === "empty") fs.mkdirSync(path.join(root, "skills"));

@@ -103,7 +103,7 @@ export function resolveRolePrompt(
   roleInput: string | undefined,
   prompt: string,
 ): string {
-  if (roleInput === undefined) return prompt;
+  if (roleInput === undefined) return `${composeRunSection(pluginDir)}\n\n---\n\n${prompt}`;
 
   const role = parseRole(roleInput);
   if (!role) {

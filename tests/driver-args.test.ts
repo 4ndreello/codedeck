@@ -48,10 +48,14 @@ describe("buildCodexArgs", () => {
   });
 
   it("uses only resume-compatible options on the resume path", () => {
-    const args = buildCodexArgs({ ...base, resumeSessionId: "thread-1", effort: "high" });
+    const args = buildCodexArgs(
+      { ...base, resumeSessionId: "thread-1", effort: "high" },
+      ["/host/resume/SKILL.md"],
+    );
     expect(args.slice(0, 3)).toEqual(["exec", "resume", "thread-1"]);
     expect(hasPair(args, "--disable", "plugins")).toBe(true);
     expect(args.indexOf("--disable")).toBeLessThan(args.indexOf(base.prompt));
+    expect(hasPair(args, "-c", 'skills.config=[{path="/host/resume/SKILL.md",enabled=false}]')).toBe(true);
     expect(args).not.toContain("-s");
     expect(args).not.toContain("-C");
     expect(args).toContain("--skip-git-repo-check");
@@ -75,11 +79,12 @@ describe("buildCodexArgs", () => {
     const args = buildCodexArgs(base, [
       "/host/alpha/SKILL.md",
       '/host/quote"and\\slash/SKILL.md',
+      "/host/del\x7fpath/SKILL.md",
     ]);
     const configValues = args.flatMap((arg, index) => (arg === "-c" ? [args[index + 1]] : []));
 
     expect(configValues).toEqual([
-      'skills.config=[{path="/host/alpha/SKILL.md",enabled=false},{path="/host/quote\\"and\\\\slash/SKILL.md",enabled=false}]',
+      'skills.config=[{path="/host/alpha/SKILL.md",enabled=false},{path="/host/quote\\"and\\\\slash/SKILL.md",enabled=false},{path="/host/del\\u007fpath/SKILL.md",enabled=false}]',
     ]);
     expect(args.indexOf("-c")).toBeLessThan(args.indexOf(base.prompt));
   });

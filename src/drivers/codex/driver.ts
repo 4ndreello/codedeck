@@ -26,7 +26,10 @@ export function buildCodexArgs(options: StartOptions, disabledSkillPaths: string
 
   if (disabledSkillPaths.length > 0) {
     const skillsConfig = disabledSkillPaths
-      .map((skillPath) => `{path=${JSON.stringify(skillPath)},enabled=false}`)
+      .map((skillPath) => {
+        const tomlPath = JSON.stringify(skillPath).replace(/\x7f/g, "\\u007f");
+        return `{path=${tomlPath},enabled=false}`;
+      })
       .join(",");
     args.push("-c", `skills.config=[${skillsConfig}]`);
   }

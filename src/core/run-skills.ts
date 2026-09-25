@@ -14,14 +14,16 @@ function parseScalar(value: string): string | undefined {
   if (!trimmed) return "";
 
   if (trimmed.startsWith("'")) {
-    if (!trimmed.endsWith("'")) return undefined;
-    return trimmed.slice(1, -1).replace(/''/g, "'");
+    const quoted = /^('(?:''|[^'])*')(?:\s+#.*)?$/.exec(trimmed)?.[1];
+    if (!quoted) return undefined;
+    return quoted.slice(1, -1).replace(/''/g, "'");
   }
 
   if (trimmed.startsWith('"')) {
-    if (!trimmed.endsWith('"')) return undefined;
+    const quoted = /^("(?:\\.|[^"\\])*")(?:\s+#.*)?$/.exec(trimmed)?.[1];
+    if (!quoted) return undefined;
     try {
-      const parsed: unknown = JSON.parse(trimmed);
+      const parsed: unknown = JSON.parse(quoted);
       return typeof parsed === "string" ? parsed : undefined;
     } catch {
       return undefined;
@@ -37,10 +39,28 @@ function parseSkillFrontmatter(source: string): Pick<RunSkill, "name" | "descrip
 
   let name: string | undefined;
   let description: string | undefined;
-  for (const line of match[1].split(/\r?\n/)) {
+  const lines = match[1].split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     const field = /^(name|description):(?:\s*(.*))?$/.exec(line);
     if (!field) continue;
-    const value = parseScalar(field[2] ?? "");
+    const rawValue = field[2] ?? "";
+    if (field[1] === "description") {
+      const block = /^([>|])[+-]?$/.exec(rawValue.trim());
+      if (block) {
+        const content: string[] = [];
+        let next = index + 1;
+        while (next < lines.length && (lines[next] === "" || /^[ \t]/.test(lines[next]))) {
+          content.push(lines[next].replace(/^[ \t]+/, ""));
+          next++;
+        }
+        index = next - 1;
+        const joined = block[1] === ">" ? content.join(" ") : content.join("\n");
+        description = joined.replace(/\s+/g, " ").trim();
+        continue;
+      }
+    }
+    const value = parseScalar(rawValue);
     if (field[1] === "name") name = value;
     else description = value;
   }

@@ -18,6 +18,7 @@ Measured on this machine (codex-cli 0.156.1, `codex debug prompt-input`):
 | none (current run path) | 122 | 15 |
 | `--disable plugins` | 40 | 0 |
 | `--disable plugins` + `skills.config` disabling one path | 39 | 0 |
+| `--disable plugins` + host override for 64 paths | 0 host skills | 0 |
 
 Measured on claude (headless init frame, `--model claude-haiku-4-5-20251001`):
 `skills=80` with no flag, `skills=0` with `--disable-slash-commands`, run
@@ -55,9 +56,16 @@ Codex facts the design rests on (probed, not documented):
 |---|---|
 | `codedeck open` (any harness) | interactive session with the human; their skills and plugins are wanted there |
 | opencode, omp, antigravity host-skill suppression | not measured yet; they get the prompt-level parts (RSI-07..RSI-10) only |
-| project skills in the target repo (`<cwd>/.agents/skills`, `<cwd>/.codex/skills`, `<cwd>/.claude/skills`) | owned by the repo being worked on, same standing as its `AGENTS.md` |
+| project skills in the target repo (`<cwd>/.agents/skills`, `<cwd>/.codex/skills`, `<cwd>/.claude/skills`) | owned by the target repo; codex leaves them enabled. Claude's run flag also hides `.claude/skills`, as noted below |
 | moving `skills/create-report` into `plugin/skills` so it ships | separate packaging decision; the orchestrator prompt already has a fallback when the skill is absent |
 | a config knob to re-allow specific host skills | no request for it yet |
+
+### Known divergence
+
+Claude's `--disable-slash-commands` also hides skills in the target repo's
+`.claude/skills`, while codex continues to load project skills. The Claude flag
+suppresses every skill source; codex's `--disable plugins` plus host-path
+overrides leaves project skills available.
 
 ## Requirements
 
@@ -74,6 +82,8 @@ Codex facts the design rests on (probed, not documented):
 ### Claude run path
 
 - **RSI-11**: WHEN the claude driver builds args for a run or a resume turn THEN it SHALL include `--disable-slash-commands`.
+- **RSI-12**: WHEN `codedeck run` starts without `--role` THEN it SHALL include the headless run section and CodeDeck skill catalog before the task prompt, without reading `ultra.md`.
+- **RSI-13**: WHEN the codex driver encodes a host skill path for `skills.config` THEN it SHALL encode DEL (0x7F) as `\u007f` so the override is valid TOML.
 
 ### Run prompt (all harnesses)
 

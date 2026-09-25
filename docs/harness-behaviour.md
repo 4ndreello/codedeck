@@ -8,6 +8,16 @@ This file exists because the role frontmatter in `plugin/agents/` lists tools
 that never arrive, and until now the only explanation lived in a merged pull
 request body.
 
+## Run-time skill suppression
+
+The run flags suppress different skill sources. Measured on 2026-09-24,
+headless Claude Haiku reported `skills=80` without
+`--disable-slash-commands` and `skills=0` with it. That flag hides every skill,
+including the target repo's own `.claude/skills`. Codex keeps project skills:
+on codex-cli 0.156.1, `--disable plugins` changed the prompt count from 122 to
+40 skills, and a `skills.config` override with 64 host `SKILL.md` paths reduced
+host skills to 0.
+
 ## `--agent` layers on top, it does not replace
 
 Passing `--agent codedeck:reviewer` does not swap Claude's system prompt for
@@ -22,9 +32,10 @@ You are a Claude agent, built on Anthropic's Claude Agent SDK.
 
 Only the second one can quote its own agent body back.
 
-Consequence: there is no "no role" mode that buys a cleaner prompt. `general`
-is passed `--agent codedeck:general` like every other role, because opting out
-of `--agent` removes the role contract and changes nothing else.
+Consequence for `open`: there is no "no role" mode that buys a cleaner prompt.
+`general` gets `--agent codedeck:general` like every other role. Omitting
+`--agent` removes the role contract but leaves Claude's system prompt unchanged.
+`run` handles an omitted `--role` separately by adding its headless run section.
 
 ## An agent file with no `tools:` key is not restricted
 

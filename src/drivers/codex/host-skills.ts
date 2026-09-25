@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 export function discoverCodexHostSkills(opts: { codexHome?: string; homeDir?: string } = {}): string[] {
-  const codexHome = opts.codexHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+  const codexHome = opts.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const homeDir = opts.homeDir ?? os.homedir();
   const roots = [
     path.resolve(codexHome, "skills"),
