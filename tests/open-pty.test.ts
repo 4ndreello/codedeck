@@ -321,53 +321,21 @@ describe("pty input gate", () => {
     }]);
   });
 
-  it("traces terminal focus reports as ignored focus input", () => {
+  it.each([
+    { name: "terminal focus report", chunk: "\u001b[I", hex: "1b5b49", ignored: "focus" },
+    { name: "whole-chunk focus-out report", chunk: "\u001b[O", hex: "1b5b4f", ignored: "focus" },
+    { name: "terminal reply", chunk: "\u001b[?1;1R", hex: "1b5b3f313b3152", ignored: "reply" },
+  ])("traces $name as ignored input", ({ chunk, hex, ignored }) => {
     const events: Record<string, unknown>[] = [];
     const { gate } = setup((event) => events.push(event));
     gate.offer("/rename nome\r");
 
-    gate.observe(Buffer.from("\u001b[I"));
+    gate.observe(Buffer.from(chunk));
 
     expect(events[events.length - 1]).toEqual({
       kind: "input",
-      chunk: "1b5b49",
-      ignored: "focus",
-      dirty: false,
-      guard: false,
-      pending: true,
-      used: false,
-    });
-  });
-
-  it("traces a whole-chunk focus-out report as ignored focus input", () => {
-    const events: Record<string, unknown>[] = [];
-    const { gate } = setup((event) => events.push(event));
-    gate.offer("/rename nome\r");
-
-    gate.observe(Buffer.from("\u001b[O"));
-
-    expect(events[events.length - 1]).toEqual({
-      kind: "input",
-      chunk: "1b5b4f",
-      ignored: "focus",
-      dirty: false,
-      guard: false,
-      pending: true,
-      used: false,
-    });
-  });
-
-  it("traces terminal replies as ignored reply input", () => {
-    const events: Record<string, unknown>[] = [];
-    const { gate } = setup((event) => events.push(event));
-    gate.offer("/rename nome\r");
-
-    gate.observe(Buffer.from("\u001b[?1;1R"));
-
-    expect(events[events.length - 1]).toEqual({
-      kind: "input",
-      chunk: "1b5b3f313b3152",
-      ignored: "reply",
+      chunk: hex,
+      ignored,
       dirty: false,
       guard: false,
       pending: true,
@@ -636,7 +604,25 @@ describe("pty input gate", () => {
     expect(inject).toHaveBeenCalledOnce();
   });
 
-  it("keeps embedded focus and SGR mouse reports neutral without resetting quiet time", () => {
+  it.each([
+    {
+      name: "embedded focus and SGR mouse reports",
+      inputs: [
+        { chunk: "\u001b[I\u001b[<35;48;1M", hex: "1b5b491b5b3c33353b34383b314d" },
+        { chunk: "\u001b[<35;47;1M", hex: "1b5b3c33353b34373b314d" },
+      ],
+      quietBeforeInput: quietMs - 1,
+      quietAfterInput: 1,
+    },
+    {
+      name: "embedded focus-out report",
+      inputs: [
+        { chunk: "\u001b[O\u001b[<35;48;1M", hex: "1b5b4f1b5b3c33353b34383b314d" },
+      ],
+      quietBeforeInput: 0,
+      quietAfterInput: quietMs,
+    },
+  ])("keeps $name neutral without resetting quiet time", ({ inputs, quietBeforeInput, quietAfterInput }) => {
     const events: Record<string, unknown>[] = [];
     const { gate, inject } = setup((event) => events.push(event));
     gate.offer("/rename nome\r");
@@ -646,39 +632,17 @@ describe("pty input gate", () => {
       pending: events[0].pending,
       used: events[0].used,
     };
-    vi.advanceTimersByTime(quietMs - 1);
+    if (quietBeforeInput > 0) vi.advanceTimersByTime(quietBeforeInput);
 
-    gate.observe(Buffer.from("\u001b[I\u001b[<35;48;1M"));
-    gate.observe(Buffer.from("\u001b[<35;47;1M"));
+    for (const { chunk } of inputs) gate.observe(Buffer.from(chunk));
 
-    expect(events.slice(-2)).toEqual([
-      { kind: "input", chunk: "1b5b491b5b3c33353b34383b314d", ignored: null, ...before },
-      { kind: "input", chunk: "1b5b3c33353b34373b314d", ignored: null, ...before },
-    ]);
-    vi.advanceTimersByTime(1);
-    expect(inject).toHaveBeenCalledOnce();
-  });
-
-  it("keeps an embedded focus-out report neutral without resetting quiet time", () => {
-    const events: Record<string, unknown>[] = [];
-    const { gate, inject } = setup((event) => events.push(event));
-    gate.offer("/rename nome\r");
-    const before = {
-      dirty: events[0].dirty,
-      guard: events[0].guard,
-      pending: events[0].pending,
-      used: events[0].used,
-    };
-
-    gate.observe(Buffer.from("\u001b[O\u001b[<35;48;1M"));
-
-    expect(events[events.length - 1]).toEqual({
+    expect(events.slice(-inputs.length)).toEqual(inputs.map(({ hex }) => ({
       kind: "input",
-      chunk: "1b5b4f1b5b3c33353b34383b314d",
+      chunk: hex,
       ignored: null,
       ...before,
-    });
-    vi.advanceTimersByTime(quietMs);
+    })));
+    vi.advanceTimersByTime(quietAfterInput);
     expect(inject).toHaveBeenCalledOnce();
   });
 
