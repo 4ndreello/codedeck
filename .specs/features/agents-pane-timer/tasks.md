@@ -17,6 +17,8 @@ refresh cadence) lives in `pane-ticker.ts` where it is unit tested.
 
 ## T1. Probe: can a hooks module run a clock
 
+- Status: complete
+
 - Requirement: spec "Ground", unknown item. Blocks T2 tick work.
 - In a live PTY session (tmux + `claude --plugin-dir <built plugin>` with
   `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`), check whether `setInterval` /
@@ -28,11 +30,15 @@ refresh cadence) lives in `pane-ticker.ts` where it is unit tested.
 
 ## T2. Pure layer: elapsed + cards + ticker
 
+- Status: complete
+
 - Requirement: AC1 to AC15.
 - Tests: in this task, same files as the matrix.
 - Gate: `npx vitest run tests/mods-agents` green.
 
 ## T3. Wiring + live proof
+
+- Status: complete
 
 - Requirement: AC6, AC11, AC12.
 - Gate: two tmux captures of the open pane at least 2 seconds apart, the

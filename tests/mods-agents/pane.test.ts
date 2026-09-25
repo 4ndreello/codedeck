@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_CARD_COLUMNS,
   MIN_COLUMNS,
+  elapsed,
   formatPane,
   paneButtonLabel,
   selectPane,
@@ -37,6 +38,8 @@ const snapshot = (overrides: Partial<PaneSnapshot> = {}): PaneSnapshot => ({
 
 const ids = (snap: PaneSnapshot) => snap.rows.map((row) => row.id);
 
+afterEach(() => vi.useRealTimers());
+
 // The stem connector line at 89 columns: the card box caps at 56, so the
 // stem sits at column 31 inside a frame row padded to the full width. Exact
 // literal, so a stray or duplicated stem is caught by string identity.
@@ -52,6 +55,23 @@ function expectCleanWidth(lines: string[], columns: number): void {
     expect(line).not.toMatch(/[\n\r\t]/);
   }
 }
+
+describe("elapsed", () => {
+  it("formats seconds, minutes, and hours with stable zero padding", () => {
+    expect(elapsed(0)).toBe("0s");
+    expect(elapsed(42_999)).toBe("42s");
+    expect(elapsed(59_999)).toBe("59s");
+    expect(elapsed(60_000)).toBe("1m 00s");
+    expect(elapsed(3 * 60_000 + 7_000)).toBe("3m 07s");
+    expect(elapsed(60 * 60_000 + 2 * 60_000 + 7_000)).toBe("1h 02m 07s");
+  });
+
+  it("clamps negative and non-finite durations to zero", () => {
+    expect(elapsed(-1)).toBe("0s");
+    expect(elapsed(Number.NaN)).toBe("0s");
+    expect(elapsed(Number.POSITIVE_INFINITY)).toBe("0s");
+  });
+});
 
 // The real-screen fixture from the bug report: a run of 19 workers, one
 // working and 18 finished, in a pane 89 columns wide and 44 rows tall. Built
@@ -143,6 +163,20 @@ describe("selectPane", () => {
     expect(none.hidden).toBe(2);
   });
 
+  it("carries string createdAt values and drops non-strings", () => {
+    const snap = selectPane(
+      [
+        session({ id: "valid", createdAt: "2026-09-19T12:00:00.000Z" }),
+        session({ id: "invalid", createdAt: 123 as unknown as string }),
+      ],
+      RUN,
+    );
+    expect(snap.rows.map(({ id, createdAt }) => [id, createdAt])).toEqual([
+      ["invalid", undefined],
+      ["valid", "2026-09-19T12:00:00.000Z"],
+    ]);
+  });
+
   it("resolves a missing agent, name or status to a placeholder (rule 13)", () => {
     const snap = selectPane(
       [session({ id: "bare", status: undefined, agent: "", name: undefined })],
@@ -159,6 +193,86 @@ describe("selectPane", () => {
 });
 
 describe("formatPane", () => {
+  it("uses elapsed time on cards and keeps last-update age in history", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-19T12:00:42.000Z"));
+    const lines = formatPane(
+      selectPane(
+        [
+          session({
+            id: "finished-parent",
+            status: "completed",
+            createdAt: "2026-09-19T11:59:40.000Z",
+            updatedAt: "2026-09-19T12:00:00.000Z",
+            name: "finished",
+          }),
+          session({
+            id: "live",
+            parentId: "finished-parent",
+            status: "working",
+            createdAt: "2026-09-19T12:00:00.000Z",
+            updatedAt: "2026-09-19T12:00:41.000Z",
+            name: "worker",
+          }),
+          session({
+            id: "history",
+            status: "completed",
+            createdAt: "2026-09-19T11:00:00.000Z",
+            updatedAt: "2026-09-19T11:59:42.000Z",
+            name: "history",
+          }),
+        ],
+        RUN,
+      ),
+      89,
+    );
+    const joined = lines.join("\n");
+    expect(joined).toContain("Completed · 20s");
+    expect(joined).toContain("Working · 42s");
+    expect(joined).toContain("history · 1m");
+    expect(joined).not.toContain("history · 1h");
+  });
+
+  it("leaves cards without a valid createdAt timestamp otherwise unchanged", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-19T12:00:42.000Z"));
+    const lines = formatPane(
+      snapshot({
+        rows: [
+          { id: "missing", status: "working", agent: "claude", name: "missing", updatedAt: "2026-09-19T12:00:00.000Z" },
+          { id: "unparseable", status: "needs_input", agent: "claude", name: "bad", createdAt: "yesterday-ish" },
+        ],
+      }),
+      89,
+    );
+    const joined = lines.join("\n");
+    expect(joined).toContain("missing");
+    expect(joined).toContain("unparseable");
+    expect(joined).toContain("Working");
+    expect(joined).toContain("Waiting for you");
+    expect(joined).not.toMatch(/(?:Working|Waiting for you) · (?:\d+s|\d+m)/);
+  });
+
+  it("keeps every line at the requested width when a card has elapsed text", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-19T12:00:42.000Z"));
+    const snap = snapshot({
+      rows: [
+        {
+          id: "timed",
+          status: "working",
+          agent: "claude",
+          name: "timer worker",
+          createdAt: "2026-09-15T08:00:42.000Z",
+        },
+      ],
+    });
+    expect(formatPane(snap, 120).join("\n")).toContain("Working · 100h 00m 00s");
+    for (const columns of [MIN_COLUMNS, 40, 89, 120]) {
+      expectCleanWidth(formatPane(snap, columns), columns);
+    }
+  });
+
   it("never exceeds the given rows, at every width and every input (rule 1)", () => {
     const snaps = [snapshot(), workerFixture(), snapshot({ rows: [], hidden: 7, total: 7 })];
     for (const snap of snaps) {

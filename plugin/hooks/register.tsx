@@ -7,6 +7,7 @@ import type { Register } from "claude-code";
 import { formatPane, paneButtonLabel, selectPane } from "../mods/agents/pane.js";
 import { parseRows } from "../mods/agents/parse.js";
 import type { PaneSnapshot } from "../mods/agents/types.js";
+import { createPaneTicker, type PaneTicker } from "./pane-ticker.js";
 import { togglePane } from "./pane-toggle.js";
 
 // Stable pane id: 1 to 64 letters, digits, "_" or "-". open carries it into
@@ -51,14 +52,17 @@ const toggleAgentsPane = async ($: Engine$, isOpen: boolean): Promise<boolean> =
 
 // Passing $ into a helper is allowed, verified. What the engine refuses is
 // pulling a namespace off it: `const P = $.process` fails to load the module.
-// So refresh takes $ as a parameter and the state register owns travels beside
-// it in this object. paneOpen never leaves register, so it stays a bare let.
+// refresh takes $ as a parameter; its state and paneOpen stay in this register.
 type PaneState = {
   // Last good snapshot; undefined until one refresh has fully succeeded, which
   // is how the pane draws nothing rather than a guess.
   snapshot: PaneSnapshot | undefined;
   inFlight: boolean;
   lastRefreshEndedAt: number;
+  ticker: PaneTicker | undefined;
+  paneOpen: boolean;
+  tickInvalidate: () => unknown;
+  tickRefresh: () => unknown;
   // True once session.start saw a CODEDECK_RUN_ID. Cached because ui.render
   // fires on every drawing pass and must not await an env read to decide
   // whether to draw one button.
@@ -66,6 +70,13 @@ type PaneState = {
 };
 
 const TOOL_REFRESH_GAP_MS = 1500;
+
+function syncTicker($: Engine$, state: PaneState, refreshCompleted = false): void {
+  state.tickInvalidate = () => $.ui.invalidate("ui.render");
+  state.tickRefresh = () => refresh($, state);
+  if (refreshCompleted) state.ticker?.refreshed();
+  state.ticker?.update(state.paneOpen, state.snapshot);
+}
 
 const refresh = async ($: Engine$, state: PaneState): Promise<void> => {
   // Claim the slot before the first await. Guard and set must not straddle a
@@ -103,6 +114,7 @@ const refresh = async ($: Engine$, state: PaneState): Promise<void> => {
   } finally {
     state.inFlight = false;
     state.lastRefreshEndedAt = Date.now();
+    syncTicker($, state, true);
   }
 };
 
@@ -112,10 +124,21 @@ export const register: Register = (on) => {
     inFlight: false,
     lastRefreshEndedAt: 0,
     hasRun: false,
+    ticker: undefined,
+    paneOpen: false,
+    tickInvalidate: () => undefined,
+    tickRefresh: () => undefined,
   };
-  let paneOpen = false;
+  state.ticker = createPaneTicker({
+    now: () => Date.now(),
+    setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
+    clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+    invalidate: () => state.tickInvalidate(),
+    refresh: () => state.tickRefresh(),
+  });
 
   on("session.start", async ($, e, next) => {
+    syncTicker($, state);
     // Not "agents": the engine refuses it with `$.command.register: "/agents"
     // refused: it is the built-in /agents`. "band", "deck" and
     // "codedeck-agents" were each verified free. The description is load
@@ -145,10 +168,11 @@ export const register: Register = (on) => {
     // is the one call here not yet verified in a PTY session, paneOpen stays
     // true and the next /band retries the close, instead of the flag and the
     // pane desyncing for the rest of the session.
-    paneOpen = await toggleAgentsPane($, paneOpen);
+    state.paneOpen = await toggleAgentsPane($, state.paneOpen);
+    syncTicker($, state);
     await $.ui.invalidate("ui.render");
-    if (paneOpen) void refresh($, state);
-    return { text: paneOpen ? "agents pane open" : "agents pane closed" };
+    if (state.paneOpen) void refresh($, state);
+    return { text: state.paneOpen ? "agents pane open" : "agents pane closed" };
   });
 
   on("turn.complete", async ($, e, next) => {
@@ -172,9 +196,10 @@ export const register: Register = (on) => {
     // A $ captured from a past render does work, verified, but it outlives the
     // event it came from and nothing promises how long.
     if ((e as { element?: string }).element === BUTTON_KEY) {
-      paneOpen = await toggleAgentsPane($, paneOpen);
+      state.paneOpen = await toggleAgentsPane($, state.paneOpen);
+      syncTicker($, state);
       await $.ui.invalidate("ui.render");
-      if (paneOpen) void refresh($, state);
+      if (state.paneOpen) void refresh($, state);
     }
     return await next(e);
   });
