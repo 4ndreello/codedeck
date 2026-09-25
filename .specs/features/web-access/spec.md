@@ -88,7 +88,6 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Where the eager start runs | In the `--daemon` entry, after `start()` resolves, not awaited. `Daemon.start()` itself does not start the web child. | Keeps tests that call `start()` from spawning a real child, and IPC never waits on the web stack. | n |
 | Stray gate daemons | `scripts/pty-gate.sh` and `scripts/rename-gate.sh` stop the daemon they started (from `$RUN_AGENT_DIR/daemon.pid`) in their EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
 | 403 page text | `Run "codedeck ui" once in a terminal to open CodeDeck in this browser.` | The old text did not say the step is one-time. | n |
-
 | Port notice in the in-process fallback | None: WA-17 covers URLs the daemon returns. The fallback already prints `serving from this process` and its own URL line. | `startWebServer` prints the page line itself, so a notice could not come before it without reshaping that function. | n |
 
 **Open questions:** none - all resolved or logged above.
