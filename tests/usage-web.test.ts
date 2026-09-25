@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionFetch } from "./helpers/web-session.js";
 import { buildUsageQueryParams } from "../src/core/usage-query.js";
 import type { UsageQueryParams, UsageQueryResult } from "../src/daemon/protocol.js";
+import { normalizeUsageInterval } from "../src/web/usage-page.js";
 import { createUsageRoutes } from "../src/web/usage-routes.js";
 import { startWebServer, type WebServerHandle } from "../src/web/server.js";
 
@@ -79,6 +80,20 @@ describe("usage web routes", () => {
     expect(html).toContain('"until":"2026-09-22"');
     expect(html).toContain('"by":"repo"');
     expect(html).toContain('aria-current="page" class="active">Usage</a>');
+  });
+
+  it.each([
+    ["5", 5],
+    ["0", 2],
+  ])("configures the page poll from interval=%s", async (interval, seconds) => {
+    const handle = await startUsageServer(vi.fn(async () => usageResult));
+
+    const response = await sessionFetch(handle)(`${handle.baseUrl}/usage?interval=${interval}`);
+    const html = await response.text();
+    const options = /startUsagePage\((\{.*?\}),usageEnvironment\)/.exec(html)?.[1];
+    if (!options) throw new Error("usage page options are missing");
+
+    expect(normalizeUsageInterval((JSON.parse(options) as { interval: unknown }).interval)).toBe(seconds);
   });
 
   it.each([

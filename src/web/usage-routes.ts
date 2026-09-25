@@ -58,6 +58,7 @@ export function createUsageRoutes(options: UsageRoutesOptions): WebRoute[] {
             until: search.get("until") ?? options.page?.filters?.until,
           },
           by: (search.get("by") as UsagePageOptions["by"]) ?? options.page?.by,
+          interval: search.get("interval") ?? options.page?.interval,
         }));
       },
     },

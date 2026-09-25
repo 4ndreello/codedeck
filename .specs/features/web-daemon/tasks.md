@@ -230,12 +230,13 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `/usage?interval=5` renders a page configured for a 5 second poll
-- [ ] `/usage?interval=0` renders the normalized 2 seconds
-- [ ] Gate check passes: `npx vitest run tests/usage-web.test.ts`; `npx tsc --noEmit`
+- [x] `/usage?interval=5` renders a page configured for a 5 second poll
+- [x] `/usage?interval=0` renders the normalized 2 seconds
+- [x] Gate check passes: `npx vitest run tests/usage-web.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(usage): Read the polling interval from the page URL`
 

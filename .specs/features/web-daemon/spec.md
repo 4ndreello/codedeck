@@ -300,7 +300,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-44 | P2: In-process fallback | Tasks | Pending |
 | WD-45 | P2: In-process fallback | Tasks | Pending |
 | WD-46 | P2: In-process fallback | Tasks | Pending |
-| WD-47 | Edge cases | Tasks | Pending |
+| WD-47 | Edge cases | Tasks | Verified |
 | WD-48 | Edge cases | Tasks | Pending |
 | WD-49 | Edge cases | Tasks | Pending |
 | WD-50 | Edge cases | Tasks | Pending |
