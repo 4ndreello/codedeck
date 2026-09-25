@@ -140,21 +140,21 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-06 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-07 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-08 | P1: Bind the console to a configured address | Tasks | Verified |
-| WH-09 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-09 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-10 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-11 | P1: Preserve the console's request protections | Tasks | Verified |
-| WH-12 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-12 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-13 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-14 | P2: Print usable links and bind errors | Tasks | Verified |
 | WH-15 | P2: Print usable links and bind errors | Tasks | Verified |
 | WH-16 | P2: Print usable links and bind errors | Tasks | Verified |
-| WH-17 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-18 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-19 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-20 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-21 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-22 | P1: Preserve the console's request protections | Tasks | Implemented |
-| WH-23 | P2: Print usable links and bind errors | Tasks | Implemented |
+| WH-17 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-18 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-19 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-20 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-21 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-22 | P1: Preserve the console's request protections | Tasks | Verified |
+| WH-23 | P2: Print usable links and bind errors | Tasks | Verified |
 
 **Coverage**: 23 requirements, 23 mapped to tasks, 0 unmapped.
 
