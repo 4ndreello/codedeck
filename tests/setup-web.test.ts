@@ -266,6 +266,26 @@ describe("setup catalog routes", () => {
 });
 
 describe("setup dry-run and apply routes", () => {
+  it("answers 500 when the mutation route rejects instead of leaving the promise unhandled", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const handle = await makeServer({
+        readConfig: () => { throw new Error("read boom"); },
+        configPath: () => { throw new Error("path boom"); },
+      });
+
+      const response = await post(handle, "/api/setup/apply", emptySelection);
+
+      expect(response.status).toBe(500);
+      expect(json(response)).toEqual({ error: "path boom" });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("returns the exact dry-run envelope and never writes config", async () => {
     const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
     const saveConfig = vi.fn(() => true);

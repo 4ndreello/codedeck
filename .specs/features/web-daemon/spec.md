@@ -280,7 +280,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-24 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-25 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-26 | P1: Web failures stay isolated | Tasks | Verified |
-| WD-27 | P1: Web failures stay isolated | Tasks | Pending |
+| WD-27 | P1: Web failures stay isolated | Tasks | Verified |
 | WD-28 | P1: Web failures stay isolated | Tasks | Pending |
 | WD-29 | P1: Long-lived server authentication | Tasks | Verified |
 | WD-30 | P1: Long-lived server authentication | Tasks | Verified |

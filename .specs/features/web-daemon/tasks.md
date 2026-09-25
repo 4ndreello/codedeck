@@ -142,12 +142,13 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] With an injected `saveConfig` that throws inside `mutationRoute`, `POST /api/setup/apply` answers 500 or the route's own error JSON, and no `unhandledRejection` fires (listener spy)
-- [ ] Existing setup web tests pass
-- [ ] Gate check passes: `npx vitest run tests/setup-web.test.ts`; `npx tsc --noEmit`
+- [x] With injected `readConfig` and `configPath` that both throw (so `mutationRoute` rejects outside its own try/catch; a throwing `saveConfig` is already caught there), `POST /api/setup/apply` answers 500 `{ error: "path boom" }` and no `unhandledRejection` fires (listener spy)
+- [x] Existing setup web tests pass
+- [x] Gate check passes: `npx vitest run tests/setup-web.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `fix(setup): Return setup route promises to the web dispatcher`
 
