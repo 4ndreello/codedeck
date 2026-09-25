@@ -204,7 +204,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-12 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-13 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-14 | P1: Console answers while the daemon runs | Tasks | Pending |
-| WA-15 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-15 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-16 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-17 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-18 | P2: Fixed, configurable port | Tasks | Pending |

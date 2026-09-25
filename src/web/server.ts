@@ -5,7 +5,9 @@ import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
 import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
-export const DEFAULT_WEB_PORT = 7777;
+import { DEFAULT_WEB_PORT } from "../config/web-port.js";
+
+export { DEFAULT_WEB_PORT };
 
 export interface WebRoute {
   path: string;

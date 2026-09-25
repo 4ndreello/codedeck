@@ -138,20 +138,21 @@ T8 → T9 → T10
 ### T4: Resolve the preferred web port from config
 
 **What**: `resolveWebPort(config)` returns `{ port, invalid? }`: `web.port` when an integer in 1-65535, else 7777, with `invalid` holding the raw value when `web.port` is present but bad; plus the `Ignoring invalid web.port in config: <JSON value>` formatter. Adds `web?: { port?: number }` to `RunAgentConfig`.
-**Where**: `src/config/web-port.ts` (new), `src/config/config.ts`
+**Where**: `src/config/web-port.ts` (new), `src/config/config.ts`; `src/web/server.ts` re-exports `DEFAULT_WEB_PORT` from it so daemon code can resolve the port without reaching `src/web`
 **Depends on**: None (previous phase)
 **Reuses**: `isJsonObject` style guards in `src/config/config.ts`
 **Requirement**: WA-15, WA-22
 
 **Done when**:
 
-- [ ] Absent `web` / absent `web.port` → 7777, no `invalid`
-- [ ] `web.port` 7788 → 7788; 1 and 65535 accepted
-- [ ] `"7788"`, 0, 65536, 7.5, `web: "x"` → 7777 with `invalid` set; message renders the JSON value
-- [ ] Gate check passes: `npx vitest run tests/web-port.test.ts`; `npx tsc --noEmit`
+- [x] Absent `web` / absent `web.port` → 7777, no `invalid`
+- [x] `web.port` 7788 → 7788; 1 and 65535 accepted
+- [x] `"7788"`, 0, 65536, 7.5, `web: "x"` → 7777 with `invalid` set; message renders the JSON value
+- [x] Gate check passes: `npx vitest run tests/web-port.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(config): Add the web.port setting`
 

@@ -59,6 +59,8 @@ export interface RunAgentConfig {
   models?: Partial<Record<AgentId, string>>;
   agents?: Partial<Record<Role, RoleBinding>>;
   orchestrator?: OrchestratorMode;
+  /** Web console settings; `port` is the preferred console port (default 7777). */
+  web?: { port?: number };
 }
 
 /**
