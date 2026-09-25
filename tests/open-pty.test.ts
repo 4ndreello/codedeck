@@ -49,6 +49,7 @@ function tempSessionFile(): string {
 afterEach(() => {
   for (const gate of inputGates.splice(0)) gate.dispose();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop()!, { recursive: true, force: true });
@@ -276,10 +277,10 @@ describe("watchNameSidecar", () => {
 
 describe("pty input gate", () => {
   const quietMs = 300;
-  const setup = () => {
+  const setup = (trace?: (event: Record<string, unknown>) => void) => {
     vi.useFakeTimers();
     const inject = vi.fn();
-    const gate = createInputGate({ inject });
+    const gate = createInputGate({ inject, trace });
     inputGates.push(gate);
     return { gate, inject };
   };
@@ -299,6 +300,123 @@ describe("pty input gate", () => {
     vi.advanceTimersByTime(quietMs - 1);
     expect(inject).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
+    expect(inject).toHaveBeenCalledOnce();
+    expect(inject).toHaveBeenCalledWith("/rename nome\r");
+  });
+
+  it("traces typed input as lowercase hex with the resulting gate state", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+
+    gate.observe(Buffer.from([0xaf]));
+
+    expect(events).toEqual([{
+      kind: "input",
+      chunk: "af",
+      ignored: null,
+      dirty: true,
+      guard: false,
+      pending: false,
+      used: false,
+    }]);
+  });
+
+  it("traces terminal focus reports as ignored focus input", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[I"));
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "input",
+      chunk: "1b5b49",
+      ignored: "focus",
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+    });
+  });
+
+  it("traces terminal replies as ignored reply input", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+    gate.offer("/rename nome\r");
+
+    gate.observe(Buffer.from("\u001b[?1;1R"));
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "input",
+      chunk: "1b5b3f313b3152",
+      ignored: "reply",
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+    });
+  });
+
+  it("traces accepted and rejected offers and the rename injection", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate, inject } = setup((event) => events.push(event));
+
+    gate.offer("/rename nome\r");
+    gate.offer("/rename outro\r");
+    expect(events).toEqual([{
+      kind: "offer",
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+      accepted: true,
+    }, {
+      kind: "offer",
+      dirty: false,
+      guard: false,
+      pending: true,
+      used: false,
+      accepted: false,
+    }]);
+
+    vi.advanceTimersByTime(quietMs);
+
+    expect(inject).toHaveBeenCalledOnce();
+    expect(events[events.length - 1]).toEqual({
+      kind: "inject",
+      dirty: false,
+      guard: false,
+      pending: false,
+      used: true,
+    });
+  });
+
+  it("traces a dirty hold with its reason", () => {
+    const events: Record<string, unknown>[] = [];
+    const { gate } = setup((event) => events.push(event));
+    gate.observe(Buffer.from("draft"));
+    gate.offer("/rename nome\r");
+
+    vi.advanceTimersByTime(quietMs);
+
+    expect(events[events.length - 1]).toEqual({
+      kind: "hold",
+      reason: "dirty",
+      dirty: true,
+      guard: false,
+      pending: true,
+      used: false,
+    });
+  });
+
+  it("injects the rename when the trace sink throws", () => {
+    const { gate, inject } = setup(() => {
+      throw new Error("trace failed");
+    });
+
+    gate.offer("/rename nome\r");
+    vi.advanceTimersByTime(quietMs);
+
     expect(inject).toHaveBeenCalledOnce();
     expect(inject).toHaveBeenCalledWith("/rename nome\r");
   });
@@ -636,6 +754,148 @@ describe("startPtySession", () => {
     const env = (spawnChild.mock.calls[0] as unknown[])[2] as { env: Record<string, string> };
     expect(env.env.CODEDECK_PTY_ROWS).toBe("41");
     expect(env.env.CODEDECK_PTY_COLS).toBe("137");
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+  ])("does not open a trace file when CODEDECK_PTY_DEBUG is %s", (_label, value) => {
+    vi.stubEnv("CODEDECK_PTY_DEBUG", value ?? "");
+    if (value === undefined) delete process.env.CODEDECK_PTY_DEBUG;
+    const open = vi.spyOn(fs, "openSync");
+    const { session } = start();
+
+    session.dispose();
+
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("does not create a trace file when spawning the pty fails", () => {
+    const sessionFile = tempSessionFile();
+    const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
+    const open = vi.spyOn(fs, "openSync");
+
+    expect(() => start({
+      debugFile,
+      spawnChild: (() => {
+        throw new Error("spawn failed");
+      }) as never,
+    })).toThrow("spawn failed");
+
+    expect(open).not.toHaveBeenCalled();
+    expect(fs.existsSync(debugFile)).toBe(false);
+  });
+
+  it("keeps forwarding input when the trace path is a directory", () => {
+    const sessionFile = tempSessionFile();
+    const traceDirectory = path.dirname(sessionFile);
+    const { session, terminal, written } = start({
+      debugFile: traceDirectory,
+      launch: { shim: SHIM, sessionFile },
+    });
+
+    expect(() => terminal.stdin.emit("data", Buffer.from("typed"))).not.toThrow();
+    session.dispose();
+
+    expect(written).toEqual(["typed"]);
+    expect(fs.readdirSync(traceDirectory)).toEqual([]);
+  });
+
+  it("restricts an existing trace file to mode 0600 before appending", () => {
+    const sessionFile = tempSessionFile();
+    const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
+    fs.writeFileSync(debugFile, "{\"old\":true}\n", "utf8");
+    fs.chmodSync(debugFile, 0o644);
+    const { session, terminal } = start({
+      debugFile,
+      launch: { shim: SHIM, sessionFile },
+    });
+
+    terminal.stdin.emit("data", Buffer.from("typed"));
+    session.dispose();
+
+    expect(fs.statSync(debugFile).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(debugFile, "utf8").startsWith("{\"old\":true}\n")).toBe(true);
+  });
+
+  it("ignores a relative CODEDECK_PTY_DEBUG path", () => {
+    const sessionFile = tempSessionFile();
+    const relativeFile = `${path.basename(path.dirname(sessionFile))}.ndjson`;
+    vi.stubEnv("CODEDECK_PTY_DEBUG", relativeFile);
+    const open = vi.spyOn(fs, "openSync");
+    const { session } = start({ launch: { shim: SHIM, sessionFile } });
+
+    session.dispose();
+
+    expect(open).not.toHaveBeenCalled();
+    expect(fs.existsSync(relativeFile)).toBe(false);
+  });
+
+  it("creates the trace file with mode 0600 and stamps each event", () => {
+    const sessionFile = tempSessionFile();
+    const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
+    const { session, terminal } = start({
+      debugFile,
+      launch: { shim: SHIM, sessionFile },
+    });
+    terminal.stdin.emit("data", Buffer.from("typed"));
+
+    session.dispose();
+
+    expect(fs.statSync(debugFile).mode & 0o777).toBe(0o600);
+    const lines = fs.readFileSync(debugFile, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toEqual({
+      kind: "input",
+      chunk: "7479706564",
+      ignored: null,
+      dirty: true,
+      guard: false,
+      pending: false,
+      used: false,
+      t: expect.any(Number),
+    });
+  });
+
+  it("traces the name delivered by the sidecar watcher", async () => {
+    const sessionFile = tempSessionFile();
+    const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
+    const { session } = start({
+      debugFile,
+      launch: {
+        shim: SHIM,
+        sessionFile,
+        keystrokesForName: (name: string) => `/rename ${name}\r`,
+      },
+    });
+
+    try {
+      fs.writeFileSync(`${sessionFile}.11111111-2222-3333-4444-555555555555.name`, "from-sidecar", "utf8");
+      await vi.waitFor(() => {
+        const events = fs.readFileSync(debugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+        expect(events).toContainEqual({ kind: "sidecar", name: "from-sidecar", t: expect.any(Number) });
+      });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it("keeps forwarding input when writing the trace fails", () => {
+    const sessionFile = tempSessionFile();
+    const debugFile = path.join(path.dirname(sessionFile), "trace.ndjson");
+    const writeTrace = vi.spyOn(fs, "writeSync").mockImplementation(() => {
+      throw new Error("trace failed");
+    });
+    const { session, terminal, written } = start({
+      debugFile,
+      launch: { shim: SHIM, sessionFile },
+    });
+
+    expect(() => terminal.stdin.emit("data", Buffer.from("typed"))).not.toThrow();
+    session.dispose();
+
+    expect(writeTrace).toHaveBeenCalledOnce();
+    expect(written).toEqual(["typed"]);
   });
 
   it("waits for the user's submitted line before typing a sidecar name", async () => {

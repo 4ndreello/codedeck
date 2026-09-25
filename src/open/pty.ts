@@ -42,6 +42,7 @@ const TERMINAL_REPLY = /^(?:(?:\u001bP[^\u001b]*\u001b\\)|(?:\u001b\][^\u001b\u0
 
 export interface InputGateOptions {
   inject: (keystrokes: string) => void;
+  trace?: (event: Record<string, unknown>) => void;
   setTimeout?: typeof globalThis.setTimeout;
   clearTimeout?: typeof globalThis.clearTimeout;
   now?: () => number;
@@ -52,11 +53,20 @@ export interface InputGateOptions {
  * can arrive while someone is typing, turning "Bora tamb" into
  * "Bora tamb/rename XPto xyz" and submitting both as one prompt. Hold the
  * rename until the input is clean and the user has been quiet for 300 ms.
+ * Set `CODEDECK_PTY_DEBUG` to an absolute path to append a trace of input bytes
+ * and gate decisions for one session.
  */
 export function createInputGate(options: InputGateOptions) {
   const schedule = options.setTimeout ?? globalThis.setTimeout;
   const cancel = options.clearTimeout ?? globalThis.clearTimeout;
   const now = options.now ?? Date.now;
+  const record = options.trace
+    ? (event: Record<string, unknown>): void => {
+        try {
+          options.trace?.(event);
+        } catch {}
+      }
+    : undefined;
   let dirty = false;
   let pending: string | undefined;
   let used = false;
@@ -71,6 +81,23 @@ export function createInputGate(options: InputGateOptions) {
   let lastActivity = now();
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const state = (): Record<string, unknown> => ({
+    dirty,
+    guard: guardNextEnter,
+    pending: pending !== undefined,
+    used,
+  });
+
+  const recordState = (kind: string, extra: Record<string, unknown> = {}): void => {
+    if (!record) return;
+    record({ kind, ...state(), ...extra });
+  };
+
+  const recordInput = (chunk: Buffer, ignored: "focus" | "reply" | null): void => {
+    if (!record) return;
+    record({ kind: "input", chunk: chunk.toString("hex"), ignored, ...state() });
+  };
+
   const clearTimer = (): void => {
     if (timer !== undefined) cancel(timer);
     timer = undefined;
@@ -78,11 +105,27 @@ export function createInputGate(options: InputGateOptions) {
 
   const tryInject = (): void => {
     timer = undefined;
-    if (disposed || used || pending === undefined || dirty) return;
+    if (disposed) {
+      recordState("hold", { reason: "disposed" });
+      return;
+    }
+    if (used) {
+      recordState("hold", { reason: "used" });
+      return;
+    }
+    if (pending === undefined) {
+      recordState("hold", { reason: "no-pending" });
+      return;
+    }
+    if (dirty) {
+      recordState("hold", { reason: "dirty" });
+      return;
+    }
     used = true;
     const keystrokes = pending;
     pending = undefined;
     options.inject(keystrokes);
+    recordState("inject");
   };
 
   const scheduleQuiet = (): void => {
@@ -196,21 +239,29 @@ export function createInputGate(options: InputGateOptions) {
 
   return {
     observe(chunk: Buffer): void {
-      if (
-        disposed ||
-        chunk.equals(Buffer.from("\u001b[I")) ||
-        chunk.equals(Buffer.from("\u001b[O")) ||
-        TERMINAL_REPLY.test(chunk.toString("latin1"))
-      ) return;
+      if (disposed) return;
+      if (chunk.equals(Buffer.from("\u001b[I")) || chunk.equals(Buffer.from("\u001b[O"))) {
+        recordInput(chunk, "focus");
+        return;
+      }
+      if (TERMINAL_REPLY.test(chunk.toString("latin1"))) {
+        recordInput(chunk, "reply");
+        return;
+      }
       const observedAt = now();
       let hasActivity = false;
       for (const byte of chunk) hasActivity = observeByte(byte) || hasActivity;
       if (hasActivity) lastActivity = observedAt;
+      recordInput(chunk, null);
       scheduleQuiet();
     },
     offer(keystrokes: string): void {
-      if (disposed || used || pending !== undefined) return;
+      if (disposed || used || pending !== undefined) {
+        recordState("offer", { accepted: false });
+        return;
+      }
       pending = keystrokes;
+      recordState("offer", { accepted: true });
       scheduleQuiet();
     },
     dispose(): void {
@@ -397,6 +448,7 @@ export interface PtyStartOptions {
   launch: PtyLaunch;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  debugFile?: string;
   spawnChild?: typeof nodeSpawn;
   stdin?: NodeJS.ReadStream;
   stdout?: NodeJS.WriteStream;
@@ -415,6 +467,16 @@ export interface PtySession {
 }
 
 export function startPtySession(options: PtyStartOptions): PtySession {
+  const startedAt = process.hrtime.bigint();
+  const debugFile = options.debugFile ?? process.env.CODEDECK_PTY_DEBUG;
+  let traceFd: number | undefined;
+  const closeTrace = (): void => {
+    if (traceFd === undefined) return;
+    try {
+      fs.closeSync(traceFd);
+    } catch {}
+    traceFd = undefined;
+  };
   const spawnChild = options.spawnChild ?? nodeSpawn;
   const stdin = options.stdin ?? process.stdin;
   const stdout = options.stdout ?? process.stdout;
@@ -446,6 +508,31 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  if (debugFile && path.isAbsolute(debugFile)) {
+    try {
+      traceFd = fs.openSync(
+        debugFile,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NONBLOCK,
+        0o600,
+      );
+      if (!fs.fstatSync(traceFd).isFile()) closeTrace();
+      else fs.fchmodSync(traceFd, 0o600);
+    } catch {
+      closeTrace();
+    }
+  }
+  const trace = traceFd === undefined
+    ? undefined
+    : (event: Record<string, unknown>): void => {
+        if (traceFd === undefined) return;
+        try {
+          const t = Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
+          fs.writeSync(traceFd, `${JSON.stringify({ ...event, t })}\n`);
+        } catch {
+          closeTrace();
+        }
+      };
+
   // Raw mode makes the parent a transparent wire: Ctrl+C stops being a signal
   // here and becomes the byte the inner pty's line discipline interprets,
   // exactly as it would in a terminal talking to Claude Code directly.
@@ -466,7 +553,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   const inject = (keystrokes: string): void => {
     write(keystrokes);
   };
-  const gate = createInputGate({ inject });
+  const gate = createInputGate({ inject, trace });
 
   const forward = (chunk: Buffer): void => {
     gate.observe(chunk);
@@ -506,6 +593,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
   const keystrokesForName = options.launch.keystrokesForName;
   const stopWatching = keystrokesForName
     ? watchNameSidecar(options.launch.sessionFile, (name) => {
+        trace?.({ kind: "sidecar", name });
         const keystrokes = keystrokesForName(name);
         if (keystrokes) gate.offer(keystrokes);
       })
@@ -520,6 +608,7 @@ export function startPtySession(options: PtyStartOptions): PtySession {
     if (stdin.isTTY) stdin.setRawMode(wasRaw);
     stdin.pause();
     connection?.destroy();
+    closeTrace();
     try {
       fs.rmSync(control, { force: true });
     } catch {}

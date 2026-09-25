@@ -105,6 +105,19 @@ to own the terminal.
   half only Claude Code can answer, which is that a queued `/rename` executes
   as a command rather than reaching the model as a prompt.
 
+### Block D: the trace
+
+- WHERE `CODEDECK_PTY_DEBUG` is set to a non-empty absolute path in the environment `codedeck open` runs under, the wrapper SHALL append one JSON object per line (NDJSON) to that file.
+- WHEN the gate observes a stdin chunk, THEN the trace SHALL record `kind: "input"`, the chunk as lowercase hex, whether it was ignored as a focus report or terminal reply (`ignored: "focus" | "reply" | null`), and the gate state after it (`dirty`, `guard`, `pending`, `used`).
+- WHEN a name is offered to the gate, THEN the trace SHALL record `kind: "offer"` with the gate state.
+- WHEN the gate types the rename, THEN the trace SHALL record `kind: "inject"`.
+- WHEN a quiet timer fires and the gate declines to inject, THEN the trace SHALL record `kind: "hold"` with the reason (`dirty`, `used`, `no-pending`, or `disposed`).
+- WHEN the sidecar watcher delivers a name, THEN the trace SHALL record `kind: "sidecar"` with the name.
+- Every trace line SHALL carry `t`, milliseconds since the pty session started.
+- The trace file SHALL be created with mode 0600, because it holds every keystroke the user types.
+- WHERE `CODEDECK_PTY_DEBUG` is unset or empty, no file SHALL be created and the gate SHALL behave exactly as today.
+- IF writing the trace fails, THEN the session SHALL continue unaffected (a trace never costs the session).
+
 ## Out of scope
 
 - `codedeck run` and any other non-interactive launch: there is no TUI to type
