@@ -230,6 +230,30 @@ PTY session, a `Client` surface that seeded its state during render did not
 keep state across renders. That was observed. Why is a grounded hypothesis,
 the render-time seeding, not a proven fact.
 
+### Timer primitives in a hooks module
+
+Probed on 2026-09-25 in Claude Code 2.1.282, in a live tmux PTY with
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. Both `setTimeout` and `setInterval`
+were functions in the module realm. A one-shot timeout and a one-second
+interval changed the rendered button without input. Their callbacks called
+`$.ui.invalidate("ui.render")` through `$` captured earlier in `session.start`.
+The invalidation count advanced from 12 to 15 over three seconds, with no
+caught errors and no `hook skipped` or `refused` text.
+
+The button labels from the two captures, with terminal padding omitted, were:
+
+```
+[ 1 working  [probe function/function t1 i11 c12 e0] ]
+[ 1 working  [probe function/function t1 i14 c15 e0] ]
+```
+
+Here `t` counts timeout callbacks, `i` interval callbacks, `c` successful
+captured-handle invalidations, and `e` caught errors. This proves timer
+callbacks can invalidate a render with a `$` captured by an earlier hook.
+The one-second callback invalidates the UI; a separate refresh request runs no
+more than once every five seconds and uses the existing refresh helper, which
+may execute `codedeck ps`.
+
 ### process.run
 
 `$.process.run(argv, init?)`. **Both arguments are positional**, and this is

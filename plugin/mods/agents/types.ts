@@ -20,6 +20,7 @@ export interface SessionRow {
   effort?: string;
   status?: string;
   updatedAt?: string;
+  createdAt?: string;
 }
 
 /**
@@ -35,6 +36,7 @@ export interface PaneRow {
   effort?: string;
   name: string;
   updatedAt?: string;
+  createdAt?: string;
   /**
    * Id of the card this one hangs from, or undefined when it hangs from the
    * run root. A parent outside the run (or a legacy row with none) is folded

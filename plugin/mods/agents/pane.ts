@@ -114,6 +114,7 @@ function toPaneRow(row: SessionRow, workers: ReadonlySet<string>): PaneRow {
     effort: text(row.effort) || undefined,
     name: row.name || EMPTY_CELL,
     updatedAt: iso,
+    createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
     parentId: parent !== "" && parent !== row.id && workers.has(parent) ? parent : undefined,
     role: text(row.role) || undefined,
   };
@@ -219,6 +220,32 @@ function age(iso: unknown, now: number): string {
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h`;
+}
+
+/** Stable elapsed-time text for a card detail line. */
+export function elapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const paddedSeconds = String(seconds % 60).padStart(2, "0");
+  if (minutes < 60) return `${minutes}m ${paddedSeconds}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m ${paddedSeconds}s`;
+}
+
+function cardElapsed(row: Partial<PaneRow>, now: number): string {
+  if (typeof row.createdAt !== "string") return "";
+  const createdAt = Date.parse(row.createdAt);
+  if (!Number.isFinite(createdAt)) return "";
+
+  const live = LIVE.has(row.status ?? "") || WAIT.has(row.status ?? "");
+  const endAt = live
+    ? now
+    : typeof row.updatedAt === "string"
+      ? Date.parse(row.updatedAt)
+      : Number.NaN;
+  if (!Number.isFinite(endAt)) return "";
+  return elapsed(endAt - createdAt);
 }
 
 function count(value: unknown): number {
@@ -348,7 +375,7 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
     return [
       ` ${glyph(row.agent)} ${cell(row.id)}  ${role ? `${role} · ` : ""}${harnessLabel(row.agent)}`,
       `   ${cell(row.name)}`,
-      detailLine(row.model, row.effort, statusWord(status), age(row.updatedAt, now), inner),
+      detailLine(row.model, row.effort, statusWord(status), cardElapsed(row, now), inner),
     ];
   };
 
