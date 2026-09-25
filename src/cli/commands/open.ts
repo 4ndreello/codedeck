@@ -650,6 +650,7 @@ export function registerOpenCommand(program: Command): void {
         ...(openEffort !== undefined ? { effort: openEffort } : {}),
         cwd,
         name: role,
+        role,
         ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
       });
       const runId = adoptRes.session.id;
@@ -750,6 +751,7 @@ export function registerOpenCommand(program: Command): void {
               cwd: openCwd,
               envExtra: {
                 CODEDECK_RUN_ID: runId,
+                CODEDECK_SESSION_ID: runId,
                 OPENCODE_CONFIG_CONTENT: buildInlineConfig(
                   pluginDir,
                   role,
@@ -848,7 +850,7 @@ export function registerOpenCommand(program: Command): void {
             buildCodexOpenArgs(role, { ...opts, model, effort }, pluginDir, invocation.passthrough, openCwd, orchestratorMode),
             {
               cwd: openCwd,
-              envExtra: { CODEDECK_RUN_ID: runId },
+              envExtra: { CODEDECK_RUN_ID: runId, CODEDECK_SESSION_ID: runId },
               sessionFile,
               model,
               notFoundMessage: CODEX_NOT_FOUND,
@@ -926,7 +928,7 @@ export function registerOpenCommand(program: Command): void {
           closeClaude,
           undefined,
           undefined,
-          { CODEDECK_RUN_ID: runId },
+          { CODEDECK_RUN_ID: runId, CODEDECK_SESSION_ID: runId },
           ptyLaunchForHarness("claude", pluginDir, sessionFile, opts, config, interactive),
           (child) => {
             if (child.pid) {

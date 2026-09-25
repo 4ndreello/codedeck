@@ -15,6 +15,15 @@ export function runIdFromEnvironment(env: NodeJS.ProcessEnv = process.env): stri
   return env.CODEDECK_RUN_ID || null;
 }
 
+/**
+ * The session dispatching this run. A worker's harness carries its own id in
+ * CODEDECK_SESSION_ID, so a reviewer a worker starts hangs off that worker.
+ * An `open` session is the run root and its id is CODEDECK_RUN_ID.
+ */
+export function parentIdFromEnvironment(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.CODEDECK_SESSION_ID || env.CODEDECK_RUN_ID || null;
+}
+
 export function registerRunCommand(program: Command): void {
   program
     .command("run")
@@ -189,6 +198,8 @@ Resume with: ${getCliName()} send <id> "continue"
       const params: any = {
         prompt: rolePrompt,
         runId: runIdFromEnvironment(),
+        parentId: parentIdFromEnvironment(),
+        role: parseRole(opts.role),
         agent,
         model,
         effort,

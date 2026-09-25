@@ -70,7 +70,9 @@ export class Database {
         fast INTEGER NOT NULL DEFAULT 0,
         sandbox TEXT,
         dangerously_bypass_approvals_and_sandbox INTEGER,
-        origin TEXT
+        origin TEXT,
+        parent_id TEXT,
+        role TEXT
       );
 
       CREATE TABLE IF NOT EXISTS events (
@@ -168,6 +170,8 @@ export class Database {
       ["origin", "TEXT"],
       ["pending_message", "TEXT"],
       ["pending_at", "TEXT"],
+      ["parent_id", "TEXT"],
+      ["role", "TEXT"],
     ];
     for (const [name, type] of additions) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);

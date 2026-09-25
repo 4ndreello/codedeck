@@ -33,6 +33,9 @@ export type RequestMethod =
 export interface RunOptions {
   prompt: string;
   runId?: string | null;
+  // Dispatching session, read by `run` from CODEDECK_SESSION_ID.
+  parentId?: string | null;
+  role?: string | null;
   agent?: AgentId;
   model?: string;
   effort?: ReasoningEffort;
@@ -59,6 +62,7 @@ export interface AdoptSessionRequest {
     effort?: ReasoningEffort;
     cwd: string;
     name?: string;
+    role?: string;
     worktree?: string;
     branch?: string;
     baseCommit?: string;

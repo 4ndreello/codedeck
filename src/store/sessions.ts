@@ -35,6 +35,8 @@ export interface SessionRow {
   log_offset: number | null;
   stderr_offset: number | null;
   origin: string | null;
+  parent_id: string | null;
+  role: string | null;
   pending_message: string | null;
   pending_at: string | null;
 }
@@ -66,6 +68,8 @@ function rowToSession(row: SessionRow): Session {
     id: row.id,
     runId: row.run_id ?? undefined,
     origin: (row.origin as Session["origin"]) ?? undefined,
+    parentId: row.parent_id ?? undefined,
+    role: row.role ?? undefined,
     name: row.name ?? undefined,
     agent: row.agent as AgentId,
     nativeSessionId: row.native_session_id ?? undefined,
@@ -133,12 +137,12 @@ export class SessionStore {
         pid_start_time, created_at, updated_at, completed_at,
         usage_input_tokens, usage_output_tokens, usage_cached_tokens, usage_cost,
         last_event, effort, fast, sandbox, dangerously_bypass_approvals_and_sandbox, failure, log_offset, stderr_offset,
-        run_id, origin, pending_message, pending_at
+        run_id, origin, pending_message, pending_at, parent_id, role
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?
+        ?, ?, ?, ?
       )
     `);
     stmt.run(
@@ -174,6 +178,8 @@ export class SessionStore {
       session.origin ?? null,
       session.pendingMessage ?? null,
       session.pendingAt ?? null,
+      session.parentId ?? null,
+      session.role ?? null,
     );
   }
 

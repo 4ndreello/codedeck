@@ -258,12 +258,12 @@ describe("formatPane", () => {
     expect(at21.join("\n")).not.toContain("cNew");
     expect(at21.join("\n")).toContain("+2 hidden agents");
 
-    // At 20 the live cards still win, and the hidden line gives way.
-    const at20 = formatPane(snap, 40, 20);
-    expect(at20).toHaveLength(20);
-    expect(at20.join("\n")).toContain("wNew");
-    expect(at20.join("\n")).toContain("wOld");
-    expect(at20.join("\n")).not.toContain("hidden agents");
+    // At 18 the live cards still win, and the hidden line gives way.
+    const at18 = formatPane(snap, 40, 18);
+    expect(at18).toHaveLength(18);
+    expect(at18.join("\n")).toContain("wNew");
+    expect(at18.join("\n")).toContain("wOld");
+    expect(at18.join("\n")).not.toContain("hidden agents");
   });
 
   it("keeps history counts in the summary and reports dropped blocks when useful (rule 6)", () => {
@@ -556,9 +556,12 @@ describe("formatPane", () => {
       { id: "c3", status: "stopped", agent: "codex", name: "three" },
     ];
     const lines = formatPane(snapshot({ rows, hidden: 0, total: 4 }), 89);
-    expect(lines.filter((l) => l === STEM89)).toHaveLength(1);
-    expect(lines.join("\n")).not.toContain(STEM89 + "\n" + STEM89);
-    expect(lines.join("\n")).toContain("HISTORY · 3 finished");
+    // History sits under the tree after one blank row; no rail runs into it.
+    expect(lines.filter((l) => l === STEM89)).toHaveLength(0);
+    expect(lines.filter((l) => l.includes("HISTORY"))).toHaveLength(1);
+    const at = lines.findIndex((l) => l.includes("HISTORY · 3 finished"));
+    expect(lines[at - 1]).toBe("│" + " ".repeat(87) + "│");
+    expect(lines[at - 2]).toContain("└──");
   });
 
   it("draws history as the root block with no stem at all (mandatory)", () => {
@@ -584,12 +587,12 @@ describe("formatPane", () => {
     expect(joined16).toContain("+2 hidden agents");
     expect(joined16).not.toContain("a1");
     expect(joined16).not.toContain("b2");
-    // At 13 rows the root stays, but the hidden line gives way.
-    const at13 = formatPane(snapshot(), 40, 13);
-    expect(at13).toHaveLength(13);
-    const joined13 = at13.join("\n");
-    expect(joined13).toContain("Orchestrator");
-    expect(joined13).not.toContain("hidden agents");
+    // At 12 rows the root stays, but the hidden line gives way.
+    const at12 = formatPane(snapshot(), 40, 12);
+    expect(at12).toHaveLength(12);
+    const joined12 = at12.join("\n");
+    expect(joined12).toContain("Orchestrator");
+    expect(joined12).not.toContain("hidden agents");
   });
 
   it("renders the same 19 workers at 12 rows as header, footer and hidden line (mandatory)", () => {
@@ -655,5 +658,128 @@ describe("paneButtonLabel", () => {
   it("survives a snapshot the daemon mangled, because a throw drops the drawing", () => {
     const broken = { rows: "nope", total: "many" } as unknown as PaneSnapshot;
     expect(paneButtonLabel(broken)).toBe("no active agents");
+  });
+});
+
+describe("lineage", () => {
+  const at = (minutes: number) => new Date(Date.parse("2026-09-19T12:00:00.000Z") + minutes * 60000).toISOString();
+
+  it("keeps a parent edge only to a worker the snapshot kept", () => {
+    const snap = selectPane(
+      [
+        session({ id: RUN, origin: "open", role: "general" }),
+        session({ id: "g1", parentId: RUN, role: "general", status: "working", updatedAt: at(1) }),
+        session({ id: "r1", parentId: "g1", role: "reviewer", status: "working", updatedAt: at(2) }),
+        session({ id: "x1", parentId: "elsewhere", updatedAt: at(0) }),
+        session({ id: "o1", updatedAt: at(-1) }),
+      ],
+      RUN,
+    );
+    const byId = Object.fromEntries(snap.rows.map((row) => [row.id, row]));
+    expect(snap.orchestrator?.role).toBe("general");
+    expect(byId.g1.parentId).toBeUndefined();
+    expect(byId.r1.parentId).toBe("g1");
+    expect(byId.r1.role).toBe("reviewer");
+    expect(byId.x1.parentId).toBeUndefined();
+    expect(byId.o1.parentId).toBeUndefined();
+    // A budget that cuts the parent folds the child onto the root.
+    const cut = selectPane(
+      [
+        session({ id: "g1", status: "working", updatedAt: at(1) }),
+        session({ id: "r1", parentId: "g1", status: "working", updatedAt: at(2) }),
+      ],
+      RUN,
+      1,
+    );
+    expect(cut.rows.map((row) => [row.id, row.parentId])).toEqual([["r1", undefined]]);
+  });
+
+  it("draws a reviewer under the worker that dispatched it, not under the root", () => {
+    const lines = formatPane(
+      snapshot({
+        orchestrator: { agent: "claude", role: "general" },
+        rows: [
+          { id: "r1", status: "working", agent: "claude", name: "review", role: "reviewer", parentId: "g1" },
+          { id: "g2", status: "working", agent: "codex", name: "second", role: "general" },
+          { id: "g1", status: "working", agent: "claude", name: "first", role: "general" },
+        ],
+        total: 4,
+      }),
+      80,
+    );
+    expectCleanWidth(lines, 80);
+    const row = (needle: string) => lines.findIndex((l) => l.includes(needle));
+    expect(lines[row("General")]).toMatch(/^│  │ . General/);
+    expect(lines.some((l) => l.includes("Orchestrator"))).toBe(false);
+    // Root children open at depth 1; the reviewer opens one level deeper,
+    // right under its own parent.
+    expect(lines[row("g2")]).toMatch(/^│  {3}├─┤ .* g2 {2}General · Codex/);
+    expect(lines[row("g1")]).toMatch(/^│  {3}└─┤ .* g1 {2}General · Claude/);
+    expect(lines[row("r1")]).toMatch(/^│  {7}└─┤ .* r1 {2}Reviewer · Claude/);
+    expect(row("g1")).toBeLessThan(row("r1"));
+    // The parent's bottom edge carries the tee the reviewer hangs from.
+    expect(lines[row("r1") - 2]).toMatch(/^│  {5}└─┬─+┘/);
+  });
+
+  it("keeps a finished worker on screen while its reviewer is still live", () => {
+    const lines = formatPane(
+      snapshot({
+        rows: [
+          { id: "r1", status: "working", agent: "claude", name: "review", parentId: "g1" },
+          { id: "g1", status: "completed", agent: "claude", name: "impl" },
+        ],
+        total: 3,
+      }),
+      80,
+    );
+    const joined = lines.join("\n");
+    expect(joined).toMatch(/g1 .*\n.*impl.*\n.*Completed/);
+    expect(joined).not.toContain("HISTORY");
+  });
+
+  it("names the dispatching worker next to a finished child in history", () => {
+    const lines = formatPane(
+      snapshot({
+        rows: [
+          { id: "r1", status: "completed", agent: "claude", name: "review", parentId: "g1" },
+          { id: "g1", status: "completed", agent: "claude", name: "impl" },
+        ],
+        total: 3,
+      }),
+      80,
+    );
+    expect(lines.some((l) => l.includes("r1  review ← g1"))).toBe(true);
+  });
+
+  it("evicts a child before its parent so the tree stays connected", () => {
+    const snap = snapshot({
+      rows: [
+        { id: "r1", status: "working", agent: "claude", name: "review", parentId: "g1", updatedAt: at(5) },
+        { id: "g1", status: "working", agent: "claude", name: "impl", updatedAt: at(-60) },
+      ],
+      total: 3,
+    });
+    // Frame 8 + root 4 + g1 5: room for one worker card, not two.
+    const lines = formatPane(snap, 40, 18);
+    const joined = lines.join("\n");
+    expect(joined).toContain("g1");
+    expect(joined).not.toContain("r1");
+    expect(joined).toContain("+1 hidden agents");
+  });
+
+  it("survives a parent cycle", () => {
+    const lines = formatPane(
+      snapshot({
+        rows: [
+          { id: "a", status: "working", agent: "claude", name: "a", parentId: "b" },
+          { id: "b", status: "working", agent: "claude", name: "b", parentId: "a" },
+        ],
+        total: 3,
+      }),
+      60,
+    );
+    expectCleanWidth(lines, 60);
+    expect(lines.some((l) => l.includes(" a  Claude"))).toBe(true);
+    expect(lines.some((l) => l.includes(" b  Claude"))).toBe(true);
   });
 });
