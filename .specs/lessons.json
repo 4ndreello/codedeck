@@ -3,7 +3,7 @@
   "promote_threshold": 2,
   "window_days": 45,
   "quarantine_threshold": 2,
-  "next_id": 6,
+  "next_id": 8,
   "lessons": [
     {
       "id": "L-001",
@@ -95,6 +95,42 @@
       ],
       "created": "2026-09-25T00:53:08Z",
       "last_seen": "2026-09-25T00:53:08Z"
+    },
+    {
+      "id": "L-006",
+      "key": "surviving_mutant::assert the exact response body not only the status code on every rejection path whose message the spec pins",
+      "text": "Assert the exact response body, not only the status code, on every rejection path whose message the spec pins",
+      "signal": "surviving_mutant",
+      "scope": "web-security",
+      "status": "candidate",
+      "features": [
+        "web-access"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md M9, M28 (src/web/security.ts:47,52; tests/web-security.test.ts:103,242) (web-security)"
+      ],
+      "created": "2026-09-25T01:54:46Z",
+      "last_seen": "2026-09-25T01:54:46Z"
+    },
+    {
+      "id": "L-007",
+      "key": "surviving_mutant::test the process entry block that wires argv into the main function not only the argv parser and the main function separately",
+      "text": "Test the process entry block that wires argv into the main function, not only the argv parser and the main function separately",
+      "signal": "surviving_mutant",
+      "scope": "entrypoints",
+      "status": "candidate",
+      "features": [
+        "web-access"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "validation.md M12 (src/web/child.ts:84) (entrypoints)"
+      ],
+      "created": "2026-09-25T01:54:46Z",
+      "last_seen": "2026-09-25T01:54:46Z"
     }
   ]
 }

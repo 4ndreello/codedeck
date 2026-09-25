@@ -44,6 +44,18 @@ Seen once or not yet corroborated. Tracked, not trusted.
 - evidence: validation.md round 2 M27 (tests/web-supervisor.test.ts:287) (import-boundary)
 - last seen: 2026-09-25T00:53:08Z
 
+### L-006 - Assert the exact response body, not only the status code, on every rejection path whose message the spec pins
+- signal: `surviving_mutant` · recurrence: 1 feature(s) · scope: `web-security` · harmful: 0
+- features: web-access
+- evidence: validation.md M9, M28 (src/web/security.ts:47,52; tests/web-security.test.ts:103,242) (web-security)
+- last seen: 2026-09-25T01:54:46Z
+
+### L-007 - Test the process entry block that wires argv into the main function, not only the argv parser and the main function separately
+- signal: `surviving_mutant` · recurrence: 1 feature(s) · scope: `entrypoints` · harmful: 0
+- features: web-access
+- evidence: validation.md M12 (src/web/child.ts:84) (entrypoints)
+- last seen: 2026-09-25T01:54:46Z
+
 ## Quarantined (failed when applied - ignore)
 
 A confirmed lesson that recurred alongside failure. Kept for the maintainer to review.
