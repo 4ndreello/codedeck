@@ -220,15 +220,16 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] `autostartWeb()` calls `ensure` once with `{ preferredPort }` and no `port`/`entry`/`build`
-- [ ] Rejection → `daemon.log` gets `web autostart failed: <message>`; later `web.ensure` requests still work
-- [ ] Invalid `web.port` in the test config → the WA-22 line in `daemon.log`
-- [ ] `start()` alone never calls the supervisor (seam test)
-- [ ] The `--daemon` entry calls `autostartWeb()` after `start()` (static check of the entry block)
-- [ ] Gate check passes: `npx vitest run tests/daemon-web.test.ts`; `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
+- [x] `autostartWeb()` calls `ensure` once with `{ preferredPort }` and no `port`/`entry`/`build`
+- [x] Rejection → `daemon.log` gets `web autostart failed: <message>`; later `web.ensure` requests still work
+- [x] Invalid `web.port` in the test config → the WA-22 line in `daemon.log`
+- [x] `start()` alone never calls the supervisor (seam test)
+- [x] The `--daemon` entry calls `autostartWeb()` after `start()` (static check of the entry block)
+- [x] Gate check passes: `npx vitest run tests/daemon-web.test.ts`; `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `feat(daemon): Start the web console with the daemon`
 

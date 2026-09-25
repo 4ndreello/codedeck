@@ -200,10 +200,10 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-08 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-09 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-10 | P1: Bookmark survives restarts | Tasks | Verified |
-| WA-11 | P1: Console answers while the daemon runs | Tasks | Pending |
-| WA-12 | P1: Console answers while the daemon runs | Tasks | Pending |
+| WA-11 | P1: Console answers while the daemon runs | Tasks | Verified |
+| WA-12 | P1: Console answers while the daemon runs | Tasks | Verified |
 | WA-13 | P1: Console answers while the daemon runs | Tasks | Verified |
-| WA-14 | P1: Console answers while the daemon runs | Tasks | Pending |
+| WA-14 | P1: Console answers while the daemon runs | Tasks | Verified |
 | WA-15 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-16 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-17 | P2: Fixed, configurable port | Tasks | Pending |

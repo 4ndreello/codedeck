@@ -22,6 +22,7 @@ import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } fr
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
+import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
 import { classifyFailure, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { parseRole } from "../core/roles.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
@@ -1383,9 +1384,8 @@ class Daemon {
 
       case "web.ensure": {
         const p = (params || {}) as WebEnsureParams;
-        this.web ??= new WebSupervisor({ log: appendDaemonLog, spawnChild: this.spawnWebChild });
         try {
-          send({ result: await this.web.ensure(p) });
+          send({ result: await this.webHost().ensure(p) });
         } catch (error) {
           if (error instanceof WebEnsureError) {
             send({ error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) } });
@@ -1433,6 +1433,23 @@ class Daemon {
         // keep socket open a moment then?
       }
     }
+  }
+
+  private webHost(): WebHost {
+    this.web ??= new WebSupervisor({ log: appendDaemonLog, spawnChild: this.spawnWebChild });
+    return this.web;
+  }
+
+  /**
+   * Start the web console with the daemon so its address answers without a
+   * prior web command. Not awaited: IPC never waits on the web stack.
+   */
+  autostartWeb(): void {
+    const { port, invalid } = resolveWebPort(loadConfig());
+    if (invalid !== undefined) appendDaemonLog(invalidWebPortMessage(invalid));
+    this.webHost()
+      .ensure({ preferredPort: port })
+      .catch((error: unknown) => appendDaemonLog(`web autostart failed: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async startDriverForSession(sessionId: string, prompt: string, model?: string): Promise<void> {
@@ -2011,10 +2028,13 @@ class Daemon {
 // Entry
 if (process.argv.includes("--daemon")) {
   const d = new Daemon();
-  d.start().catch((e) => {
-    console.error("[daemon] failed to start", e);
-    process.exit(1);
-  });
+  d.start().then(
+    () => d.autostartWeb(),
+    (e) => {
+      console.error("[daemon] failed to start", e);
+      process.exit(1);
+    },
+  );
 }
 
 export { Daemon };
