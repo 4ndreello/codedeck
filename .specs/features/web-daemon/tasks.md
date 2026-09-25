@@ -284,12 +284,13 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] Newest `.js` mtime under a temp tree, nested dirs included, non-`.js` ignored; `"0"` for an empty dir
-- [ ] `distRootFor("file:///x/dist/daemon/daemon.js")` → `/x/dist`
-- [ ] Gate check passes: `npx vitest run tests/build-id.test.ts`; `npx tsc --noEmit`
+- [x] Newest `.js` mtime under a temp tree, nested dirs included, non-`.js` ignored; `"0"` for an empty dir
+- [x] `distRootFor("file:///x/dist/daemon/daemon.js")` → `/x/dist`
+- [x] Gate check passes: `npx vitest run tests/build-id.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(daemon): Add a build identity from the dist tree`
 
