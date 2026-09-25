@@ -5,9 +5,8 @@ import { buildClaudeArgs } from "../src/drivers/claude/driver.js";
 import { buildOmpArgs } from "../src/drivers/omp/driver.js";
 
 // Every harness exposes reasoning effort and (except Claude) an OpenAI service
-// tier, but the drivers only ever forwarded `--model`. These tests pin the flag
-// spellings measured against codex-cli 0.150.1, claude, and omp 18.0.7 — the
-// three CLIs disagree on every one of them.
+// tier, but the CLIs use different flags. Codex suppression flags were checked
+// against 0.156.1; the other spellings retain their earlier CLI measurements.
 
 const S = "test-session";
 const base = { sessionId: S, prompt: "do it", cwd: "/work" };
@@ -19,6 +18,12 @@ const hasPair = (args: readonly string[], flag: string, value: string) =>
   args.some((v, i) => v === flag && args[i + 1] === value);
 
 describe("buildCodexArgs", () => {
+  it("disables plugins on a new run before the prompt", () => {
+    const args = buildCodexArgs(base);
+    expect(hasPair(args, "--disable", "plugins")).toBe(true);
+    expect(args.indexOf("--disable")).toBeLessThan(args.indexOf(base.prompt));
+  });
+
   it("requests the workspace-write sandbox so the agent can edit files", () => {
     // Regression: without `-s`, codex falls back to its read-only default and
     // every patch is rejected with "writing is blocked by read-only sandbox"
@@ -43,8 +48,14 @@ describe("buildCodexArgs", () => {
   });
 
   it("uses only resume-compatible options on the resume path", () => {
-    const args = buildCodexArgs({ ...base, resumeSessionId: "thread-1", effort: "high" });
+    const args = buildCodexArgs(
+      { ...base, resumeSessionId: "thread-1", effort: "high" },
+      ["/host/resume/SKILL.md"],
+    );
     expect(args.slice(0, 3)).toEqual(["exec", "resume", "thread-1"]);
+    expect(hasPair(args, "--disable", "plugins")).toBe(true);
+    expect(args.indexOf("--disable")).toBeLessThan(args.indexOf(base.prompt));
+    expect(hasPair(args, "-c", 'skills.config=[{path="/host/resume/SKILL.md",enabled=false}]')).toBe(true);
     expect(args).not.toContain("-s");
     expect(args).not.toContain("-C");
     expect(args).toContain("--skip-git-repo-check");
@@ -63,9 +74,38 @@ describe("buildCodexArgs", () => {
     expect(hasPair(args, "-c", 'model_reasoning_effort="high"')).toBe(true);
     expect(hasPair(args, "-c", 'service_tier="priority"')).toBe(true);
   });
+
+  it("adds one skills.config override with JSON-escaped paths before the prompt", () => {
+    const args = buildCodexArgs(base, [
+      "/host/alpha/SKILL.md",
+      '/host/quote"and\\slash/SKILL.md',
+      "/host/del\x7fpath/SKILL.md",
+    ]);
+    const configValues = args.flatMap((arg, index) => (arg === "-c" ? [args[index + 1]] : []));
+
+    expect(configValues).toEqual([
+      'skills.config=[{path="/host/alpha/SKILL.md",enabled=false},{path="/host/quote\\"and\\\\slash/SKILL.md",enabled=false},{path="/host/del\\u007fpath/SKILL.md",enabled=false}]',
+    ]);
+    expect(args.indexOf("-c")).toBeLessThan(args.indexOf(base.prompt));
+  });
+
+  it("does not add skills.config when no host skills were discovered", () => {
+    const args = buildCodexArgs(base, []);
+    expect(args).not.toContain("-c");
+  });
 });
 
 describe("buildClaudeArgs", () => {
+  it("disables slash commands on a new run", () => {
+    expect(buildClaudeArgs(base)).toContain("--disable-slash-commands");
+  });
+
+  it("disables slash commands on a resume turn", () => {
+    const args = buildClaudeArgs({ ...base, resumeSessionId: "session-2" });
+    expect(args).toContain("--disable-slash-commands");
+    expect(hasPair(args, "--resume", "session-2")).toBe(true);
+  });
+
   it("passes effort as a first-class flag", () => {
     const args = buildClaudeArgs({ ...base, effort: "max" });
     expect(hasPair(args, "--effort", "max")).toBe(true);

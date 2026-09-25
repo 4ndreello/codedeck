@@ -12,6 +12,7 @@ import {
   roleBody,
   ROLES,
 } from "../src/core/roles.js";
+import { composeRunSection } from "../src/core/run-skills.js";
 
 function pluginWith(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
@@ -135,7 +136,7 @@ describe("composeRunPrompt", () => {
     });
 
     expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 
@@ -148,23 +149,38 @@ describe("composeRunPrompt", () => {
     fs.writeFileSync(path.join(dir, "agents", "auditor.md"), "---\nname: auditor\n---\n\nYou audit.\n");
 
     expect(composeRunPrompt(dir, "auditor", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 });
 
 describe("resolveRolePrompt", () => {
-  it("passes the prompt through when the flag was not given", () => {
-    const dir = pluginWith({ "auditor.md": "You audit.\n" });
+  it("adds the headless section and skill catalog when no role was given", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+    const skillPath = path.join(dir, "skills", "sample", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, "---\nname: sample\ndescription: Sample skill.\n---\n");
+    const section = composeRunSection(dir);
 
-    expect(resolveRolePrompt(dir, undefined, "check the diff")).toBe("check the diff");
+    expect(resolveRolePrompt(dir, undefined, "check the diff")).toBe(
+      `${section}\n\n---\n\ncheck the diff`,
+    );
+    expect(resolveRolePrompt(dir, undefined, "check the diff")).toContain("- sample: Sample skill.");
+    expect(fs.existsSync(path.join(dir, "ultra.md"))).toBe(false);
+  });
+
+  it("works without a skills directory or ultra.md when no role was given", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-roles-"));
+
+    expect(resolveRolePrompt(dir, undefined, "check the diff")).toContain("## Run instructions");
+    expect(resolveRolePrompt(dir, undefined, "check the diff")).toContain("\n\n---\n\ncheck the diff");
   });
 
   it("composes core plus the role when the flag names a real role", () => {
     const dir = pluginWith({ "auditor.md": "---\nname: auditor\n---\n\nYou audit.\n" });
 
     expect(resolveRolePrompt(dir, " AUDITOR ", "check the diff")).toBe(
-      "# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\ncheck the diff",
+      `# CodeDeck Ultra\n\nCore text.\n\n---\n\nYou audit.\n\n---\n\n${composeRunSection(dir)}\n\n---\n\ncheck the diff`,
     );
   });
 
