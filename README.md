@@ -92,7 +92,22 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck send <id> "<msg>"` | Continue a session (new turn) |
 | `npx codedeck stop <id>` | Graceful interrupt → SIGTERM → SIGKILL |
 | `npx codedeck diff <id> [--stat] [--json]` | Git diff against base commit |
+| `npx codedeck ui [--host <addr>] [--port <n>] [--no-open]` | Open the local web console |
 | `npx codedeck review [--port <n>] [--no-open]` | Open a local review of the current git changes |
+
+## Web console
+
+The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` to an IPv4 or IPv6 address to bind another interface, such as a Tailscale address:
+
+```json
+{
+  "web": {
+    "host": "100.101.102.103"
+  }
+}
+```
+
+`web.host` accepts IP addresses only. `codedeck ui --host <addr>` overrides the configured address for that launch. The CLI sends the selected address as the `host` parameter of `web.ensure`, and the daemon passes it to the child as `--host <addr>`. If `web.ensure` omits `host`, the supervisor uses `127.0.0.1`. A host change restarts the web child.
 
 ## Open
 

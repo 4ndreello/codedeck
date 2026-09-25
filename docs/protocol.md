@@ -44,9 +44,12 @@ o shell. Se o start junto com o daemon falhar, o `daemon.log` recebe
 
 Request:
 ```json
-{ "id": "w1", "method": "web.ensure", "params": { "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
+{ "id": "w1", "method": "web.ensure", "params": { "host": "100.101.102.103", "preferredPort": 7777, "build": "1790000000000", "entry": "/abs/dist/web/child.js" } }
 ```
 
+- `host` (opcional): endereço IP usado para escutar. Vem de `web.host` ou de
+  `codedeck ui --host <addr>`; sem esse campo, usa `127.0.0.1`. Se o endereço
+  diferir do filho atual, o supervisor encerra o filho e inicia outro.
 - `port` (opcional): porta explícita (`--port`). Só vale quando um filho
   precisa subir, e nunca cai para outra porta. Um filho já rodando é
   reaproveitado em qualquer porta.
@@ -83,7 +86,7 @@ Erros:
 
 | `code` | Quando | `details` |
 | --- | --- | --- |
-| `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on 127.0.0.1:<port>: ...` e sai com 1) | `{ "port": n }` |
+| `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on <host>:<port>: ...`, com IPv6 entre colchetes, e sai com 1) | `{ "port": n }` |
 | `WEB_START_FAILED` | o filho morreu antes do handshake, não respondeu em 5 s ou mandou um handshake inválido | |
 | `WEB_BAD_ENTRY` | `entry` não é absoluto, não termina em `/web/child.js` ou não existe | |
 
@@ -91,7 +94,8 @@ Ciclo de vida do filho:
 
 - Existe no máximo um filho e no máximo um start por vez. Um pedido que chega
   durante um start espera ele terminar e decide pelos próprios parâmetros.
-- Argumentos do filho: `--port <n>` (explícita, sem fallback),
+- Argumentos do filho: `--host <addr>` (ausente, usa `127.0.0.1`),
+  `--port <n>` (explícita, sem fallback),
   `--preferred-port <n>` (fallback efêmero) ou nenhum (7777 com fallback).
 - Handshake: a primeira linha do stdout do filho é `{ port, token, build }` ou
   `{ error: { message, port } }`. O stderr vai para `~/.run-agent/logs/web-child.log`.

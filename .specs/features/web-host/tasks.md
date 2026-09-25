@@ -113,7 +113,7 @@ WH IDs: WH-04, WH-06, WH-08, WH-09
 Depends on: T07
 Tests: Add `tests/web-host-docs.test.ts` for required README and Portuguese `docs/protocol.md` details.
 Gate: `npx vitest run --no-cache tests/web-host-docs.test.ts`
-Status: Pending
+Status: Complete
 
 ## Task Completion Record
 
