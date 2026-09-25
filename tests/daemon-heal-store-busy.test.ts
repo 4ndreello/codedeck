@@ -36,9 +36,17 @@ beforeEach(() => {
   process.env.RUN_AGENT_DIR = dir;
 });
 
-afterEach(() => {
+afterEach(async () => {
   child?.kill("SIGKILL");
   child = undefined;
+  // recover() starts each event loop without awaiting it, and the status
+  // flips to terminal before the loop's tail runs. Closing the store under
+  // a running loop is an unhandled rejection, so wait for every healed
+  // loop to reach finishHeal first.
+  if (daemon) {
+    const healing = (daemon as unknown as { healing: Map<string, unknown> }).healing;
+    await vi.waitFor(() => expect(healing.size).toBe(0), { timeout: 8000 });
+  }
   try { if (daemon) seam(daemon).db.close(); } catch {}
   daemon = undefined;
   delete process.env.RUN_AGENT_DIR;
