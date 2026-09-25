@@ -257,12 +257,13 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] With `refresh=1`, exactly one `POST /api/setup/catalog/refresh` after the initial state and catalog loads
-- [ ] Without it, zero refresh POSTs
-- [ ] Gate check passes: `npx vitest run tests/setup-page.test.ts`, `npx vitest run tests/review.test.ts`, `npx vitest run tests/usage-web.test.ts`; `npx tsc --noEmit`
+- [x] With `refresh=1`, exactly one `POST /api/setup/catalog/refresh` after the initial state and catalog loads
+- [x] Without it, zero refresh POSTs
+- [x] Gate check passes: `npx vitest run tests/setup-page.test.ts`, `npx vitest run tests/review.test.ts`, `npx vitest run tests/usage-web.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `feat(setup): Refresh the catalog when the page URL asks for it`
 

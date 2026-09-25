@@ -796,7 +796,10 @@ export function renderSetupPage(options: SetupPageOptions = {}): string {
       document,
       confirm: (message) => typeof globalThis.confirm === "function" ? globalThis.confirm(message) : false,
     });
-    globalThis.setupPageReady = globalThis.setupPage.start();
+    globalThis.setupPageReady = globalThis.setupPage.start().then(async (state) => {
+      if (new URLSearchParams(location.search).get("refresh") === "1") await globalThis.setupPage.refreshCatalog();
+      return state;
+    });
   </script>
 </body>
 </html>`;
