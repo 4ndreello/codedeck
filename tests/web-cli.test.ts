@@ -204,7 +204,7 @@ describe("ui route table", () => {
     expect(await usage.json()).toEqual(emptyUsage);
     expect(fetchUsageQuery).toHaveBeenCalledOnce();
     expect(getBatchModels).toHaveBeenCalledWith({ allowNetwork: false });
-    expect(getBatchModels).toHaveBeenCalledWith({ refresh: true, allowNetwork: true, timeoutMs: 12_000 });
+    expect(getBatchModels).toHaveBeenCalledWith({ refresh: true, allowNetwork: true, timeoutMs: 25_000 });
   });
 });
 

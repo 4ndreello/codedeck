@@ -249,7 +249,9 @@ function maxAge(entries: Array<{ age: CacheAge }>): number | null {
   return Math.max(...entries.map((entry) => entry.age.ageMs));
 }
 
-export const CATALOG_DISCOVERY_TIMEOUT_MS = 12_000;
+// Covers the slowest driver budget: omp spends up to 10 s on `models refresh`
+// and 12 s on `models --json`. Discovery returns as soon as every harness answers.
+export const CATALOG_DISCOVERY_TIMEOUT_MS = 25_000;
 
 async function discoverWithTimeout(
   registry: DriverRegistry,

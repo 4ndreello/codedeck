@@ -228,7 +228,7 @@ describe("setup catalog routes", () => {
       cacheWriteFailed: false,
     };
     const getBatchModels = vi.fn(async (options: BatchModelsOptions) => {
-      expect(options).toEqual({ refresh: true, allowNetwork: true, timeoutMs: 12_000 });
+      expect(options).toEqual({ refresh: true, allowNetwork: true, timeoutMs: 25_000 });
       return await new Promise<BatchModelsResult>((resolve) => { resolveRefresh = resolve; });
     });
     const handle = await makeServer({ getBatchModels });
