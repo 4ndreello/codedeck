@@ -92,7 +92,7 @@ WH IDs: WH-03, WH-08
 Depends on: T05
 Tests: Update `tests/daemon-web.test.ts` for resolved host in autostart params and invalid `web.host` log output.
 Gate: `npx vitest run --no-cache tests/daemon-web.test.ts`
-Status: Pending
+Status: Complete
 
 #### T07: Add `ui --host` and CLI host output
 

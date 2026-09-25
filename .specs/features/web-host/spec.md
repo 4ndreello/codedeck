@@ -130,7 +130,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-05 | P1: Bind the console to a configured address | Tasks | Pending |
 | WH-06 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-07 | P1: Bind the console to a configured address | Tasks | Verified |
-| WH-08 | P1: Bind the console to a configured address | Tasks | Pending |
+| WH-08 | P1: Bind the console to a configured address | Tasks | Verified |
 | WH-09 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-10 | P1: Preserve the console's request protections | Tasks | Verified |
 | WH-11 | P1: Preserve the console's request protections | Tasks | Verified |
