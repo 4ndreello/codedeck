@@ -33,6 +33,8 @@ export interface RuntimeHooks {
     hasTerminal: boolean;
     hasMessage: boolean;
     stderr: string;
+    // Last non-usage event is turn.completed (see synthesizeTerminalEvent).
+    endedOnTurnCompleted: boolean;
   }) => AgentEvent[];
 }
 
@@ -333,6 +335,7 @@ export class SessionRuntime {
     const hasTerminal = this.buffer.some((e) => e.type === "session.completed" || e.type === "session.failed");
     if (!hasTerminal && !this.stopRequested && !this.shutdownRequested) {
       const hasMessage = this.buffer.some((e) => e.type === "message" || e.type === "text.delta");
+      const lastFrame = this.buffer.findLast((e) => e.type !== "usage.updated");
       for (const ev of this.hooks.synthesizeTerminal({
         sessionId: this.sessionId,
         exitCode,
@@ -340,6 +343,7 @@ export class SessionRuntime {
         hasTerminal,
         hasMessage,
         stderr: this.stderrBuf,
+        endedOnTurnCompleted: lastFrame?.type === "turn.completed",
       })) {
         this.push(ev);
       }

@@ -15,9 +15,28 @@ export function synthesizeTerminalEvent(input: {
   hasTerminal: boolean;
   hasMessage: boolean;
   stderr: string;
+  // The last frame (usage aside) was turn.completed.
+  endedOnTurnCompleted?: boolean;
 }): AgentEvent | null {
   if (input.hasTerminal) return null;
   const ts = new Date().toISOString();
+  // No exit code and no signal: the death was learned by polling the pid
+  // after a reattach. A harness that writes no terminal frame (codex) still
+  // said its turn finished; a crash signature in stderr overrides that.
+  if (
+    input.exitCode === null &&
+    !input.signal &&
+    input.endedOnTurnCompleted &&
+    classifyFailure(input.stderr).code !== "HARNESS_CRASH"
+  ) {
+    return {
+      type: "session.completed",
+      sessionId: input.sessionId,
+      timestamp: ts,
+      reason: "turn completed; exit not observed",
+      raw: { stderr: input.stderr.slice(0, 2000) },
+    } as AgentEvent;
+  }
   if (input.exitCode === 0) {
     // Exit 0 with produced output is completion. Exit 0 with NO output but
     // stderr content is how "exit 0 anyway" crashes look — treat as failure.
