@@ -48,53 +48,37 @@ describe("run skill catalog", () => {
     expect(section).toContain("that file's directory");
   });
 
-  it("parses folded and literal description blocks into one catalog line", () => {
-    const root = pluginDir();
-    writeSkill(
-      root,
-      "folded",
-      "---\nname: folded\ndescription: >-\n  Use this skill\n  when x: y.\nother: ignored\n---\n",
-    );
-    writeSkill(
-      root,
-      "literal",
-      "---\nname: literal\ndescription: |+\n  Keep these words\n  from the next line.\nname: literal after block\n---\n",
-    );
-
-    expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([
+  it.each([
+    [
+      "folds a > block into one line",
+      "name: folded\ndescription: >-\n  Use this skill\n  when x: y.\nother: ignored",
       { name: "folded", description: "Use this skill when x: y." },
+    ],
+    [
+      "joins a | block and stops at the next column-zero key",
+      "name: literal\ndescription: |+\n  Keep these words\n  from the next line.\nname: literal after block",
       { name: "literal after block", description: "Keep these words from the next line." },
-    ]);
-  });
-
-  it("strips an unquoted comment only when # follows whitespace", () => {
-    const root = pluginDir();
-    writeSkill(
-      root,
-      "commented",
-      "---\nname: commented\ndescription: value # c\n---\n",
-    );
-    writeSkill(
-      root,
-      "hash",
-      "---\nname: hash\ndescription: a#b\n---\n",
-    );
-
-    expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([
+    ],
+    [
+      "strips an unquoted comment after whitespace",
+      "name: commented\ndescription: value # c",
       { name: "commented", description: "value" },
+    ],
+    [
+      "keeps a # with no whitespace before it",
+      "name: hash\ndescription: a#b",
       { name: "hash", description: "a#b" },
-    ]);
-  });
-
-  it("keeps quoted descriptions followed by a YAML comment", () => {
+    ],
+    [
+      "keeps a quoted value followed by a comment",
+      'name: quoted\ndescription: "Use when x: y"  # c',
+      { name: "quoted", description: "Use when x: y" },
+    ],
+  ])("frontmatter: %s", (_title, frontmatter, expected) => {
     const root = pluginDir();
-    writeSkill(
-      root,
-      "commented",
-      '---\nname: commented\ndescription: "Use when x: y"  # c\n---\n',
-    );
+    writeSkill(root, "entry", `---\n${frontmatter}\n---\n`);
 
-    expect(readRunSkills(root).map(({ description }) => description)).toEqual(["Use when x: y"]);
+    expect(readRunSkills(root).map(({ name, description }) => ({ name, description }))).toEqual([expected]);
   });
 
   it.each(["missing", "empty"])("omits the catalog for a %s skills directory", (kind) => {
