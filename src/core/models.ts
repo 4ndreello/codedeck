@@ -249,6 +249,8 @@ function maxAge(entries: Array<{ age: CacheAge }>): number | null {
   return Math.max(...entries.map((entry) => entry.age.ageMs));
 }
 
+export const CATALOG_DISCOVERY_TIMEOUT_MS = 12_000;
+
 async function discoverWithTimeout(
   registry: DriverRegistry,
   request: BatchDiscoveryRequest,
@@ -319,7 +321,7 @@ export async function getBatchModels(
   }
 
   const controller = new AbortController();
-  const timeoutMs = options.timeoutMs ?? 12_000;
+  const timeoutMs = options.timeoutMs ?? CATALOG_DISCOVERY_TIMEOUT_MS;
   const discover = options.discover ?? ((selected: DriverRegistry, request: BatchDiscoveryRequest) =>
     discoverAllModels(selected, {
       agents: request.agents,

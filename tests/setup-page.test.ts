@@ -547,6 +547,15 @@ describe("setup page controller", () => {
     expect(controller.state.discoveryError).toBe("network discovery failed");
     expect(controller.state.refreshing).toBe(false);
     expect(el("catalog-status").className).toMatch(/^catalog-text warn/);
+    expect(el("catalog-status").textContent).toBe("Refresh failed: network discovery failed. Showing models from 5 min ago.");
+    expect(el("setup-catalog").className).toBe("catalog done");
+
+    const timedOut = controller.refreshCatalog();
+    expect(el("setup-catalog").className).toBe("catalog refreshing");
+    expect(el("setup-refresh").className).toBe("icon-btn spinning");
+    finishRefresh?.(response({ error: "model catalog discovery timed out after 12000 ms" }, 504));
+    await timedOut;
+    expect(el("catalog-status").textContent).toBe("Refresh timed out after 12 s. Showing models from 5 min ago.");
   });
 
   it("shows the exact reload and restart message after a protected action returns 403", async () => {

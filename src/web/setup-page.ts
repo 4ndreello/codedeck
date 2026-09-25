@@ -1,7 +1,7 @@
 import { REASONING_EFFORTS } from "../core/driver.js";
 import { ROLES, type Role } from "../core/roles.js";
 import { AGENT_IDS } from "../core/session.js";
-import type { BatchModelsResult } from "../core/models.js";
+import { CATALOG_DISCOVERY_TIMEOUT_MS, type BatchModelsResult } from "../core/models.js";
 import type { RoleBinding, RunAgentConfig } from "../config/config.js";
 import { ORCHESTRATOR_PRESETS, type OrchestratorMode } from "../config/orchestrator-mode.js";
 import type { SetupSelection } from "../config/setup.js";
@@ -295,6 +295,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     reviewOk: false,
     bound: false,
     rendered: false,
+    catalogDone: false,
   };
   let draft: SetupDraft = { agents: {}, custom: false, parallelism: "" };
   let refreshInFlight: Promise<unknown> | undefined;
@@ -553,20 +554,25 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     return `${Math.floor(hours / 24)} d ago`;
   }
 
+  function refreshErrorText(error: string): string {
+    const timeout = error.match(/timed out after (\d+) ?ms/);
+    if (timeout) return `Refresh timed out after ${Math.round(Number(timeout[1]) / 1000)} s.`;
+    return `Refresh failed: ${error.replace(/\.$/, "")}.`;
+  }
+
   function catalogText(): string {
     if (state.refreshing) return "Refreshing catalog";
     const catalog = state.catalog;
+    const error = state.discoveryError ? refreshErrorText(state.discoveryError) : "";
     if (!catalog) {
-      if (state.discoveryError) return `Catalog unavailable: ${state.discoveryError}`;
+      if (error) return `Catalog unavailable. ${error}`;
       return state.loading ? "Loading catalog" : "Catalog not loaded";
     }
     const age = typeof catalog.ageMs === "number" ? formatAge(catalog.ageMs) : "";
-    const base = catalog.status === "fresh"
-      ? `Catalog updated ${age}`.trim()
-      : catalog.status === "offline"
-        ? `Catalog offline, cached ${age}`.trim()
-        : "Catalog unavailable";
-    return state.discoveryError ? `${base}. ${state.discoveryError}` : base;
+    if (error) return age ? `${error} Showing models from ${age}.` : error;
+    if (catalog.status === "fresh") return `Catalog updated ${age}`.trim();
+    if (catalog.status === "offline") return `Catalog offline, cached ${age}`.trim();
+    return "Catalog unavailable";
   }
 
   function formatPreviewPath(path: string): string {
@@ -608,7 +614,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     if (Array.isArray(value)) return value.map((item) => sortKeys(item));
     if (typeof value === "object" && value !== null) {
       const record = value as Record<string, unknown>;
-      return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortKeys(record[key])]));
+      return Object.fromEntries(Object.keys(record).sort((a, b) => a.localeCompare(b)).map((key) => [key, sortKeys(record[key])]));
     }
     return value;
   }
@@ -922,6 +928,7 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
     if (configPath && state.target?.config?.path) configPath.textContent = state.target.config.path;
     swapText("catalog-status", `catalog-text${state.discoveryError ? " warn" : ""}`, catalogText());
     setClass("setup-refresh", `icon-btn${state.refreshing ? " spinning" : ""}`);
+    setClass("setup-catalog", `catalog${state.refreshing ? " refreshing" : ui.catalogDone ? " done" : ""}`);
     setDisabled("setup-refresh", state.refreshing);
     const loadError = !state.target && !state.loading ? state.error ?? "Could not load setup state." : "";
     const errorBanner = element("setup-error");
@@ -1377,7 +1384,13 @@ export function createSetupPageController(options: SetupPageControllerOptions) {
       } finally {
         state.refreshing = false;
         refreshInFlight = undefined;
+        // Let the progress bar finish its sweep before it fades out.
+        ui.catalogDone = true;
         update();
+        setTimeout(() => {
+          ui.catalogDone = false;
+          update();
+        }, 450);
       }
     })();
     return refreshInFlight;
@@ -1614,7 +1627,7 @@ export function renderSetupPage(options: SetupPageOptions = {}): string {
   <main class="setup-main">
     <header class="page-head">
       <div><h1>Setup</h1><p class="lede">Pick the harness and model each role runs on. Saving writes <code id="setup-config-path" class="mono">config.json</code>.</p></div>
-      <div class="catalog"><span id="catalog-status" class="catalog-text" role="status">Loading catalog</span><button id="setup-refresh" class="icon-btn" type="button" data-act="refresh" aria-label="Refresh model catalog" title="Refresh model catalog">${icon("rotate-cw")}</button></div>
+      <div id="setup-catalog" class="catalog" style="--refresh-ms:${CATALOG_DISCOVERY_TIMEOUT_MS}ms"><div class="cat-main"><span id="catalog-status" class="catalog-text" role="status">Loading catalog</span><span class="cat-bar" aria-hidden="true"><span></span></span></div><button id="setup-refresh" class="icon-btn" type="button" data-act="refresh" aria-label="Refresh model catalog" title="Refresh model catalog">${icon("rotate-cw", "i-idle")}${icon("loader", "i-spin")}</button></div>
     </header>
     <p id="setup-error" class="load-error" role="alert" hidden></p>
 
@@ -1719,10 +1732,17 @@ h1,h2,h3,p{margin:0}h1,h2{text-wrap:balance}
 .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:8px}
 .page-head h1{margin-bottom:6px;font-size:24px;font-weight:600;letter-spacing:-.6px}
 .lede{max-width:72ch;color:var(--text-muted)}.lede code{color:var(--text);font-size:12px;overflow-wrap:anywhere}
-.catalog{display:flex;align-items:center;gap:8px;color:var(--text-faint);font-size:12px}.catalog-text{display:inline-block}.catalog-text.warn{color:var(--warn-text)}
+.catalog{display:flex;align-items:center;gap:8px;min-width:0;color:var(--text-faint);font-size:12px}.catalog-text{display:inline-block}.catalog-text.warn{color:var(--warn-text)}
+.cat-main{position:relative;min-width:0}
+.cat-bar{position:absolute;left:0;right:0;bottom:-7px;height:2px;overflow:hidden;border-radius:2px;background:var(--border);opacity:0;transition:opacity .3s ease}
+.cat-bar>span{display:block;height:100%;border-radius:inherit;background:var(--blue);transform:scaleX(0);transform-origin:left;transition:transform 0s .3s}
+.catalog.refreshing .cat-bar,.catalog.done .cat-bar{opacity:1;transition:opacity .15s ease}
+.catalog.refreshing .cat-bar>span{transform:scaleX(.95);transition:transform var(--refresh-ms,12s) cubic-bezier(.3,.55,.45,1)}
+.catalog.done .cat-bar>span{transform:scaleX(1);transition:transform .25s var(--ease)}
 .icon-btn{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;padding:0;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--text-muted);transition:color .15s,background-color .15s}
 .icon-btn .ico{width:14px;height:14px}.icon-btn:hover:not(:disabled){color:var(--text);background:var(--surface-raised)}
-.icon-btn.spinning .ico{animation:cd-spin .8s linear infinite}
+.icon-btn .i-spin,.icon-btn.spinning .i-idle{display:none}
+.icon-btn.spinning .i-spin{display:block;color:var(--blue-text);transform-origin:50% 50%;animation:cd-spin .75s linear infinite}
 .load-error{margin-top:16px;padding:10px 12px;border:1px solid rgba(229,72,77,.5);border-radius:7px;color:var(--err-text);font-size:12px}
 .sec{margin-top:32px}
 .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px 12px;flex-wrap:wrap;margin-bottom:12px}

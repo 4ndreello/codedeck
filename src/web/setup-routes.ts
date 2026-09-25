@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { DriverRegistry } from "../core/driver.js";
 import { REASONING_EFFORTS } from "../core/driver.js";
-import { getBatchModels, type BatchModelsOptions, type BatchModelsResult } from "../core/models.js";
+import { CATALOG_DISCOVERY_TIMEOUT_MS, getBatchModels, type BatchModelsOptions, type BatchModelsResult } from "../core/models.js";
 import { isAgentId, type AgentId } from "../core/session.js";
 import { ROLES, type Role } from "../core/roles.js";
 import {
@@ -355,7 +355,7 @@ export function createSetupRoutes(dependencies: SetupRoutesDependencies = {}): W
 
   function refreshCatalog(): Promise<BatchModelsResult> {
     if (refreshInFlight) return refreshInFlight;
-    const pending = loadCatalog({ refresh: true, allowNetwork: true, timeoutMs: 12_000 });
+    const pending = loadCatalog({ refresh: true, allowNetwork: true, timeoutMs: CATALOG_DISCOVERY_TIMEOUT_MS });
     const inFlight = pending.finally(() => {
       if (refreshInFlight === inFlight) refreshInFlight = undefined;
     });
