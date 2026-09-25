@@ -34,5 +34,6 @@ describe("web host documentation", () => {
     expect(protocol).toContain("`preferredHost` (opcional)");
     expect(protocol).toContain("`0.0.0.0`");
     expect(protocol).toContain("`::`");
+    expect(protocol).toContain("`WEB_BAD_HOST`");
   });
 });

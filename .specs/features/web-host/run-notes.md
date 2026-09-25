@@ -29,3 +29,4 @@
 | 25 | Accept the configured non-wildcard bind address as a trusted Host. | Bucket 1 decision | Finding R3: the configured bind IP is trusted even when `os.networkInterfaces()` does not list it. |
 | 26 | Restrict hostname suffixes to Tailscale MagicDNS FQDNs. | Bucket 1 decision | Finding R4: accept the exact machine hostname or one or more labels followed by `.ts.net`; reject broader suffix matches. |
 | 27 | Keep default-loopback Host checks explicit in regression tests. | Bucket 1 decision | Finding T1: injected machine hostnames and non-loopback interface IPs remain forbidden when the bind is `127.0.0.1`. |
+| 28 | Validate web.ensure host fields before changing child state. | Bucket 1 decision | Finding R5: reject non-IP `host` and `preferredHost` values with `WEB_BAD_HOST` before stopping or starting a child. |

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -15,7 +16,7 @@ export type { WebEnsureParams, WebEnsureResult };
 export const WEB_START_TIMEOUT_MS = 5000;
 export const WEB_STOP_TIMEOUT_MS = 3000;
 
-export type WebEnsureErrorCode = "WEB_LISTEN_FAILED" | "WEB_START_FAILED" | "WEB_BAD_ENTRY";
+export type WebEnsureErrorCode = "WEB_LISTEN_FAILED" | "WEB_START_FAILED" | "WEB_BAD_ENTRY" | "WEB_BAD_HOST";
 
 export class WebEnsureError extends Error {
   constructor(
@@ -106,6 +107,13 @@ export class WebSupervisor {
   }
 
   async ensure(params: WebEnsureParams): Promise<WebEnsureResult> {
+    if (
+      [params.host, params.preferredHost].some(
+        (host) => host !== undefined && (typeof host !== "string" || isIP(host) === 0),
+      )
+    ) {
+      throw new WebEnsureError("WEB_BAD_HOST", "web.ensure host and preferredHost must be IP addresses");
+    }
     if (params.entry !== undefined && !this.isValidEntry(params.entry)) {
       throw new WebEnsureError("WEB_BAD_ENTRY", `invalid web child entry: ${params.entry}`);
     }

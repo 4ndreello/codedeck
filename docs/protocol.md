@@ -103,6 +103,7 @@ Erros:
 | `WEB_LISTEN_FAILED` | a porta pedida está ocupada (o CLI imprime `Failed to listen on <host>:<port>: ...`, com IPv6 entre colchetes, e sai com 1) | `{ "port": n }` |
 | `WEB_START_FAILED` | o filho morreu antes do handshake, não respondeu em 5 s ou mandou um handshake inválido | |
 | `WEB_BAD_ENTRY` | `entry` não é absoluto, não termina em `/web/child.js` ou não existe | |
+| `WEB_BAD_HOST` | `host` ou `preferredHost` não é um endereço IP aceito por `net.isIP`; o supervisor retorna o erro antes de parar o filho atual | |
 
 Ciclo de vida do filho:
 

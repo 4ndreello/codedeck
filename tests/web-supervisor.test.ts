@@ -263,6 +263,19 @@ describe("WebSupervisor.ensure", () => {
     expect(t.children[0].signals).toEqual([]);
   });
 
+  it.each([
+    ["host", { host: "deck.local" }],
+    ["preferredHost", { preferredHost: "deck.local" }],
+  ])("rejects an invalid %s without stopping a running child", async (_field, params) => {
+    const t = harness({ startTimeoutMs: 25 });
+    await running(t, { host: "0.0.0.0" });
+
+    await expect(t.supervisor.ensure(params)).rejects.toMatchObject({ code: "WEB_BAD_HOST" });
+
+    expect(t.spawns).toHaveLength(1);
+    expect(t.children[0].signals).toEqual([]);
+  });
+
   it("stops an old build with SIGTERM, escalates to SIGKILL after the stop timeout, and returns the new child", async () => {
     vi.useFakeTimers();
     const { supervisor, children } = harness();

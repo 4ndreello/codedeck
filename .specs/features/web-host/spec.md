@@ -78,6 +78,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 7. WHEN `web.ensure` supplies a `preferredHost` AND the running child was started for an explicit host THEN the supervisor SHALL keep that explicit bind host. <!-- WH-18 -->
 8. WHEN `web.ensure` supplies neither `host` nor `preferredHost` THEN the supervisor SHALL reuse a running child regardless of its bind host, and SHALL start a new child on `127.0.0.1` when none is running. <!-- WH-19 -->
 9. WHEN a page GET uses `Host: localhost:<port>` and the bind host is `127.0.0.1`, `0.0.0.0`, or `::` THEN the server SHALL respond with `302` to `http://127.0.0.1:<port>`; for any other bind host it SHALL skip this canonical redirect. <!-- WH-20 -->
+10. IF `web.ensure` supplies a `host` or `preferredHost` that `net.isIP` rejects THEN the supervisor SHALL return `WEB_BAD_HOST` before stopping a running child. <!-- WH-21 -->
 
 **Independent Test**: Bind to a wildcard address, send requests with a local interface Host, a hostile Host, and tokenized or untokenized page URLs, and verify the exact response behavior.
 
@@ -109,20 +110,21 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 - A non-wildcard bind address remains accepted as a Host even if it is absent from the current interface list.
 - IPv6 zone-scoped interface addresses must not enter the allowlist.
 - A failed `--host` validation must occur before starting or contacting the daemon.
+- Invalid `web.ensure` host fields must be rejected before a running child is stopped.
 
 ## Implicit-requirement sweep
 
 | Dimension | Resolution |
 | --- | --- |
-| Input validation and bounds | WH-02, WH-03, and WH-05 require `net.isIP` validation. |
-| Failure and partial-failure states | WH-03, WH-05, and WH-16 define invalid config, invalid flag, and listen failure outcomes. |
+| Input validation and bounds | WH-02, WH-03, WH-05, and WH-21 require `net.isIP` validation. |
+| Failure and partial-failure states | WH-03, WH-05, WH-16, and WH-21 define invalid config, invalid host requests, and listen failure outcomes. |
 | Idempotency and retry | WH-09 and WH-17 through WH-19 define child reuse and restart behavior by host request and start origin. |
 | Auth boundaries and rate limits | WH-11 through WH-13 keep the existing Host and token checks; rate limiting is N/A because this feature does not change request authorization behavior. |
 | Concurrency and ordering | WH-09 and WH-17 use the existing single-child supervisor transition when the requested host changes. |
 | Data lifecycle and expiry | N/A because the feature adds no persisted data. |
 | Observability | WH-03 reports invalid config, WH-15 warns about reachable plain HTTP, and WH-16 reports the listen host. |
 | External-dependency failure | WH-16 covers OS listen failures; no new external service is introduced. |
-| State-transition integrity | WH-09 and WH-17 through WH-19 define host transitions and reuse. |
+| State-transition integrity | WH-09, WH-17 through WH-19, and WH-21 define host transitions, reuse, and validation order. |
 
 ## Requirement Traceability
 
@@ -148,8 +150,9 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-18 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-19 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-20 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-21 | P1: Preserve the console's request protections | Tasks | Implemented |
 
-**Coverage**: 20 requirements, 20 mapped to tasks, 0 unmapped.
+**Coverage**: 21 requirements, 21 mapped to tasks, 0 unmapped.
 
 ## Success Criteria
 

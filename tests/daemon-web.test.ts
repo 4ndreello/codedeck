@@ -50,6 +50,23 @@ describe("daemon web.ensure", () => {
     expect(response.error).toEqual({ code: "WEB_LISTEN_FAILED", message: "listen EADDRINUSE", details: { port: 4567 } });
   });
 
+  it("returns WEB_BAD_HOST for an invalid web.ensure host before spawning a child", async () => {
+    const spawnChild = vi.fn(() => { throw new Error("unexpected child spawn"); });
+    daemon = new Daemon({
+      webSupervisor: new WebSupervisor({
+        log: () => {},
+        defaultEntry: "/opt/codedeck/dist/web/child.js",
+        entryExists: () => true,
+        spawnChild,
+      }),
+    });
+
+    const response = await ensure({ preferredHost: "deck.local" });
+
+    expect(response.error).toMatchObject({ code: "WEB_BAD_HOST" });
+    expect(spawnChild).not.toHaveBeenCalled();
+  });
+
   it("stops the web child before marking sessions during shutdown", async () => {
     let statusAtClose: string | undefined;
     const host = fakeHost({
