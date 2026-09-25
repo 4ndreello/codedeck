@@ -77,6 +77,7 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 6. WHEN `web.ensure` supplies a `preferredHost` different from the running child's host AND the child was started for a preferred host or with neither host field THEN the supervisor SHALL stop that child and start a child on `preferredHost`. <!-- WH-17 -->
 7. WHEN `web.ensure` supplies a `preferredHost` AND the running child was started for an explicit host THEN the supervisor SHALL keep that explicit bind host. <!-- WH-18 -->
 8. WHEN `web.ensure` supplies neither `host` nor `preferredHost` THEN the supervisor SHALL reuse a running child regardless of its bind host, and SHALL start a new child on `127.0.0.1` when none is running. <!-- WH-19 -->
+9. WHEN a page GET uses `Host: localhost:<port>` and the bind host is `127.0.0.1`, `0.0.0.0`, or `::` THEN the server SHALL respond with `302` to `http://127.0.0.1:<port>`; for any other bind host it SHALL skip this canonical redirect. <!-- WH-20 -->
 
 **Independent Test**: Bind to a wildcard address, send requests with a local interface Host, a hostile Host, and tokenized or untokenized page URLs, and verify the exact response behavior.
 
@@ -145,8 +146,9 @@ The web console currently binds to `127.0.0.1` and only accepts loopback Host he
 | WH-17 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-18 | P1: Preserve the console's request protections | Tasks | Implemented |
 | WH-19 | P1: Preserve the console's request protections | Tasks | Implemented |
+| WH-20 | P1: Preserve the console's request protections | Tasks | Implemented |
 
-**Coverage**: 19 requirements, 19 mapped to tasks, 0 unmapped.
+**Coverage**: 20 requirements, 20 mapped to tasks, 0 unmapped.
 
 ## Success Criteria
 

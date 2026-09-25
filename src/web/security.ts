@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { DEFAULT_WEB_HOST } from "../config/web-host.js";
+import { DEFAULT_WEB_HOST, webBaseUrl } from "../config/web-host.js";
 
 export interface WebSecurity {
   port: number;
@@ -180,7 +180,7 @@ function redirectToCanonicalHost(
   response: ServerResponse,
   security: WebSecurity,
 ): boolean {
-  if (security.host !== DEFAULT_WEB_HOST) return false;
+  if (webBaseUrl(security.host, security.port) !== `http://${DEFAULT_WEB_HOST}:${security.port}`) return false;
   if (request.headers.host?.toLowerCase() !== `localhost:${security.port}`) return false;
   let url: URL;
   try {

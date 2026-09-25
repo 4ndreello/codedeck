@@ -30,5 +30,7 @@ describe("web host documentation", () => {
     expect(protocol).toContain("`--host <addr>`");
     expect(protocol).toContain("`127.0.0.1`");
     expect(protocol).toContain("`preferredHost` (opcional)");
+    expect(protocol).toContain("`0.0.0.0`");
+    expect(protocol).toContain("`::`");
   });
 });

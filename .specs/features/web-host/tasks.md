@@ -30,7 +30,7 @@
 Tasks run in order. Each task includes its tests, `tasks.md` status update, and its own commit.
 
 ```text
-T01 -> T02 -> T03 -> T04 -> T05 -> T06 -> T07 -> T08 -> T09
+T01 -> T02 -> T03 -> T04 -> T05 -> T06 -> T07 -> T08 -> T09 -> T10
 ```
 
 ### Phase 1: Resolve, secure, and bind
@@ -125,6 +125,16 @@ WH IDs: WH-09, WH-17, WH-18, WH-19
 Depends on: T08
 Tests: Update `tests/web-supervisor.test.ts`, `tests/daemon-web.test.ts`, `tests/web-launch.test.ts`, and `tests/web-host-docs.test.ts` for host provenance, config preferences, explicit overrides, host reuse, and documentation.
 Gate: `npx vitest run --no-cache tests/web-supervisor.test.ts tests/daemon-web.test.ts tests/web-launch.test.ts tests/web-host-docs.test.ts`
+Status: Complete
+
+#### T10: Keep canonical localhost redirects on wildcard binds
+
+Where: `src/web/security.ts`
+Supporting files: `docs/protocol.md` and `.specs/features/web-host/spec.md`
+WH IDs: WH-20
+Depends on: T09
+Tests: Update `tests/web-security.test.ts` and `tests/web-host-docs.test.ts` for wildcard and specific bind redirect behavior.
+Gate: `npx vitest run --no-cache tests/web-security.test.ts tests/web-host-docs.test.ts`
 Status: Complete
 
 ## Task Completion Record

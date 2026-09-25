@@ -77,8 +77,10 @@ A página abre em `<baseUrl><path>?<query>&t=<token>`. O token vira cookie
 (`303` sem `t`, `Max-Age` de 365 dias, renovado a cada página servida), e toda
 rota `/api/*` exige esse cookie. Uma página aberta sem token nem cookie responde
 `403 Run "codedeck ui" once in a terminal to open CodeDeck in this browser.`
-Uma página pedida em `localhost:<port>` responde `302` para `127.0.0.1:<port>`,
-porque o cookie de `127.0.0.1` não vai para `localhost`.
+Uma página pedida em `localhost:<port>` responde `302` para `127.0.0.1:<port>`
+quando o bind é `127.0.0.1`, `0.0.0.0` ou `::`, que anunciam a URL canônica de
+loopback. O servidor não faz esse redirecionamento para outros binds específicos.
+O cookie de `127.0.0.1` não vai para `localhost`.
 
 O token fica em `~/.run-agent/web-token` (modo 0600) e vale para todo servidor
 do console, inclusive o fallback no próprio processo, então um bookmark

@@ -48,7 +48,7 @@ function request(
   });
 }
 
-async function makeServer(): Promise<{ handle: WebServerHandle; calls: string[] }> {
+async function makeServer(listenHost = "127.0.0.1"): Promise<{ handle: WebServerHandle; calls: string[] }> {
   const calls: string[] = [];
   const routes: WebRoute[] = [
     {
@@ -72,6 +72,7 @@ async function makeServer(): Promise<{ handle: WebServerHandle; calls: string[] 
   ];
   const handle = await startWebServer({
     routes,
+    host: listenHost,
     port: 0,
     initialPath: "/page",
     open: false,
@@ -270,6 +271,32 @@ describe("web request security", () => {
     expect(absolute.status).toBe(302);
     expect(absolute.headers.location).toBe(`${base}/page?keep=1`);
     expect(calls).toEqual([]);
+  });
+
+  it("redirects localhost to 127.0.0.1 for a wildcard bind", async () => {
+    const { handle } = await makeServer("0.0.0.0");
+
+    const response = await request(handle, {
+      path: "/page?repo=%2Fx",
+      host: `localhost:${handle.port}`,
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe(`http://127.0.0.1:${handle.port}/page?repo=%2Fx`);
+  });
+
+  it("does not redirect localhost to 127.0.0.1 for a specific non-loopback bind", async () => {
+    const networkInterfaces = vi.fn(() => makeInterfaces([{ address: "100.101.102.103", family: "IPv4" }]));
+    const { handle } = await makeExtendedServer(networkInterfaces);
+
+    const response = await request(handle, {
+      path: "/page",
+      host: `localhost:${handle.port}`,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toBe(PAGE_FORBIDDEN);
+    expect(response.headers.location).toBeUndefined();
   });
 
   it("rejects API GETs without the current cookie before dispatch", async () => {

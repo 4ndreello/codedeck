@@ -25,3 +25,4 @@
 | 21 | Print the plain HTTP warning after a listener succeeds. | Decision | A preferred port may fall back to an OS-assigned port, so the warning must name the actual listening port. |
 | 22 | Separate explicit and preferred web host requests. | Bucket 1 decision | Finding R1: an explicit `ui --host` bind pins its child, `web.host` is a preference, and omitted host fields reuse a running child or start on loopback. |
 | 23 | Capitalize commit subjects after the Conventional Commit prefix. | Decision | The remediation follows repository history; `check_commit.py` requires lowercase subjects, so the repository convention takes precedence as requested. |
+| 24 | Redirect localhost to loopback for binds that advertise the loopback base URL. | Bucket 1 decision | Finding R2: `127.0.0.1`, `0.0.0.0`, and `::` share the canonical `127.0.0.1` URL; other bind addresses skip this redirect. |
