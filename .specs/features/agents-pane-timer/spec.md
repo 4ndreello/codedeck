@@ -77,6 +77,16 @@ Tick:
    which is a wrong number on screen.
 4. The button above the prompt is unchanged.
 
+## Known limitations
+
+- A finished card's frozen duration is `updatedAt - createdAt`, and the store
+  also bumps `updatedAt` on non-terminal updates such as `session.rename`. A
+  worker renamed after it finished shows a duration that includes the idle
+  time. `ps` exposes no end timestamp; fixing this needs a daemon or CLI
+  field, which is out of scope here.
+- If `codedeck ps` keeps failing while the pane is open, the last snapshot
+  stays live and the timer keeps counting, with one refresh attempt per 5 s.
+
 ## Out of scope
 
 - Daemon, store, CLI and `codedeck web` changes.
