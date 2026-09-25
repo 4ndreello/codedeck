@@ -10,6 +10,8 @@ import { resolveRoleContract } from "../src/open/contract.js";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const agentsDir = path.join(root, "plugin", "agents");
 const partialsDir = path.join(root, "plugin", "prompts", "_partials");
+// Rendered from skills/<name>/SKILL.md by copy-plugin.mjs, not stored in _partials.
+const SKILL_PARTIALS = ["commit", "pr-writer"];
 const manifestsDir = path.join(root, "plugin", "prompts", "roles");
 const ultraFile = path.join(root, "plugin", "ultra.md");
 
@@ -98,7 +100,10 @@ describe("prompt layers: manifest validity", () => {
 
     expect(includes.length).toBeGreaterThan(0);
     for (const entry of includes) {
-      expect(fs.existsSync(path.join(partialsDir, `${entry}.md`),), `${role} includes ${entry}`).toBe(true);
+      const source = SKILL_PARTIALS.includes(entry)
+        ? path.join(root, "skills", entry, "SKILL.md")
+        : path.join(partialsDir, `${entry}.md`);
+      expect(fs.existsSync(source), `${role} includes ${entry}`).toBe(true);
     }
   });
 
