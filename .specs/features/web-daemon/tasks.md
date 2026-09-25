@@ -169,15 +169,16 @@ T12 → T13 → T14 → T15 → T16
 
 **Done when**:
 
-- [ ] `listenWebServer` leaves `process.listenerCount("SIGINT")` and `("SIGTERM")` unchanged
-- [ ] Busy port + `fallbackToEphemeral: true` → listens on another port and reports it
-- [ ] Busy port without fallback → rejects with the listen error
-- [ ] `startWebServer({ fallbackToEphemeral: true })` on a busy port serves on another port
-- [ ] Existing `startWebServer` tests pass unchanged
-- [ ] Gate check passes: `npx vitest run tests/web-server.test.ts`, `npx vitest run tests/web-security.test.ts`, `npx vitest run tests/setup-web.test.ts`; `npx tsc --noEmit`
+- [x] `listenWebServer` leaves `process.listenerCount("SIGINT")` and `("SIGTERM")` unchanged
+- [x] Busy port + `fallbackToEphemeral: true` → listens on another port and reports it
+- [x] Busy port without fallback → rejects with the listen error
+- [x] `startWebServer({ fallbackToEphemeral: true })` on a busy port serves on another port
+- [x] Existing `startWebServer` tests pass unchanged
+- [x] Gate check passes: `npx vitest run tests/web-server.test.ts`, `npx vitest run tests/web-security.test.ts`, `npx vitest run tests/setup-web.test.ts`; `npx tsc --noEmit`
 
 **Tests**: integration
 **Gate**: full
+**Status**: ✅ Done
 
 **Commit**: `ref(web): Split listening from the command server lifecycle`
 

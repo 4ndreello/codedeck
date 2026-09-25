@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionFetch } from "./helpers/web-session.js";
 import {
   DEFAULT_WEB_PORT,
+  listenWebServer,
   parseWebPort,
   startWebServer,
   type WebRoute,
@@ -212,5 +213,74 @@ describe("route failure isolation", () => {
     const next = await sessionFetch(handle)(`${handle.baseUrl}/api/ok`);
     expect(next.status).toBe(200);
     expect(await next.json()).toEqual({ ok: true });
+  });
+});
+
+describe("listenWebServer", () => {
+  const listeners: { close(): Promise<void> }[] = [];
+  const blockers: http.Server[] = [];
+
+  afterEach(async () => {
+    await Promise.all(listeners.splice(0).map((listener) => listener.close()));
+    await Promise.all(blockers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  });
+
+  async function busyPort(): Promise<number> {
+    const blocker = http.createServer();
+    blockers.push(blocker);
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    return (blocker.address() as { port: number }).port;
+  }
+
+  it("listens and serves without installing signal handlers", async () => {
+    const sigint = process.listenerCount("SIGINT");
+    const sigterm = process.listenerCount("SIGTERM");
+
+    const listening = await listenWebServer({ routes: testRoutes([]), port: 0 });
+    listeners.push(listening);
+
+    expect(process.listenerCount("SIGINT")).toBe(sigint);
+    expect(process.listenerCount("SIGTERM")).toBe(sigterm);
+    expect(listening.baseUrl).toBe(`http://127.0.0.1:${listening.port}`);
+    expect(listening.security.port).toBe(listening.port);
+    const response = await fetch(`${listening.baseUrl}/api/test`, {
+      headers: { cookie: `codedeck_ui_token_${listening.port}=${listening.security.token}` },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("falls back to another port when the requested one is busy and fallback is on", async () => {
+    const port = await busyPort();
+
+    const listening = await listenWebServer({ routes: testRoutes([]), port, fallbackToEphemeral: true });
+    listeners.push(listening);
+
+    expect(listening.port).not.toBe(port);
+    expect(listening.port).toBeGreaterThan(0);
+  });
+
+  it("rejects with the listen error when the port is busy and fallback is off", async () => {
+    const port = await busyPort();
+
+    await expect(listenWebServer({ routes: testRoutes([]), port })).rejects.toMatchObject({ code: "EADDRINUSE" });
+  });
+
+  it("passes the fallback through startWebServer", async () => {
+    const port = await busyPort();
+
+    const handle = await startWebServer({
+      routes: testRoutes([]),
+      port,
+      fallbackToEphemeral: true,
+      initialPath: "/",
+      open: false,
+      log: vi.fn(),
+      signalTarget: new EventEmitter(),
+      exit: vi.fn(),
+    });
+    handles.push(handle);
+
+    expect(handle.port).not.toBe(port);
+    expect((await sessionFetch(handle)(`${handle.baseUrl}/`)).status).toBe(200);
   });
 });

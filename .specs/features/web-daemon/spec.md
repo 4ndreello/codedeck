@@ -257,7 +257,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | WD-01 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-02 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-03 | P1: Daemon supervises one web server | Tasks | Pending |
-| WD-04 | P1: Daemon supervises one web server | Tasks | Pending |
+| WD-04 | P1: Daemon supervises one web server | Tasks | Verified |
 | WD-05 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-06 | P1: Daemon supervises one web server | Tasks | Pending |
 | WD-07 | P1: Daemon supervises one web server | Tasks | Pending |
