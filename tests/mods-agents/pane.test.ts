@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_CARD_COLUMNS,
   MIN_COLUMNS,
+  displayPath,
   elapsed,
   formatPane,
   paneButtonLabel,
@@ -189,6 +190,48 @@ describe("selectPane", () => {
   it("never throws on a degenerate row list (rule 14)", () => {
     expect(selectPane(null as unknown as SessionRow[], RUN)).toMatchObject({ rows: [], hidden: 0, total: 0 });
     expect(selectPane([null, undefined] as unknown as SessionRow[], RUN).rows).toEqual([]);
+  });
+
+  it("prefers a non-empty worktree path over cwd (AC1)", () => {
+    const snap = selectPane(
+      [session({ id: "worker", worktree: "/tmp/worktree", cwd: "/tmp/cwd" })],
+      RUN,
+    );
+    expect(snap.rows[0].path).toBe("/tmp/worktree");
+  });
+
+  it("uses cwd when worktree is empty (AC2)", () => {
+    const snap = selectPane(
+      [session({ id: "worker", worktree: "", cwd: "/tmp/cwd" })],
+      RUN,
+    );
+    expect(snap.rows[0].path).toBe("/tmp/cwd");
+  });
+
+  it("leaves path undefined when worktree and cwd are empty (AC3)", () => {
+    const snap = selectPane(
+      [session({ id: "worker", worktree: null, cwd: "" })],
+      RUN,
+    );
+    expect(snap.rows[0].path).toBeUndefined();
+  });
+});
+
+describe("displayPath", () => {
+  it("shortens a leading home directory path (AC4)", () => {
+    expect(displayPath("/home/alice")).toBe("~");
+    expect(displayPath("/home/alice/project")).toBe("~/project");
+  });
+
+  it("shortens a leading macOS user directory path (AC5)", () => {
+    expect(displayPath("/Users/alice")).toBe("~");
+    expect(displayPath("/Users/alice/project")).toBe("~/project");
+  });
+
+  it("leaves paths with other prefixes unchanged (AC6)", () => {
+    expect(displayPath("/tmp/x")).toBe("/tmp/x");
+    expect(displayPath("/homework/x")).toBe("/homework/x");
+    expect(displayPath("/home/")).toBe("/home/");
   });
 });
 
@@ -717,6 +760,114 @@ describe("formatPane", () => {
     expect(lines.some((l) => l.includes("18 finished"))).toBe(true);
     expect(lines.some((l) => l.includes("+19 hidden agents"))).toBe(true);
     for (const worker of ["w1", "a01", "a18"]) expect(lines.join("\n")).not.toContain(worker);
+  });
+});
+
+describe("worker card paths", () => {
+  const liveWorker = (overrides: Partial<PaneRow> = {}): PaneRow => ({
+    id: "worker",
+    status: "working",
+    agent: "claude",
+    name: "worker task",
+    ...overrides,
+  });
+
+  const workerSnapshot = (row: PaneRow): PaneSnapshot =>
+    snapshot({ rows: [row], orchestrator: undefined, hidden: 0, total: 1 });
+
+  it("adds the shortened path after the detail line (AC7)", () => {
+    const lines = formatPane(workerSnapshot(liveWorker({ path: "/home/alice/repo" })), 40);
+    const pathIndex = lines.findIndex((line) => line.includes("~/repo"));
+    expect(pathIndex).toBeGreaterThan(0);
+    expect(lines[pathIndex - 1]).toContain("Working");
+  });
+
+  it("keeps the original three body lines when path is absent (AC8)", () => {
+    const lines = formatPane(workerSnapshot(liveWorker()), 40);
+    const top = lines.findIndex((line) => line.startsWith("│  ┌"));
+    const card = lines.slice(top, top + 5);
+    expect(card).toHaveLength(5);
+    expect(card[0]).toMatch(/^│  ┌/);
+    expect(card[1]).toContain("worker");
+    expect(card[2]).toContain("worker task");
+    expect(card[3]).toContain("Working");
+    expect(card[4]).toMatch(/^│  └/);
+    expect(card.slice(1, -1)).toHaveLength(3);
+  });
+
+  it("clips long paths from the start and keeps the session id visible (AC9)", () => {
+    const path = "/very/long/root/" + "segment/".repeat(10) + "session-tail-id";
+    const lines = formatPane(workerSnapshot(liveWorker({ path })), 40);
+    const pathLine = lines.find((line) => line.includes("session-tail-id"));
+    expect(pathLine).toContain("…");
+    expect(pathLine).not.toContain("/very/long/root/");
+  });
+
+  it("does not leave a low surrogate after the start-clip ellipsis (AC10)", () => {
+    const path = "x".repeat(28) + "🚀" + "y".repeat(23) + "TAIL";
+    const lines = formatPane(workerSnapshot(liveWorker({ path })), 40);
+    const pathLine = lines.find((line) => line.includes("TAIL"))!;
+    const next = pathLine.charCodeAt(pathLine.indexOf("…") + 1);
+    expect(next >= 0xdc00 && next <= 0xdfff).toBe(false);
+  });
+
+  it("replaces control characters in the path with spaces (AC11)", () => {
+    const path = "repo\nbranch\u001b[2J\u2028tail";
+    const lines = formatPane(workerSnapshot(liveWorker({ path })), 40);
+    expectCleanWidth(lines, 40);
+    expect(lines.join("\n")).toContain("repo branch");
+    for (const line of lines) expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
+  });
+
+  it("leaves orchestrator and history lines unchanged (AC12)", () => {
+    const baseRows = [
+      session({ id: "root", origin: "open", agent: "claude" }),
+      session({ id: "live-id", status: "working", name: "live", updatedAt: "2026-09-19T14:00:00.000Z" }),
+      session({ id: "history-id", status: "completed", name: "history", updatedAt: "2026-09-19T12:00:00.000Z" }),
+    ];
+    const pathRows = [
+      session({ id: "root", origin: "open", agent: "claude", cwd: "/home/alice/orchestrator" }),
+      session({ id: "live-id", status: "working", name: "live", worktree: "/home/alice/live", updatedAt: "2026-09-19T14:00:00.000Z" }),
+      session({ id: "history-id", status: "completed", name: "history", cwd: "/home/alice/history", updatedAt: "2026-09-19T12:00:00.000Z" }),
+    ];
+    const base = formatPane(selectPane(baseRows, RUN), 40);
+    const withPaths = formatPane(selectPane(pathRows, RUN), 40);
+    expect(withPaths.filter((line) => line.includes("Orchestrator"))).toEqual(
+      base.filter((line) => line.includes("Orchestrator")),
+    );
+    expect(withPaths.filter((line) => line.includes("history-id"))).toEqual(
+      base.filter((line) => line.includes("history-id")),
+    );
+  });
+
+  it("keeps exact line width at every existing width with a long path (AC13)", () => {
+    const path = "/home/alice/" + "segment/🚀".repeat(20) + "session-id";
+    const snap = workerSnapshot(liveWorker({ path }));
+    for (const columns of [MIN_COLUMNS, 40, 89, 120]) {
+      expectCleanWidth(formatPane(snap, columns), columns);
+    }
+  });
+
+  it("respects height limits, dropping history and then the oldest path card (AC14)", () => {
+    const rows: PaneRow[] = [
+      liveWorker({ id: "new-worker", name: "new", path: "/tmp/new", updatedAt: "2026-09-19T14:00:00.000Z" }),
+      liveWorker({ id: "old-worker", name: "old", path: "/tmp/old", updatedAt: "2026-09-19T10:00:00.000Z" }),
+      { id: "new-history", status: "completed", agent: "claude", name: "new history", path: "/tmp/history-new" },
+      { id: "old-history", status: "completed", agent: "claude", name: "old history", path: "/tmp/history-old" },
+    ];
+    const snap = snapshot({ rows, orchestrator: undefined, hidden: 0, total: rows.length });
+    const historyDropped = formatPane(snap, 40, 21);
+    expect(historyDropped.length).toBeLessThanOrEqual(21);
+    expect(historyDropped.join("\n")).toContain("new-worker");
+    expect(historyDropped.join("\n")).toContain("old-worker");
+    expect(historyDropped.join("\n")).not.toContain("new-history");
+    expect(historyDropped.join("\n")).toContain("+2 hidden agents");
+
+    const oldestDropped = formatPane(snap, 40, 15);
+    expect(oldestDropped.length).toBeLessThanOrEqual(15);
+    expect(oldestDropped.join("\n")).toContain("new-worker");
+    expect(oldestDropped.join("\n")).not.toContain("old-worker");
+    expect(oldestDropped.join("\n")).toContain("+3 hidden agents");
   });
 });
 

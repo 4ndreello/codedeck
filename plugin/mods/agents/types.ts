@@ -1,7 +1,8 @@
 // Shared shapes for the orchestrator agents band.
 //
-// Owned by the interface, not by any one slice: parse, select and format are
-// written against this file and none of them may change it.
+// Parse, select and format share this interface. The optional directory fields
+// are a deliberate exception to the frozen interface, per the agents-pane path
+// decision, so a worker's worktree or cwd can reach its card.
 //
 // SessionRow mirrors one element of `codedeck ps --all --json`. Every field
 // past `id` is optional on purpose: the band reads a CLI it does not version
@@ -21,6 +22,8 @@ export interface SessionRow {
   status?: string;
   updatedAt?: string;
   createdAt?: string;
+  worktree?: string | null;
+  cwd?: string | null;
 }
 
 /**
@@ -44,6 +47,7 @@ export interface PaneRow {
    */
   parentId?: string;
   role?: string;
+  path?: string;
 }
 
 /** Everything one drawing of the pane needs, already narrowed to one run. */
