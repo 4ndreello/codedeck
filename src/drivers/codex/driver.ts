@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { detectBinary, extractCleanJson, runCommandWithTimeout } from "../helpers.js";
 import { parseCodexLine } from "./parser.js";
+import { discoverCodexHostSkills } from "./host-skills.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
@@ -11,8 +12,8 @@ import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/mo
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Arg building is a pure function so the flag spellings can be tested without
-// spawning codex. Measured against codex-cli 0.150.1.
-export function buildCodexArgs(options: StartOptions): string[] {
+// spawning codex.
+export function buildCodexArgs(options: StartOptions, disabledSkillPaths: string[] = []): string[] {
   // resume is a subcommand with its own option set. Keep only flags accepted
   // by `codex exec resume`; the process cwd already provides the working dir.
   const resumeSessionId = options.resumeSessionId;
@@ -20,6 +21,15 @@ export function buildCodexArgs(options: StartOptions): string[] {
   const args: string[] = resumeSessionId
     ? ["exec", "resume", resumeSessionId, "--json"]
     : ["exec", "--json"];
+
+  args.push("--disable", "plugins");
+
+  if (disabledSkillPaths.length > 0) {
+    const skillsConfig = disabledSkillPaths
+      .map((skillPath) => `{path=${JSON.stringify(skillPath)},enabled=false}`)
+      .join(",");
+    args.push("-c", `skills.config=[${skillsConfig}]`);
+  }
 
   if (options.model) args.push("-m", options.model);
 
@@ -81,7 +91,7 @@ export class CodexDriver extends SessionDriver {
   protected readonly resumeError = "No native session id for Codex resume";
 
   protected buildArgs(options: StartOptions): string[] {
-    return buildCodexArgs(options);
+    return buildCodexArgs(options, discoverCodexHostSkills());
   }
 
   capabilities(): AgentCapabilities {
@@ -154,4 +164,3 @@ export class CodexDriver extends SessionDriver {
     }
   }
 }
-

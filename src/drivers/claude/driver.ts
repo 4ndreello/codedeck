@@ -13,6 +13,7 @@ import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 // Pure so the flag spellings are testable without spawning claude.
 export function buildClaudeArgs(options: StartOptions, config: RunAgentConfig = {}): string[] {
   const args: string[] = ["-p", "--output-format", "stream-json", "--verbose"];
+  args.push("--disable-slash-commands");
   const autocompact = options.autocompact ?? (config.autocompact === undefined ? false : undefined);
   // Bypass permissions for automation (as spec allows).
   args.push("--dangerously-skip-permissions");
