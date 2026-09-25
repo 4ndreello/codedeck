@@ -388,6 +388,7 @@ export class SessionStore {
     };
 
     const byDayMap = new Map<string, UsageMetricBucket>();
+    const byHourMap = new Map<string, UsageMetricBucket>();
     const byRepoMap = new Map<string, UsageMetricBucket>();
     const byModelMap = new Map<string, UsageMetricBucket>();
     const byAgentMap = new Map<string, UsageMetricBucket>();
@@ -480,6 +481,7 @@ export class SessionStore {
       const d = new Date(row.created_at);
       const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       accumulate(byDayMap, dayKey, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
+      accumulate(byHourMap, `${dayKey} ${String(d.getHours()).padStart(2, "0")}`, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
 
       // Repo (normalized project name across worktrees)
       const repoKey = normalizeProjectName(row);
@@ -546,6 +548,7 @@ export class SessionStore {
       const d = new Date(row.ended_at);
       const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       accumulate(byDayMap, dayKey, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
+      accumulate(byHourMap, `${dayKey} ${String(d.getHours()).padStart(2, "0")}`, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
       accumulate(
         byRepoMap,
         normalizeProjectName({ repository: row.repository, cwd: row.cwd }),
@@ -566,6 +569,7 @@ export class SessionStore {
     };
 
     const byDay = [...byDayMap.values()].sort((a, b) => a.key.localeCompare(b.key));
+    const byHour = [...byHourMap.values()].sort((a, b) => a.key.localeCompare(b.key));
     const byRepository = [...byRepoMap.values()].sort(sortDescending);
     const byModel = [...byModelMap.values()].sort(sortDescending);
     const byAgent = [...byAgentMap.values()].sort(sortDescending);
@@ -580,6 +584,7 @@ export class SessionStore {
       },
       totals,
       byDay,
+      byHour,
       byRepository,
       byModel,
       byAgent,

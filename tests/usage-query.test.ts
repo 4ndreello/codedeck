@@ -208,6 +208,7 @@ describe("SessionStore.queryUsage", () => {
       sessionsWithoutCost: 0,
     });
     expect(result.byDay[0]).toMatchObject({ key: localDay, sessionCount: 1, costUsd: 1.25 });
+    expect(result.byHour).toMatchObject([{ key: `${localDay} ${String(new Date(endedAt).getHours()).padStart(2, "0")}`, costUsd: 1.25 }]);
     expect(result.byRepository[0]).toMatchObject({ key: "legacy-repo", costUsd: 1.25 });
     expect(result.byModel[0]).toMatchObject({ key: "claude-sonnet-4-6", costUsd: 1.25 });
     expect(result.byAgent[0]).toMatchObject({ key: "claude", costUsd: 1.25 });
