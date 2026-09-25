@@ -133,6 +133,7 @@ class Daemon {
   private startTime = Date.now();
   private startupReconcilePromise: Promise<void> = Promise.resolve();
   private sessionLocks = new Set<string>();
+  private reservedSessionIds = new Set<string>();
   // Sessions recover() revived from a store-busy failure: the sequence the
   // drain starts after, and the log mtime when the harness is already dead.
   private healing = new Map<string, { fromSequence: number; endedAt?: Date }>();
@@ -660,6 +661,21 @@ class Daemon {
     }
   }
 
+  private nextSessionId(): string {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const sessionId = generateSessionId();
+      if (!this.sessions.get(sessionId) && !this.reservedSessionIds.has(sessionId)) {
+        this.reservedSessionIds.add(sessionId);
+        return sessionId;
+      }
+    }
+    throw new Error("Unable to generate a unique session ID after 100 attempts");
+  }
+
+  private releaseSessionId(sessionId: string): void {
+    this.reservedSessionIds.delete(sessionId);
+  }
+
   private async handleRequest(req: IpcRequest, socket: net.Socket): Promise<void> {
     const { id, method, params } = req;
     const send = (res: Omit<IpcResponse, "id">) => {
@@ -688,15 +704,27 @@ class Daemon {
         const configuredSandbox = resolveDefaultSandbox(cfg);
         const sandbox = agent === "codex" ? requestSandbox ?? configuredSandbox : undefined;
 
-        const sessionId = generateSessionId();
         let cwd = path.resolve(cwdIn);
+        // Only record an edge to a session the store knows: a stale or foreign
+        // CODEDECK_SESSION_ID must not invent a parent the tree cannot draw.
+        const parent = typeof p.parentId === "string" && p.parentId.length > 0
+          ? this.sessions.get(p.parentId)
+          : null;
+        const sessionId = this.nextSessionId();
         let worktree: string | undefined;
         let branch: string | undefined;
         let repository: string | undefined;
         let baseCommit: string | null | undefined;
 
-        const gitInfo = await getGitInfo(cwd);
+        let gitInfo: Awaited<ReturnType<typeof getGitInfo>>;
+        try {
+          gitInfo = await getGitInfo(cwd);
+        } catch (error) {
+          this.releaseSessionId(sessionId);
+          throw error;
+        }
         if (this.shuttingDown) {
+          this.releaseSessionId(sessionId);
           send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
           return;
         }
@@ -709,6 +737,7 @@ class Daemon {
           try {
             const wt = await createWorktree({ repoRoot: gitInfo.root, sessionId, prompt, name: p.name });
             if (this.shuttingDown) {
+              this.releaseSessionId(sessionId);
               send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
               return;
             }
@@ -717,6 +746,7 @@ class Daemon {
             baseCommit = wt.baseCommit;
             cwd = worktree;
           } catch (e) {
+            this.releaseSessionId(sessionId);
             send({ error: { code: "WORKTREE_FAILED", message: e instanceof Error ? e.message : String(e) } });
             return;
           }
@@ -725,11 +755,6 @@ class Daemon {
         }
 
         const now = new Date();
-        // Only record an edge to a session the store knows: a stale or foreign
-        // CODEDECK_SESSION_ID must not invent a parent the tree cannot draw.
-        const parent = typeof p.parentId === "string" && p.parentId.length > 0
-          ? this.sessions.get(p.parentId)
-          : null;
         const session: any = {
           id: sessionId,
           runId: typeof p.runId === "string" ? p.runId : parent?.runId ?? undefined,
@@ -753,7 +778,11 @@ class Daemon {
           updatedAt: now,
         };
 
-        this.sessions.create(session);
+        try {
+          this.sessions.create(session);
+        } finally {
+          this.releaseSessionId(sessionId);
+        }
 
         // Start driver async (don't block response too long)
         // But we need to start before returning? Return quickly then start
@@ -833,10 +862,7 @@ class Daemon {
           break;
         }
 
-        let sessionId = generateSessionId();
-        while (this.sessions.get(sessionId)) {
-          sessionId = generateSessionId();
-        }
+        const sessionId = this.nextSessionId();
 
         if (gitInfo) {
           repository = gitInfo.root;
@@ -863,7 +889,11 @@ class Daemon {
           updatedAt: now,
         };
 
-        this.sessions.create(session);
+        try {
+          this.sessions.create(session);
+        } finally {
+          this.releaseSessionId(sessionId);
+        }
         send({ result: { session } });
         break;
       }
