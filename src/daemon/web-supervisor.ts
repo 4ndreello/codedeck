@@ -44,10 +44,14 @@ export interface WebSupervisorOptions {
   stopTimeoutMs?: number;
 }
 
+/** What a child was started for; decides whether a later request may reuse it. */
+type StartedFor = { kind: "explicit"; port: number } | { kind: "preferred"; port: number } | { kind: "none" };
+
 interface RunningChild extends WebEnsureResult {
   child: WebChildProcess;
   entry: string;
   build: string | undefined;
+  startedFor: StartedFor;
   exited: Promise<void>;
 }
 
@@ -97,13 +101,15 @@ export class WebSupervisor {
     this.stopTimeoutMs = options.stopTimeoutMs ?? WEB_STOP_TIMEOUT_MS;
   }
 
-  ensure(params: WebEnsureParams): Promise<WebEnsureResult> {
+  async ensure(params: WebEnsureParams): Promise<WebEnsureResult> {
     if (params.entry !== undefined && !this.isValidEntry(params.entry)) {
-      return Promise.reject(new WebEnsureError("WEB_BAD_ENTRY", `invalid web child entry: ${params.entry}`));
+      throw new WebEnsureError("WEB_BAD_ENTRY", `invalid web child entry: ${params.entry}`);
     }
+    // One start at a time: a request that finds a start in flight waits for it,
+    // then judges the outcome by its own params.
+    while (this.state.kind === "starting") await this.state.promise.catch(() => {});
     const state = this.state;
-    if (state.kind === "starting") return state.promise;
-    if (state.kind === "running" && this.matches(state.running, params)) return Promise.resolve(resultOf(state.running));
+    if (state.kind === "running" && this.matches(state.running, params)) return resultOf(state.running);
 
     const previous = state.kind === "running" ? state.running : undefined;
     const promise = (async () => {
@@ -128,8 +134,13 @@ export class WebSupervisor {
 
   private matches(running: RunningChild, params: WebEnsureParams): boolean {
     if (params.entry !== undefined && params.entry !== running.entry) return false;
-    if (params.build === undefined) return true;
-    return (params.entry ?? this.defaultEntry) === running.entry && params.build === running.build;
+    if (params.build !== undefined && ((params.entry ?? this.defaultEntry) !== running.entry || params.build !== running.build)) {
+      return false;
+    }
+    // An explicit port never moves a running console. A preferred port does,
+    // unless the child was started for that same preferred port.
+    if (params.port !== undefined || params.preferredPort === undefined) return true;
+    return running.startedFor.kind === "preferred" && running.startedFor.port === params.preferredPort;
   }
 
   private async stop(running: RunningChild): Promise<void> {
@@ -141,7 +152,17 @@ export class WebSupervisor {
 
   private start(params: WebEnsureParams): Promise<WebEnsureResult> {
     const entry = params.entry ?? this.defaultEntry;
-    const args = ["--web-child", ...(params.port === undefined ? [] : ["--port", String(params.port)])];
+    const startedFor: StartedFor =
+      params.port !== undefined
+        ? { kind: "explicit", port: params.port }
+        : params.preferredPort !== undefined
+          ? { kind: "preferred", port: params.preferredPort }
+          : { kind: "none" };
+    const args = [
+      "--web-child",
+      ...(startedFor.kind === "explicit" ? ["--port", String(startedFor.port)] : []),
+      ...(startedFor.kind === "preferred" ? ["--preferred-port", String(startedFor.port)] : []),
+    ];
     let child: WebChildProcess;
     try {
       child = this.spawnChild(entry, args);
@@ -204,6 +225,7 @@ export class WebSupervisor {
           child,
           entry,
           build: handshake.build ?? params.build,
+          startedFor,
           exited,
         };
         this.state = { kind: "running", running };

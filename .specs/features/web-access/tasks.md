@@ -192,18 +192,19 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [ ] `preferredPort` only → spawn args `--web-child --preferred-port <n>`
-- [ ] Running for preferred 7777, request preferred 7788 → SIGTERM + new child for 7788
-- [ ] Running for explicit 8000, request preferred 7777 → restart for 7777
-- [ ] Running with no port argument, request preferred 7777 → restart for 7777
-- [ ] Running for preferred 7777, request `port` 8000 with matching entry/build → reuse, no spawn
-- [ ] Request with neither → reuse a matching child
-- [ ] Entry or build mismatch still restarts (existing tests keep passing)
-- [ ] Two requests during a start that each need a different child → starts run one after the other, never two children alive at once, each request resolves with a child matching its own params
-- [ ] Gate check passes: `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
+- [x] `preferredPort` only → spawn args `--web-child --preferred-port <n>`
+- [x] Running for preferred 7777, request preferred 7788 → SIGTERM + new child for 7788
+- [x] Running for explicit 8000, request preferred 7777 → restart for 7777
+- [x] Running with no port argument, request preferred 7777 → restart for 7777
+- [x] Running for preferred 7777, request `port` 8000 with matching entry/build → reuse, no spawn
+- [x] Request with neither → reuse a matching child
+- [x] Entry or build mismatch still restarts (existing tests keep passing)
+- [x] Two requests during a start that each need a different child → starts run one after the other, never two children alive at once, each request resolves with a child matching its own params
+- [x] Gate check passes: `npx vitest run tests/web-supervisor.test.ts`; `npx tsc --noEmit`
 
 **Tests**: unit
 **Gate**: quick
+**Status**: ✅ Done
 
 **Commit**: `feat(daemon): Restart the web child when the preferred port changes`
 

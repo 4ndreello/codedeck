@@ -202,19 +202,19 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | WA-10 | P1: Bookmark survives restarts | Tasks | Verified |
 | WA-11 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-12 | P1: Console answers while the daemon runs | Tasks | Pending |
-| WA-13 | P1: Console answers while the daemon runs | Tasks | Pending |
+| WA-13 | P1: Console answers while the daemon runs | Tasks | Verified |
 | WA-14 | P1: Console answers while the daemon runs | Tasks | Pending |
 | WA-15 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-16 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-17 | P2: Fixed, configurable port | Tasks | Pending |
-| WA-18 | P2: Fixed, configurable port | Tasks | Pending |
-| WA-19 | P2: Fixed, configurable port | Tasks | Pending |
-| WA-20 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-18 | P2: Fixed, configurable port | Tasks | Verified |
+| WA-19 | P2: Fixed, configurable port | Tasks | Verified |
+| WA-20 | P2: Fixed, configurable port | Tasks | Verified |
 | WA-21 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-22 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-23 | P2: Fixed, configurable port | Tasks | Pending |
 | WA-24 | P2: Fixed, configurable port | Tasks | Verified |
-| WA-25 | P2: Fixed, configurable port | Tasks | Pending |
+| WA-25 | P2: Fixed, configurable port | Tasks | Verified |
 
 **Coverage:** 25 total, 0 mapped to tasks, 25 unmapped ⚠️
 
