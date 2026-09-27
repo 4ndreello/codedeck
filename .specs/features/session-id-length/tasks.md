@@ -10,7 +10,7 @@
 | Code layer | Test type | Test file | Command | Coverage expectation |
 | --- | --- | --- | --- | --- |
 | Session ID generation | Unit | `tests/session.test.ts` | `npx vitest run --no-cache tests/session.test.ts` | Length, lowercase hex, eight-byte crypto call, and no fallback. |
-| Session store lookup | Unit | `tests/session-id-store.test.ts` | `npx vitest run --no-cache tests/session-id-store.test.ts` | Exact precedence, eight-character legacy-shadow regression, unique prefixes, ambiguous candidates, empty input, case-insensitive lookup, exact collision check. |
+| Session store lookup | Unit | `tests/session-id-store.test.ts` | `npx vitest run --no-cache tests/session-id-store.test.ts` | Exact precedence, eight-character legacy-shadow regression, unique prefixes, ambiguous candidates, empty input, uppercase input resolving lowercase IDs through `get`, case-sensitive `getExact` (an uppercase stored ID such as `A` stays reachable), exact collision check. |
 | Daemon IPC lookup and canonical routing | Integration | `tests/session-id-ipc.test.ts` | `npx vitest run --no-cache tests/session-id-ipc.test.ts` | ID-taking handlers reject ambiguity; exact parent lookup ignores prefixes; keyed side effects use full IDs. |
 | Usage run-ID lookup | Integration | `tests/usage-daemon.test.ts` | `npx vitest run --no-cache tests/usage-daemon.test.ts` | Exact run IDs take precedence over session-ID prefixes; unique prefixes resolve and unrelated run IDs remain unchanged. |
 | Orchestrator usage reconciliation | Integration | `tests/orchestrator-usage-daemon.test.ts` | `npx vitest run --no-cache tests/orchestrator-usage-daemon.test.ts` | Existing open-session usage operations remain compatible with normalized session IDs. |
@@ -70,7 +70,7 @@ Commands, run one file at a time:
 
 ### T2: Resolve exact, unique, and ambiguous IDs
 
-**What**: Make store lookup case-insensitive, prefer exact IDs, resolve only unique nonempty prefixes, report ambiguity, and keep collision checks exact.
+**What**: Prefer the raw exact ID, then the lowercased exact ID, then a lowercased unique prefix in `get`, keep `getExact` a raw case-sensitive match, resolve only unique nonempty prefixes, report ambiguity, and keep collision checks exact.
 **Where**: `src/store/sessions.ts`
 **Files**: `src/store/sessions.ts`, `src/daemon/daemon.ts` only for exact allocation lookup, `tests/session-id-store.test.ts`, and existing collision tests remain unchanged.
 **Depends on**: T1
@@ -89,7 +89,7 @@ Commands, run one file at a time:
 - Exact lookup wins over longer IDs that share its prefix.
 - A unique prefix returns its stored session; an ambiguous prefix throws `SESSION_AMBIGUOUS` and names every candidate.
 - Empty input returns no match.
-- Uppercase lookup input resolves lowercase hexadecimal IDs in both `get` and `getExact`.
+- Uppercase lookup input resolves lowercase hexadecimal IDs through `get`. `getExact` is a raw case-sensitive match, so stored IDs with uppercase letters (test fixtures such as `A`) still resolve exactly.
 - Allocation retries only when the exact candidate ID already exists.
 - Existing create/adopt collision retry tests pass.
 

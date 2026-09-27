@@ -193,21 +193,24 @@ export class SessionStore {
   }
 
   get(id: string): Session | null {
-    id = id.toLowerCase();
     const exact = this.getExact(id);
     if (exact) return exact;
-    if (id.length === 0) return null;
+    const normalizedId = id.toLowerCase();
+    if (normalizedId !== id) {
+      const normalizedExact = this.getExact(normalizedId);
+      if (normalizedExact) return normalizedExact;
+    }
+    if (normalizedId.length === 0) return null;
 
     const rows = this.db.prepare(
       `SELECT * FROM sessions WHERE substr(id, 1, length(?)) = ? ORDER BY id`,
-    ).all(id, id) as unknown as SessionRow[];
+    ).all(normalizedId, normalizedId) as unknown as SessionRow[];
     if (rows.length === 0) return null;
-    if (rows.length > 1) throw new AmbiguousSessionIdError(id, rows.map((row) => row.id));
+    if (rows.length > 1) throw new AmbiguousSessionIdError(normalizedId, rows.map((row) => row.id));
     return rowToSession(rows[0]!);
   }
 
   getExact(id: string): Session | null {
-    id = id.toLowerCase();
     const row = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
   }

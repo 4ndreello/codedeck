@@ -238,7 +238,7 @@ describe("open native session linking", () => {
       "session.linkNative",
       "session.release",
     ]);
-    expect(lifecycleCalls[0]?.[1]).toEqual({ id: "0001", nativeId });
+    expect(lifecycleCalls[0]?.[1]).toEqual({ id: "0000000000000001", nativeId });
   });
 
   it("stops the watcher and releases the session when flush rejects", async () => {

@@ -51,13 +51,22 @@ describe("SessionStore ID resolution", () => {
     expect(store.get(legacyId)?.id).toBe(legacyId);
   });
 
-  it("normalizes uppercase input in prefix and exact lookups", () => {
+  it("normalizes uppercase input while keeping exact lookup case-sensitive", () => {
     const store = createStore();
     const id = "a83f0123456789ab";
     store.create(makeSession(id));
 
     expect(store.get("A83F")?.id).toBe(id);
-    expect(store.getExact(id.toUpperCase())?.id).toBe(id);
+    expect(store.getExact(id.toUpperCase())).toBeNull();
+    expect(store.getExact(id)?.id).toBe(id);
+  });
+
+  it("finds uppercase stored IDs through exact and general lookup", () => {
+    const store = createStore();
+    store.create(makeSession("A"));
+
+    expect(store.getExact("A")?.id).toBe("A");
+    expect(store.get("A")?.id).toBe("A");
   });
 
   it("resolves a unique prefix of any nonzero length", () => {
