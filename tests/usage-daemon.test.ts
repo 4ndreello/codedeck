@@ -68,6 +68,58 @@ const createParams = (runId: unknown) => ({
 });
 
 describe("usage daemon methods", () => {
+  it("resolves a session-ID prefix before aggregating run usage", async () => {
+    const id = "f00d000000000001";
+    seed(daemon!, id, "completed", {
+      cwd: runAgentDir,
+      runId: id,
+      usage: { inputTokens: 300, outputTokens: 120, cost: 0.2 },
+    });
+
+    const response = await request("usage.get", { runId: "f00d0000" });
+
+    expect(response.result).toMatchObject({
+      runId: id,
+      inputTokens: 300,
+      outputTokens: 120,
+      sessionCount: 1,
+      costUsd: 0.2,
+    });
+  });
+
+  it("prefers an exact run id when it is also a session-ID prefix", async () => {
+    seed(daemon!, "run-owner", "completed", {
+      runId: "beef",
+      usage: { inputTokens: 100, outputTokens: 20, cost: 0.1 },
+    });
+    seed(daemon!, "beef000000000001", "completed", {
+      runId: "beef000000000001",
+      usage: { inputTokens: 900, outputTokens: 200, cost: 0.9 },
+    });
+
+    const response = await request("usage.get", { runId: "beef" });
+
+    expect(response.result).toMatchObject({
+      runId: "beef",
+      inputTokens: 100,
+      outputTokens: 20,
+      sessionCount: 1,
+      costUsd: 0.1,
+    });
+  });
+
+  it("returns SESSION_AMBIGUOUS for an ambiguous session-ID prefix", async () => {
+    seed(daemon!, "dead000000000001", "completed", { runId: "dead000000000001" });
+    seed(daemon!, "dead000000000002", "completed", { runId: "dead000000000002" });
+
+    const response = await request("usage.get", { runId: "dead" });
+
+    expect(response.error).toEqual({
+      code: "SESSION_AMBIGUOUS",
+      message: 'Ambiguous session ID "dead". Matches: dead000000000001, dead000000000002',
+    });
+  });
+
   it("round-trips a created run id through the store and usage.get", async () => {
     const runId = "run-roundtrip";
     const createResponse = await request("session.create", createParams(runId));

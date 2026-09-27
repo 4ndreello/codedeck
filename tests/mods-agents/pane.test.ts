@@ -290,7 +290,7 @@ describe("formatPane", () => {
     );
     const joined = lines.join("\n");
     expect(joined).toContain("missing");
-    expect(joined).toContain("unparseable");
+    expect(joined).toContain("bad");
     expect(joined).toContain("Working");
     expect(joined).toContain("Waiting for you");
     expect(joined).not.toMatch(/(?:Working|Waiting for you) · (?:\d+s|\d+m)/);
@@ -788,7 +788,7 @@ describe("worker card paths", () => {
     const card = lines.slice(top, top + 5);
     expect(card).toHaveLength(5);
     expect(card[0]).toMatch(/^│  ┌/);
-    expect(card[1]).toContain("worker");
+    expect(card[1]).toContain("work");
     expect(card[2]).toContain("worker task");
     expect(card[3]).toContain("Working");
     expect(card[4]).toMatch(/^│  └/);
@@ -832,12 +832,12 @@ describe("worker card paths", () => {
     ];
     const base = formatPane(selectPane(baseRows, RUN), 40);
     const withPaths = formatPane(selectPane(pathRows, RUN), 40);
+    const baseHistory = base.filter((line) => line.includes("history"));
     expect(withPaths.filter((line) => line.includes("Orchestrator"))).toEqual(
       base.filter((line) => line.includes("Orchestrator")),
     );
-    expect(withPaths.filter((line) => line.includes("history-id"))).toEqual(
-      base.filter((line) => line.includes("history-id")),
-    );
+    expect(baseHistory).not.toHaveLength(0);
+    expect(withPaths.filter((line) => line.includes("history"))).toEqual(baseHistory);
   });
 
   it("keeps exact line width at every existing width with a long path (AC13)", () => {
@@ -858,15 +858,15 @@ describe("worker card paths", () => {
     const snap = snapshot({ rows, orchestrator: undefined, hidden: 0, total: rows.length });
     const historyDropped = formatPane(snap, 40, 21);
     expect(historyDropped.length).toBeLessThanOrEqual(21);
-    expect(historyDropped.join("\n")).toContain("new-worker");
-    expect(historyDropped.join("\n")).toContain("old-worker");
-    expect(historyDropped.join("\n")).not.toContain("new-history");
+    expect(historyDropped.join("\n")).toContain("/tmp/new");
+    expect(historyDropped.join("\n")).toContain("/tmp/old");
+    expect(historyDropped.join("\n")).not.toContain("new history");
     expect(historyDropped.join("\n")).toContain("+2 hidden agents");
 
     const oldestDropped = formatPane(snap, 40, 15);
     expect(oldestDropped.length).toBeLessThanOrEqual(15);
-    expect(oldestDropped.join("\n")).toContain("new-worker");
-    expect(oldestDropped.join("\n")).not.toContain("old-worker");
+    expect(oldestDropped.join("\n")).toContain("/tmp/new");
+    expect(oldestDropped.join("\n")).not.toContain("/tmp/old");
     expect(oldestDropped.join("\n")).toContain("+3 hidden agents");
   });
 });
@@ -1046,5 +1046,21 @@ describe("lineage", () => {
     expectCleanWidth(lines, 60);
     expect(lines.some((l) => l.includes(" a  Claude"))).toBe(true);
     expect(lines.some((l) => l.includes(" b  Claude"))).toBe(true);
+  });
+
+  it("shows eight characters for worker and parent IDs while keeping row IDs full", () => {
+    const parentId = "cafe111122223333";
+    const childId = "babe444455556666";
+    const pane = selectPane([
+      session({ id: parentId, status: "completed", name: "parent" }),
+      session({ id: childId, status: "working", name: "child", parentId }),
+    ], RUN);
+    const joined = formatPane(pane, 89).join("\n");
+
+    expect(pane.rows.map((row) => row.id)).toEqual([childId, parentId]);
+    expect(joined).toContain("babe4444");
+    expect(joined).toContain("cafe1111");
+    expect(joined).not.toContain(childId);
+    expect(joined).not.toContain(parentId);
   });
 });

@@ -13,6 +13,11 @@ Response:
 { "id": "a1b2", "error": { "code": "SESSION_NOT_FOUND", "message": "..." } }
 ```
 
+Session lookups accept either an exact session ID or a unique prefix. An exact
+ID takes precedence over longer IDs that share its prefix. If a prefix matches
+multiple sessions, the daemon returns `SESSION_AMBIGUOUS` and lists every
+matching full ID in the error message.
+
 Streaming (`session.subscribe`, `session.logs --follow`):
 ```json
 { "type": "event", "event": { "type": "message", "sessionId": "...", "content": "...", "raw": {...} }, "id": "sess" }

@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { shortSessionId } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
 
 export function formatShowJson(result: unknown): string {
@@ -40,7 +41,7 @@ export function registerShowCommand(program: Command): void {
         return `${Math.floor(m / 60)}h ago`;
       })();
 
-      console.log(`Session       ${s.id}`);
+      console.log(`Session       ${shortSessionId(s.id)}`);
       if (s.name) console.log(`Name          ${s.name}`);
       console.log(`Agent         ${s.agent}`);
       console.log(`Status        ${s.status}`);

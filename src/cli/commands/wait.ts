@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import { IpcClient } from "../../daemon/ipc.js";
 import { getCliInvocation } from "../cli-name.js";
 import { exitCodeForOutcome } from "../../core/errors.js";
-import type { Session } from "../../core/session.js";
+import { shortSessionId, type Session } from "../../core/session.js";
 import { waitForSession, type SessionWaitClient } from "../wait.js";
 
 interface WaitCommandOptions {
@@ -14,9 +14,9 @@ export function formatWaitResult(session: Session): string {
     const failure = session.failure;
     const tag = failure ? ` [${failure.blame}${failure.retryable ? ", retryable" : ""}]` : "";
     const detail = failure?.detail ? `: ${String(failure.detail).slice(0, 200)}` : "";
-    return `✗ Session ${session.id} ${session.status}${tag}${detail}`;
+    return `✗ Session ${shortSessionId(session.id)} ${session.status}${tag}${detail}`;
   }
-  return `✓ Session ${session.id} ${session.status}`;
+  return `✓ Session ${shortSessionId(session.id)} ${session.status}`;
 }
 
 export function registerWaitCommand(program: Command): void {

@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { shortSessionId } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
 import type {
   ClaimAddResult,
@@ -84,7 +85,7 @@ function resolveClaimId(value: string): number {
 }
 
 function printClaim(claim: Claim, verb: string): void {
-  console.log(`${verb} claim #${claim.id} ${claim.pathGlob} for session ${claim.sessionId}: ${claim.reason}`);
+  console.log(`${verb} claim #${claim.id} ${claim.pathGlob} for session ${shortSessionId(claim.sessionId)}: ${claim.reason}`);
 }
 
 function printClaims(claims: readonly Claim[]): void {
@@ -93,7 +94,7 @@ function printClaims(claims: readonly Claim[]): void {
     return;
   }
   for (const claim of claims) {
-    console.log(`#${claim.id} ${claim.pathGlob}  ${claim.sessionId}  ${claim.reason}`);
+    console.log(`#${claim.id} ${claim.pathGlob}  ${shortSessionId(claim.sessionId)}  ${claim.reason}`);
   }
 }
 

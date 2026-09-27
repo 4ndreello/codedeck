@@ -6,7 +6,7 @@ import { formatWaitResult, registerWaitCommand } from "../src/cli/commands/wait.
 function session(status: Session["status"]): Session {
   const now = new Date();
   return {
-    id: "e395",
+    id: "e395000000000001",
     agent: "claude",
     status,
     cwd: process.cwd(),
@@ -27,7 +27,7 @@ describe("wait command", () => {
   });
 
   it("renders only the terminal result", () => {
-    expect(formatWaitResult(session("completed"))).toBe("✓ Session e395 completed");
-    expect(formatWaitResult(session("stopped"))).toBe("✓ Session e395 stopped");
+    expect(formatWaitResult(session("completed"))).toBe("✓ Session e3950000 completed");
+    expect(formatWaitResult(session("stopped"))).toBe("✓ Session e3950000 stopped");
   });
 });

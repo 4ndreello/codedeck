@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { CodexSandbox, ReasoningEffort } from "./driver.js";
 import type { FailureInfo } from "./errors.js";
 export const AGENT_IDS = ["claude", "codex", "opencode", "omp", "antigravity"] as const;
@@ -13,6 +14,12 @@ export function normalizeAgentId(value: unknown): AgentId | undefined {
 /** Narrows a string read off disk or off a flag to a harness CodeDeck drives. */
 export function isAgentId(value: unknown): value is AgentId {
   return typeof value === "string" && (AGENT_IDS as readonly string[]).includes(value);
+}
+
+export const SESSION_ID_DISPLAY_LENGTH = 8;
+
+export function shortSessionId(id: string): string {
+  return id.slice(0, SESSION_ID_DISPLAY_LENGTH);
 }
 
 export type SessionStatus =
@@ -117,19 +124,7 @@ export function liveStatus(
 }
 
 export function generateSessionId(): string {
-  // 4-char hex like spec (a83f) but ensure uniqueness with 8 chars if needed
-  // Use 8 hex chars, display first 4 but store full
-  const bytes = new Uint8Array(4);
-  // Node crypto
-  // Use simple random for now; crypto available globally
-  try {
-    // @ts-ignore
-    globalThis.crypto?.getRandomValues?.(bytes);
-    if (bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 0 && bytes[3] === 0) throw new Error("zero");
-  } catch {
-    for (let i = 0; i < 4; i++) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 4);
+  return randomBytes(8).toString("hex");
 }
 
 export function generateBranchName(slug: string, sessionId: string): string {

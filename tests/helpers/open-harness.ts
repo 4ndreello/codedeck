@@ -35,7 +35,7 @@ export function setupOpenHarness(options: OpenHarnessOptions): {
     let idCounter = 1;
     vi.spyOn(IpcClient.prototype, "request").mockImplementation(async (method: string, params: any) => {
       if (method === "session.adopt") {
-        const id = (idCounter++).toString(16).padStart(4, "0");
+        const id = (idCounter++).toString(16).padStart(16, "0");
         return {
           session: {
             id,
