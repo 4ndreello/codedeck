@@ -226,7 +226,7 @@ describe("session.adopt", () => {
     expect(seam(daemon).events.last("s-release-revived")?.type).toBe("session.completed");
   });
 
-  it("creates a head session with 4-hex canonical id, origin=open, and status=working", async () => {
+  it("creates a head session with 16-hex canonical id, origin=open, and status=working", async () => {
     const daemon = new Daemon();
     const res = await callIpc(daemon, "session.adopt", {
       agent: "claude",
@@ -238,7 +238,7 @@ describe("session.adopt", () => {
     expect(res.error).toBeUndefined();
     expect(res.result).toBeDefined();
     const s: Session = res.result.session;
-    expect(s.id).toMatch(/^[0-9a-f]{4}$/);
+    expect(s.id).toMatch(/^[0-9a-f]{16}$/);
     expect(s.runId).toBe(s.id);
     expect(s.origin).toBe("open");
     expect(s.agent).toBe("claude");
@@ -273,7 +273,7 @@ describe("session.adopt", () => {
     });
 
     expect(res.error).toBeUndefined();
-    expect(res.result.session.id).toMatch(/^[0-9a-f]{4}$/);
+    expect(res.result.session.id).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 

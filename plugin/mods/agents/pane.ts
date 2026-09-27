@@ -100,6 +100,11 @@ function text(value: unknown): string {
   return value;
 }
 
+function displaySessionId(value: unknown): string {
+  // Mirrors SESSION_ID_DISPLAY_LENGTH in src/core/session.ts.
+  return text(value).slice(0, 8);
+}
+
 /** Shorten a leading home directory without relying on a process global. */
 export function displayPath(path: string): string {
   return path.replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, "~");
@@ -400,7 +405,7 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
         ? "   " + fitStart(displayPath(cell(row.path)), Math.max(0, inner - 3))
         : undefined;
     return [
-      ` ${glyph(row.agent)} ${cell(row.id)}  ${role ? `${role} · ` : ""}${harnessLabel(row.agent)}`,
+      ` ${glyph(row.agent)} ${cell(displaySessionId(row.id))}  ${role ? `${role} · ` : ""}${harnessLabel(row.agent)}`,
       `   ${cell(row.name)}`,
       detailLine(row.model, row.effort, statusWord(status), cardElapsed(row, now), inner),
       ...(path === undefined ? [] : [path]),
@@ -455,8 +460,8 @@ function draw(snapshot: PaneSnapshot, columns: number, limit: number | undefined
       const when = age(row.updatedAt, now);
       const up = parentOf(row);
       lines.push(
-        `   ${glyph(row.agent)} ${cell(row.id)}  ${cell(row.name)}` +
-          (up ? ` ← ${cell(up.id)}` : "") +
+        `   ${glyph(row.agent)} ${cell(displaySessionId(row.id))}  ${cell(row.name)}` +
+          (up ? ` ← ${cell(displaySessionId(up.id))}` : "") +
           (when === "" ? "" : ` · ${when}`),
       );
     }

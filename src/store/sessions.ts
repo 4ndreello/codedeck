@@ -126,6 +126,15 @@ type SessionUpdate = Omit<
   pidStartTime?: string | null;
 };
 
+export class AmbiguousSessionIdError extends Error {
+  readonly code = "SESSION_AMBIGUOUS";
+
+  constructor(readonly prefix: string, readonly candidates: string[]) {
+    super(`Ambiguous session ID "${prefix}". Matches: ${candidates.join(", ")}`);
+    this.name = "AmbiguousSessionIdError";
+  }
+}
+
 export class SessionStore {
   constructor(private db: DatabaseSync) {}
 
@@ -184,13 +193,23 @@ export class SessionStore {
   }
 
   get(id: string): Session | null {
-    // Support prefix matching like git short hash: if exact not found, try prefix
-    let row = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as SessionRow | undefined;
-    if (!row && id.length >= 2) {
-      row = this.db.prepare(`SELECT * FROM sessions WHERE id LIKE ? LIMIT 1`).get(`${id}%`) as SessionRow | undefined;
-    }
-    if (!row) return null;
-    return rowToSession(row);
+    id = id.toLowerCase();
+    const exact = this.getExact(id);
+    if (exact) return exact;
+    if (id.length === 0) return null;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM sessions WHERE substr(id, 1, length(?)) = ? ORDER BY id`,
+    ).all(id, id) as unknown as SessionRow[];
+    if (rows.length === 0) return null;
+    if (rows.length > 1) throw new AmbiguousSessionIdError(id, rows.map((row) => row.id));
+    return rowToSession(rows[0]!);
+  }
+
+  getExact(id: string): Session | null {
+    id = id.toLowerCase();
+    const row = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id) as SessionRow | undefined;
+    return row ? rowToSession(row) : null;
   }
 
   list(limit = 50, includeAll = false): Session[] {
@@ -677,5 +696,4 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
   const parts = cleanCwd.split("/");
   return parts[parts.length - 1] || "other";
 }
-
 

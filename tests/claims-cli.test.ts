@@ -15,7 +15,7 @@ const { registerClaimsCommand } = await import("../src/cli/commands/claims.js");
 
 const claim = {
   id: 7,
-  sessionId: "session-a",
+  sessionId: "cafe000000000001",
   pathGlob: "src/auth/*",
   reason: "refactor login flow",
   createdAt: "2026-09-06T12:00:00.000Z",
@@ -131,6 +131,27 @@ describe("claims JSON envelopes", () => {
 
     expect(JSON.parse(logs[0]!)).toEqual({ claim: released });
     expect(Object.keys(JSON.parse(logs[0]!))).toEqual(["claim"]);
+  });
+
+  it("shortens session IDs in human output", async () => {
+    request.mockResolvedValueOnce({ claim });
+
+    await runProgram([
+      "add",
+      "src/auth/*",
+      "--reason",
+      claim.reason,
+      "--session",
+      claim.sessionId,
+    ]);
+
+    expect(logs).toEqual(["Added claim #7 src/auth/* for session cafe0000: refactor login flow"]);
+
+    logs = [];
+    request.mockResolvedValueOnce({ claims: [claim] });
+    await runProgram(["list", "--session", claim.sessionId]);
+
+    expect(logs).toEqual(["#7 src/auth/*  cafe0000  refactor login flow"]);
   });
 
   it("writes the error envelope to stderr and sets a nonzero exit code", async () => {

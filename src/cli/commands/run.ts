@@ -5,7 +5,7 @@ import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding, ty
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
-import { isTerminalStatus, normalizeAgentId, type AgentId, type Session } from "../../core/session.js";
+import { isTerminalStatus, normalizeAgentId, shortSessionId, type AgentId, type Session } from "../../core/session.js";
 import { findClosestModel, loadDiskModelsCache, modelNames } from "../../core/models.js";
 import { parseRole, resolvePluginDir, resolveRolePrompt, ROLES } from "../../core/roles.js";
 import { slugify } from "../../git/worktree.js";
@@ -222,19 +222,20 @@ Resume with: ${getCliName()} send <id> "continue"
       }
 
       const session = result.session;
+      const displayId = shortSessionId(session.id);
       if (opts.json) {
         // Session object only in background mode, where it is the entire output.
         // Blocking --json keeps stdout a pure NDJSON event stream; every
         // event carries sessionId, so follow-ups never need the bare row.
         if (background) console.log(JSON.stringify(session));
       } else {
-        console.log(`Session ${session.id} created (${session.agent})`);
+        console.log(`Session ${displayId} created (${session.agent})`);
         if (session.worktree) console.log(`Worktree: ${session.worktree} Branch: ${session.branch}`);
       }
 
       if (background) {
         // Just show id and exit
-        if (!opts.json) console.log(`\nUse: ${getCliInvocation()} logs ${session.id} --follow`);
+        if (!opts.json) console.log(`\nUse: ${getCliInvocation()} logs ${displayId} --follow`);
         process.exit(0);
       }
 
@@ -243,7 +244,7 @@ Resume with: ${getCliName()} send <id> "continue"
       // NOTHING else touches stdout; human mode streams the pretty renderer.
       // Exit codes: 0 completed/stopped · 1 task failed · 2 harness crashed
       // (retryable) · 3 infra/usage — see exitCodeForOutcome in core/errors.
-      if (!opts.json) console.log(`\nFollowing logs for ${session.id} (Ctrl+C to detach)...\n`);
+      if (!opts.json) console.log(`\nFollowing logs for ${displayId} (Ctrl+C to detach)...\n`);
 
       let followDone = false;
       let outcome: { status: string; failure?: FailureInfo } | null = null;
@@ -260,10 +261,10 @@ Resume with: ${getCliName()} send <id> "continue"
         } else if (ev.type === "tool.completed") {
           console.log(`✓ tool: ${ev.tool.name} ${ev.tool.success === false ? "failed" : "completed"}`);
         } else if (ev.type === "session.completed") {
-          console.log(`\n✓ Session ${session.id} completed`);
+          console.log(`\n✓ Session ${displayId} completed`);
         } else if (ev.type === "session.failed") {
           const tag = ev.failure ? ` [${ev.failure.blame}${ev.failure.retryable ? ", retryable" : ""}]` : "";
-          console.log(`\n✗ Session ${session.id} failed${tag}: ${ev.error}`);
+          console.log(`\n✗ Session ${displayId} failed${tag}: ${ev.error}`);
         } else if (ev.type === "error") {
           console.log(`\n! Error: ${ev.error}`);
         }
@@ -309,9 +310,9 @@ Resume with: ${getCliName()} send <id> "continue"
       // Handle Ctrl+C: detach but keep session running
       process.on("SIGINT", () => {
         if (!opts.json) {
-          console.log(`\nDetached from ${session.id}. Session continues in background.`);
-          console.log(`Run: ${getCliInvocation()} logs ${session.id} --follow  to reattach`);
-          console.log(`     ${getCliInvocation()} stop ${session.id}     to stop`);
+          console.log(`\nDetached from ${displayId}. Session continues in background.`);
+          console.log(`Run: ${getCliInvocation()} logs ${displayId} --follow  to reattach`);
+          console.log(`     ${getCliInvocation()} stop ${displayId}     to stop`);
         }
         unsubscribe();
         process.exit(0);
@@ -327,7 +328,7 @@ Resume with: ${getCliName()} send <id> "continue"
             const info = await client.request<{ session: Session }>("session.get", { id: session.id });
             const status = info.session.status;
             if (isTerminalStatus(status)) {
-              if (!opts.json) console.log(`\nSession ${session.id} is ${status}`);
+              if (!opts.json) console.log(`\nSession ${displayId} is ${status}`);
               unsubscribe();
               process.exit(exitCodeForOutcome({ status, failure: info.session.failure }));
             }

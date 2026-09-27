@@ -1,5 +1,5 @@
 import { InvalidArgumentError, type Command } from "commander";
-import { isActiveStatus, type SessionStatus } from "../../core/session.js";
+import { isActiveStatus, shortSessionId, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
 import { getCliName } from "../cli-name.js";
 import { truncate, visibleWidth, padToWidth, ellipsizeEnd, ellipsizeStart } from "../ui.js";
@@ -136,8 +136,8 @@ type PsColumn = {
 };
 
 const PS_COLUMNS: readonly PsColumn[] = [
-  { key: "id", header: "ID", pref: 4, min: 4 },
-  { key: "name", header: "NAME", pref: 16, min: 8 },
+  { key: "id", header: "ID", pref: 8, min: 8 },
+  { key: "name", header: "NAME", pref: 12, min: 8 },
   { key: "agent", header: "AGENT", pref: 9, min: 5 },
   { key: "model", header: "MODEL", pref: 16, min: 8 },
   { key: "status", header: "STATUS", pref: 13, min: 6 },
@@ -170,7 +170,7 @@ const PS_GROW_ORDER: readonly PsColumnKey[] = [
 function columnValue(col: PsColumnKey, s: PsSession): string {
   switch (col) {
     case "id":
-      return s.id || "";
+      return s.id ? shortSessionId(s.id) : "";
     case "name":
       return s.name || s.branch?.replace("ra/", "") || "-";
     case "agent":
@@ -226,8 +226,8 @@ function planPsColumns(maxWidth: number): { cols: PsColumn[]; widths: Map<PsColu
     return sum + SEP.length * Math.max(0, cols.length - 1);
   };
 
-  // Drop low-priority columns first so NAME/MODEL keep their full width at
-  // 80 columns (ID NAME AGENT MODEL STATUS AGE LAST = exactly 80).
+  // Drop low-priority columns first; with NAME at 12, the core columns
+  // (ID NAME AGENT MODEL STATUS AGE LAST) fit exactly at 80 columns.
   let widths = new Map<PsColumnKey, number>(visible.map((c) => [c.key, c.pref]));
   while (visible.length > 2) {
     if (totalFor(visible, widths) <= width) break;

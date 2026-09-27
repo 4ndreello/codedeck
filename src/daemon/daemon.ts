@@ -4,7 +4,7 @@ import path from "node:path";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Database, getDatabase } from "../store/database.js";
-import { SessionStore } from "../store/sessions.js";
+import { AmbiguousSessionIdError, SessionStore } from "../store/sessions.js";
 import { EventStore } from "../store/events.js";
 import { ClaimsStore } from "../store/claims.js";
 import { getPaths, ensureDirs } from "../config/paths.js";
@@ -664,7 +664,7 @@ class Daemon {
   private nextSessionId(): string {
     for (let attempt = 0; attempt < 100; attempt++) {
       const sessionId = generateSessionId();
-      if (!this.sessions.get(sessionId) && !this.reservedSessionIds.has(sessionId)) {
+      if (!this.sessions.getExact(sessionId) && !this.reservedSessionIds.has(sessionId)) {
         this.reservedSessionIds.add(sessionId);
         return sessionId;
       }
@@ -690,7 +690,8 @@ class Daemon {
       return;
     }
 
-    switch (method) {
+    try {
+      switch (method) {
       case "session.create": {
         const p = params as any;
         const prompt: string = p.prompt;
@@ -708,7 +709,7 @@ class Daemon {
         // Only record an edge to a session the store knows: a stale or foreign
         // CODEDECK_SESSION_ID must not invent a parent the tree cannot draw.
         const parent = typeof p.parentId === "string" && p.parentId.length > 0
-          ? this.sessions.get(p.parentId)
+          ? this.sessions.getExact(p.parentId)
           : null;
         const sessionId = this.nextSessionId();
         let worktree: string | undefined;
@@ -1288,7 +1289,8 @@ class Daemon {
       case "claims.add": {
         const p = params as { sessionId: string; pathGlob: string; reason: string };
         try {
-          const claim = this.claims.add(p.sessionId, p.pathGlob, p.reason);
+          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
+          const claim = this.claims.add(sessionId, p.pathGlob, p.reason);
           send({ result: { claim } });
         } catch (error) {
           if (error instanceof RunAgentError) {
@@ -1303,7 +1305,8 @@ class Daemon {
       case "claims.query": {
         const p = params as { sessionId: string; path?: string };
         try {
-          const claims = this.claims.query(p.sessionId, p.path);
+          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
+          const claims = this.claims.query(sessionId, p.path);
           send({ result: { claims } });
         } catch (error) {
           if (error instanceof RunAgentError) {
@@ -1318,7 +1321,8 @@ class Daemon {
       case "claims.release": {
         const p = params as { sessionId: string; claimId: number };
         try {
-          const claim = this.claims.release(p.sessionId, p.claimId);
+          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
+          const claim = this.claims.release(sessionId, p.claimId);
           send({ result: { claim } });
         } catch (error) {
           if (error instanceof RunAgentError) {
@@ -1399,6 +1403,10 @@ class Daemon {
           send({ error: { code: "INVALID", message: "runId required" } });
           return;
         }
+        const runId = p.runId;
+        const resolvedRunId = this.sessions.getByRunId(runId).length > 0
+          ? runId
+          : this.sessions.get(runId)?.id ?? runId;
 
         let observation: { nativeId: string; costUsd: number } | undefined;
         if (p.observe !== undefined) {
@@ -1422,8 +1430,8 @@ class Daemon {
           observation = { nativeId, costUsd };
         }
 
-        const session = this.sessions.getByRunId(p.runId)
-          .find((candidate) => candidate.id === p.runId && candidate.origin === "open");
+        const session = this.sessions.getByRunId(resolvedRunId)
+          .find((candidate) => candidate.id === resolvedRunId && candidate.origin === "open");
         const earlierNativeIds = new Set<string>();
         if (session && observation) {
           const db = this.db.getHandle();
@@ -1458,11 +1466,11 @@ class Daemon {
           previous.forEach((nativeId) => earlierNativeIds.add(nativeId));
         }
 
-        const sessions = this.sessions.getByRunId(p.runId);
+        const sessions = this.sessions.getByRunId(resolvedRunId);
         const sessionIds = sessions.map((session) => session.id);
         const attributions = this.usageLedger.attributionsFor(sessionIds);
         const linkStates = this.nativeLinks.linksFor(sessionIds).map(({ sessionId, state }) => ({ sessionId, state }));
-        send({ result: aggregateRunUsage(p.runId, sessions, attributions, linkStates) });
+        send({ result: aggregateRunUsage(resolvedRunId, sessions, attributions, linkStates) });
         if (session && earlierNativeIds.size > 0) {
           this.queueOpenUsageReconciliation(session.id, [...earlierNativeIds]);
         }
@@ -1502,6 +1510,13 @@ class Daemon {
 
       default:
         send({ error: { code: "UNKNOWN_METHOD", message: `Unknown method ${method}` } });
+      }
+    } catch (error) {
+      if (error instanceof AmbiguousSessionIdError) {
+        send({ error: { code: error.code, message: error.message } });
+        return;
+      }
+      throw error;
     }
   }
 

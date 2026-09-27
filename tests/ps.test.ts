@@ -136,6 +136,14 @@ describe("ps table liveness", () => {
 });
 
 describe("ps output contract", () => {
+  it("displays the first eight characters of a full session ID", () => {
+    const id = "55a2deadbeef0123";
+    const output = renderPsTable([session({ id })]);
+
+    expect(output).toContain("55a2dead");
+    expect(output).not.toContain(id);
+  });
+
   it("suggests --all only in the default view", () => {
     expect(psEmptyMessage(false)).toBe("No sessions in the last 24h (use --all for full history)");
     expect(psEmptyMessage(true)).toBe("No sessions");
@@ -312,20 +320,21 @@ describe("ps responsive table", () => {
     }
   });
 
-  it("drops CWD and LAST EVENT at 80 columns but keeps the core", () => {
+  it("drops CWD and LAST EVENT at 80 columns but keeps LAST", () => {
     const output = renderPsTable([wideSession()], 80);
 
     expect(output).not.toContain("CWD");
     expect(output).not.toContain("LAST EVENT");
     expect(output).toContain("NAME");
     expect(output).toContain("STATUS");
-    expect(output).toContain("tighten-shim-pe…");
+    expect(output).toContain("LAST");
+    expect(output).toContain("tighten-shi…");
   });
 
   it("truncates a long NAME with an ellipsis", () => {
     const row = renderPsTable([wideSession()], 120).split("\n")[2];
 
-    expect(row).toContain("tighten-shim-per-extra-l…");
+    expect(row).toContain("tighten-shim-per-ext…");
     expect(row).not.toContain("tighten-shim-per-extra-long");
   });
 

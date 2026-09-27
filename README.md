@@ -221,7 +221,7 @@ Without a role binding, explicit flags take precedence over the defaults. If `--
 
 ```ts
 Session {
-  id: string          // e.g. a83f (CodeDeck)
+  id: string          // e.g. a83f0123456789ab (CodeDeck)
   nativeSessionId?    // internal harness id
   agent: "claude" | "codex" | "opencode" | "omp"
   status: "starting" | "working" | "needs_input" | "idle" | "completed" | "failed" | "stopped" | "orphaned" | "interrupted"
@@ -231,6 +231,7 @@ Session {
 ```
 
 `nativeSessionId` is an internal detail. Users only see the CodeDeck ID.
+The CLI displays the first eight characters of a CodeDeck ID.
 
 ## Normalized Events
 
