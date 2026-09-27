@@ -150,6 +150,40 @@ describe("buildUsageQueryParams", () => {
 });
 
 describe("usage CLI", () => {
+  it("exits 3 when the daemon cannot be started", async () => {
+    ensureDaemonStarted.mockRejectedValueOnce(new Error("socket denied"));
+
+    await runProgram(["run-1"]);
+
+    expect(process.exitCode).toBe(3);
+    expect(errors).toEqual(["Failed to start daemon: socket denied"]);
+    expect(logs).toEqual([]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("exits 3 when the daemon usage request fails", async () => {
+    request.mockRejectedValueOnce(new Error("usage.get rejected"));
+
+    await runProgram(["run-1"]);
+
+    expect(process.exitCode).toBe(3);
+    expect(errors).toEqual(["usage.get rejected"]);
+    expect(logs).toEqual([]);
+    expect(request).toHaveBeenCalledWith("usage.get", { runId: "run-1" });
+  });
+
+  it("exits 3 when aggregate usage fetching fails", async () => {
+    const fetchUsageQuery = vi.fn(async () => {
+      throw new Error("aggregate query rejected");
+    });
+
+    await runProgramWithDependencies([], { fetchUsageQuery });
+
+    expect(process.exitCode).toBe(3);
+    expect(errors).toEqual(["Failed to fetch usage: aggregate query rejected"]);
+    expect(logs).toEqual([]);
+  });
+
   it("sends a valid native id and finite non-negative cost as an observation", async () => {
     request.mockResolvedValue(runSummary);
 
@@ -296,6 +330,18 @@ describe("usage CLI", () => {
 });
 
 describe("usage web options", () => {
+  it("exits 3 when usage backfill fails", async () => {
+    const backfill = vi.fn(async () => {
+      throw new Error("ledger write failed");
+    });
+
+    await runProgramWithDependencies(["--backfill"], { backfillUsage: backfill });
+
+    expect(process.exitCode).toBe(3);
+    expect(errors).toEqual(["Failed to backfill usage: ledger write failed"]);
+    expect(logs).toEqual([]);
+  });
+
   it("runs backfill before web startup", async () => {
     const backfill = vi.fn(async () => ({ imported: 2, skipped: 1 }));
     const launch = vi.fn(async () => 0);
