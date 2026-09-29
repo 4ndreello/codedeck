@@ -19,6 +19,12 @@ export interface InstanceLock {
   release(): void;
 }
 
+// Strong refs to every held connection. The DatabaseSync finalizer closes the
+// connection, which drops the fcntl lock. A module-scope `let` in the caller
+// that no closure reads does not keep it alive: the daemon's handle was
+// collected after two GCs and a second daemon took the lock.
+const heldConnections = new Set<DatabaseSync>();
+
 export function acquireInstanceLock(lockPath: string): InstanceLock | null {
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const db = new DatabaseSync(lockPath);
@@ -39,11 +45,13 @@ export function acquireInstanceLock(lockPath: string): InstanceLock | null {
     try { db.close(); } catch {}
     return null;
   }
+  heldConnections.add(db);
   let released = false;
   return {
     release(): void {
       if (released) return;
       released = true;
+      heldConnections.delete(db);
       try { db.close(); } catch {}
     },
   };

@@ -29,6 +29,30 @@ function holdInOtherProcess(lockPath: string): Promise<ChildProcess> {
   });
 }
 
+// Drops every reference to the lock and forces GCs before reporting, the way
+// the daemon entry did with a module-scope `let` nothing else captured.
+function holdUnreferencedAfterGc(lockPath: string): Promise<ChildProcess> {
+  const script = `
+    import { acquireInstanceLock } from ${JSON.stringify(lockModule)};
+    if (!acquireInstanceLock(${JSON.stringify(lockPath)})) process.stdout.write("refused\\n");
+    let rounds = 0;
+    const timer = setInterval(() => {
+      globalThis.gc();
+      if (++rounds === 5) { clearInterval(timer); process.stdout.write("held\\n"); setInterval(() => {}, 1000); }
+    }, 20);
+  `;
+  const child = spawn(process.execPath, ["--expose-gc", "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  return new Promise((resolve, reject) => {
+    child.stdout!.once("data", (chunk: Buffer) => {
+      if (chunk.toString().trim() === "held") resolve(child);
+      else reject(new Error(`child did not get the lock: ${chunk}`));
+    });
+    child.once("exit", (code) => reject(new Error(`child exited early (${code})`)));
+  });
+}
+
 function exited(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) resolve();
@@ -69,6 +93,11 @@ describe("daemon instance lock", () => {
 
   it("refuses while another process holds it", async () => {
     children.push(await holdInOtherProcess(lockPath));
+    expect(acquireInstanceLock(lockPath)).toBeNull();
+  });
+
+  it("keeps refusing after the holder drops its reference and GCs run", async () => {
+    children.push(await holdUnreferencedAfterGc(lockPath));
     expect(acquireInstanceLock(lockPath)).toBeNull();
   });
 
