@@ -104,7 +104,7 @@ describe("doctor roles section", () => {
       agents: {},
       daemon: { running: true, pid: 1, uptime: 1000 },
       database: { path: "/tmp/db", exists: true },
-      power: { serviceInstalled: false, inhibitAvailable: false },
+      power: { serviceInstalled: false },
     };
     mocks.isDaemonRunning.mockResolvedValue(true);
     mocks.request.mockResolvedValue(doctorResult);

@@ -445,7 +445,6 @@ describe("orchestrator usage daemon methods", () => {
 
     fs.rmSync(brokenTranscript, { recursive: true, force: true });
     installTranscript(nativeId, "cost-state-3.jsonl");
-    (daemon as any).maybeSpawnInhibit = () => {};
     await daemon!.start();
     await (daemon as any).startupReconcilePromise;
 
@@ -479,7 +478,6 @@ describe("orchestrator usage daemon methods", () => {
     await request("session.linkNative", { id: "startup-interrupted", nativeId: "native-startup-interrupted" });
     await request("session.linkNative", { id: "startup-dead", nativeId: "native-startup-dead" });
     await request("session.linkNative", { id: "startup-live", nativeId: "native-startup-live" });
-    (daemon as any).maybeSpawnInhibit = () => {};
 
     const firstDaemon = daemon!;
     await firstDaemon.start();
@@ -495,7 +493,6 @@ describe("orchestrator usage daemon methods", () => {
     await closeStartedDaemon(firstDaemon);
     removeAddedSignalListeners();
     daemon = new Daemon();
-    (daemon as any).maybeSpawnInhibit = () => {};
     await daemon.start();
     await (daemon as any).startupReconcilePromise;
 

@@ -10,18 +10,13 @@ import {
 
 describe("doctor power section", () => {
   it("passes the daemon power payload through when present", () => {
-    expect(
-      resolvePowerInfo({ power: { serviceInstalled: true, inhibitAvailable: true } }),
-    ).toEqual({ serviceInstalled: true, inhibitAvailable: true });
-    expect(
-      resolvePowerInfo({ power: { serviceInstalled: false, inhibitAvailable: true } }),
-    ).toEqual({ serviceInstalled: false, inhibitAvailable: true });
+    expect(resolvePowerInfo({ power: { serviceInstalled: true } })).toEqual({ serviceInstalled: true });
+    expect(resolvePowerInfo({ power: { serviceInstalled: false } })).toEqual({ serviceInstalled: false });
   });
 
   it("falls back to local detection with boolean fields when the payload lacks power", () => {
     const power = resolvePowerInfo({});
     expect(typeof power.serviceInstalled).toBe("boolean");
-    expect(typeof power.inhibitAvailable).toBe("boolean");
   });
 
   it("detects a missing unit file from an empty home directory", () => {
@@ -29,21 +24,20 @@ describe("doctor power section", () => {
     try {
       const power = detectPowerReadiness(home);
       expect(power.serviceInstalled).toBe(false);
-      expect(typeof power.inhibitAvailable).toBe("boolean");
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
 
   it("prints a Power section without crashing when systemd is absent", () => {
-    const section = renderPowerSection({ serviceInstalled: false, inhibitAvailable: false });
+    const section = renderPowerSection({ serviceInstalled: false });
     expect(section).toContain("Power");
-    expect(section).toContain("inhibit");
-    expect(section).toContain("systemd-inhibit not found");
+    expect(section).toContain("unit not installed");
+    expect(section).not.toContain("inhibit");
   });
 
   it("marks installed power readiness with check marks", () => {
-    const section = renderPowerSection({ serviceInstalled: true, inhibitAvailable: true });
+    const section = renderPowerSection({ serviceInstalled: true });
     expect(section).toContain("Power");
     expect(section).toContain("✓");
   });

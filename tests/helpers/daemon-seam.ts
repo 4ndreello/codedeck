@@ -6,7 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import type net from "node:net";
-import type { ChildProcess } from "node:child_process";
 import type { Daemon } from "../src/daemon/daemon.js";
 import type { Session, SessionStatus } from "../src/core/session.js";
 import type { SessionStore } from "../src/store/sessions.js";
@@ -18,10 +17,8 @@ export interface DaemonTestSeam {
   events: EventStore;
   registry: { register(driver: unknown): void };
   db: Database;
-  inhibitChild: ChildProcess | null;
   handleRequest(req: { id: string; method: string; params: unknown }, socket: net.Socket): Promise<void>;
   handleShutdown(reason: string): Promise<void>;
-  maybeSpawnInhibit(bin?: string): void;
   recover(): Promise<void>;
 }
 

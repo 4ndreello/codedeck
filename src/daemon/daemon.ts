@@ -2,7 +2,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { spawn, type ChildProcess } from "node:child_process";
 import { Database, getDatabase } from "../store/database.js";
 import { AmbiguousSessionIdError, SessionStore } from "../store/sessions.js";
 import { EventStore } from "../store/events.js";
@@ -19,7 +18,7 @@ import { generateSessionId, generateBranchName } from "../core/session.js";
 import { getGitInfo, getBaseCommit } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { killTree, processAlive, processStartTime, resolveInhibitBin, sleep } from "../utils/process.js";
+import { killTree, processAlive, processStartTime, sleep } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
@@ -142,13 +141,9 @@ class Daemon {
   private shuttingDown = false;
   // Exactly-once drain: concurrent handleShutdown callers share one promise.
   private shutdownPromise: Promise<void> | null = null;
-  // Best-effort delay-lock child (systemd-inhibit), alive for the daemon's
-  // whole life when the binary exists; killed after TRUNCATE in the drain.
-  private inhibitChild: ChildProcess | null = null;
   // Supervisor of the web console child, created on the first web.ensure.
   private web?: WebHost;
   private readonly spawnWebChild?: WebSupervisorOptions["spawnChild"];
-  private inhibitExitHookInstalled = false;
   private inFlightModels = new Map<string, Promise<HarnessModels[]>>();
   private inFlightOpenUsageReconciliations = new Map<string, Promise<boolean>>();
   private liveTranscriptCursors = new Map<string, LiveTranscriptCursor>();
@@ -378,15 +373,16 @@ class Daemon {
     try { fs.writeFileSync(paths.daemonPid, String(process.pid), "utf-8"); } catch {}
 
     // Graceful power shutdown: exactly-once drain on power signals. SIGHUP
-    // covers lid-close/logout via logind. Keep listeners installed so a
+    // covers logout/session teardown. Keep listeners installed so a
     // repeated signal reaches the synchronous shuttingDown guard.
+    //
+    // No systemd-inhibit delay lock: one only helps a holder that reacts to
+    // logind's PrepareForShutdown and then releases it. The drain starts on
+    // SIGTERM, which arrives after the delay expires, so the lock stalled
+    // every poweroff and suspend for the full InhibitDelayMaxSec for nothing.
     process.on("SIGTERM", () => this.onSignal("SIGTERM"));
     process.on("SIGINT", () => this.onSignal("SIGINT"));
     process.on("SIGHUP", () => this.onSignal("SIGHUP"));
-
-    // Best-effort delay lock so the system waits for the drain. Silent
-    // no-op when systemd-inhibit is absent (containers, macOS, CI).
-    this.maybeSpawnInhibit();
 
     console.log(`[daemon] listening on ${paths.daemonSock} pid=${process.pid}`);
 
@@ -1375,7 +1371,6 @@ class Daemon {
             // cross-worker contract; CLI falls back to local detection).
             power: {
               serviceInstalled: powerServiceInstalled(),
-              inhibitAvailable: resolveInhibitBin() !== null,
             },
           },
         });
@@ -1998,51 +1993,6 @@ class Daemon {
     void this.handleShutdown(reason).finally(() => process.exit(0));
   }
 
-  // Best-effort delay lock: while this child lives, systemd/logind delays
-  // shutdown up to InhibitDelayMaxSec so the drain can finish. Silent no-op
-  // when the binary is absent. The binary resolves through fixed absolute
-  // paths only, never PATH (typescript:S4036). Public so tests can drive it
-  // without start() (no socket binding); binOverride is the test seam for
-  // a fake binary.
-  public maybeSpawnInhibit(binOverride?: string): void {
-    if (this.inhibitChild) return;
-    const bin = binOverride ?? resolveInhibitBin();
-    if (!bin) return;
-    // Absent binary (removed between resolve and spawn, or a bogus test
-    // seam path) is a silent no-op: spawn(2) failure would only surface
-    // as an async error event, leaving a dead child behind.
-    try {
-      if (!fs.existsSync(bin)) return;
-    } catch {
-      return;
-    }
-    try {
-      const child = spawn(
-        bin,
-        ["--what=shutdown:sleep", "--who=CodeDeck", "--why=flush sessions", "--mode=delay", "sleep", "infinity"],
-        { stdio: "ignore", detached: true },
-      );
-      child.on("error", () => {});
-      child.unref();
-      this.inhibitChild = child;
-      if (!this.inhibitExitHookInstalled) {
-        this.inhibitExitHookInstalled = true;
-        process.once("exit", () => this.killInhibitChild());
-      }
-    } catch {
-      this.inhibitChild = null;
-    }
-  }
-
-  private killInhibitChild(): void {
-    const child = this.inhibitChild;
-    this.inhibitChild = null;
-    if (!child) return;
-    try {
-      child.kill();
-    } catch {}
-  }
-
   // Graceful power shutdown. Exposed as a method so tests can drive the
   // drain without signals/systemd: exactly-once (concurrent callers share
   // one drain), never throws, never exits — callers decide on exit.
@@ -2084,8 +2034,6 @@ class Daemon {
     await this.drainLiveRuntimes(actives);
 
     try { handle.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
-    // The delay lock has served its purpose; release it before closing.
-    this.killInhibitChild();
 
     try {
       const paths = getPaths();
@@ -2134,7 +2082,7 @@ class Daemon {
   private async markInterrupted(s: Session, reason: string): Promise<void> {
     try {
       // Serialize against an in-flight send/stop owner (bounded: the drain
-      // must fit in InhibitDelayMaxSec), then hold the lock so attached
+      // must fit before systemd's SIGKILL), then hold the lock so attached
       // event loops discard terminal frames instead of overwriting
       // `interrupted` (see attachDriverEvents).
       const deadline = Date.now() + 500;

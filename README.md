@@ -308,7 +308,7 @@ reattached session works even when no in-memory process handle exists.
 
 ### Power loss and resume
 
-A `poweroff`, `reboot`, or lid-close sends the daemon `SIGTERM`/`SIGHUP`. The
+A `poweroff`, `reboot`, or logout sends the daemon `SIGTERM`/`SIGHUP`. The
 daemon drains running sessions best-effort (a few seconds, no root) and marks
 each active session `interrupted` with a `session.failed` event carrying
 `failure: { "code": "SHUTDOWN", "blame": "infra", "retryable": true }` —
@@ -320,10 +320,10 @@ never a silent `completed`.
 - Resume is explicit: `codedeck send <id> "continue"` reopens the turn with
   `--resume <nativeId>` in the same `cwd`/`worktree`. Sessions without a
   resumable harness id are rejected with `CAPABILITY_NOT_SUPPORTED`.
-- Where `systemd-inhibit` exists the daemon holds a `--mode=delay` lock while
-  draining so shutdown waits up to `InhibitDelayMaxSec`; without it the daemon
-  still shuts down cleanly on `SIGTERM`. `codedeck doctor` reports both under
-  `Power`. No setup step or privileged install is required or promised.
+- The drain runs on `SIGTERM` and fits the stop timeout systemd gives the
+  session before `SIGKILL`. The daemon holds no `systemd-inhibit` lock, so it
+  never delays poweroff or suspend. `codedeck doctor` reports the user unit
+  under `Power`. No setup step or privileged install is required or promised.
 
 
 ## Worktrees

@@ -102,7 +102,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 1. WHEN o usuário roda `codedeck ps` após reboot THEN o CLI SHALL listar sessões `interrupted` recentes com símbolo `⏻` distinto de `failed` <!-- event-driven -->
 2. WHEN o usuário roda `codedeck show <id> --json` numa sessão `interrupted` THEN o CLI SHALL exibir `status=interrupted` e objeto `failure` com `code=SHUTDOWN` <!-- event-driven -->
 3. WHEN o usuário roda `codedeck wait <id>` numa sessão `interrupted` THEN o CLI SHALL retornar imediatamente com exit code 3 (via `exitCodeForOutcome` com ramo `interrupted` + `blame=infra`) <!-- event-driven -->
-4. WHEN o usuário roda `codedeck doctor` THEN o CLI SHALL exibir seção `Power` com `service instalado?` (existência de `~/.config/systemd/user/codedeck.service`) e `systemd-inhibit disponível?` (via `which`, sem exigir systemd ativo nem root) <!-- event-driven -->
+4. WHEN o usuário roda `codedeck doctor` THEN o CLI SHALL exibir seção `Power` com `service instalado?` (existência de `~/.config/systemd/user/codedeck.service`) sem exigir systemd ativo nem root. O check `systemd-inhibit disponível?` saiu junto com o P3 <!-- event-driven -->
 5. WHEN o usuário roda `codedeck run --help` THEN o help SHALL documentar em ≤3 linhas que poweroff marca `interrupted` e resume é via `send` <!-- event-driven -->
 
 **Independent Test**: Seed de DB com 1 row `interrupted` + evento `session.failed` SHUTDOWN, rodar `ps`/`show --json`/`wait` e conferir símbolo, JSON com `failure.code` e exit code 3.
@@ -125,7 +125,9 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 ---
 
-### P3: Delay-lock best-effort sem D-Bus
+### P3: Delay-lock best-effort sem D-Bus (removido)
+
+> **Removido em 2026-09-29.** Um delay lock só adia o desligamento enquanto o dono reage ao `PrepareForShutdown` do logind e solta o lock depois de drenar. O daemon drena no `SIGTERM`, que só chega depois que a janela do lock expira, então o lock nunca protegeu o drain e segurava todo poweroff e toda suspensão pelo `InhibitDelayMaxSec` inteiro (15s com o drop-in do Omarchy, medido no journal: `Delay lock is active ... but inhibitor timeout is reached`). O drain continua no `SIGTERM` e cabe no stop timeout da sessão. Os critérios abaixo ficam como histórico; o `doctor` não reporta mais `systemd-inhibit`.
 
 **User Story**: As a Linux user com systemd, I want o daemon a segurar um `systemd-inhibit --mode=delay` filho enquanto drena so that o shutdown aguarda até `InhibitDelayMaxSec` antes do `SIGKILL`.
 
