@@ -8,16 +8,9 @@ import { acquireInstanceLock, type InstanceLock } from "../src/daemon/instance-l
 
 const lockModule = fileURLToPath(new URL("../src/daemon/instance-lock.ts", import.meta.url));
 
-// Holds the lock from a separate OS process, the way a second `daemon.js`
-// would, and reports once it has it.
-function holdInOtherProcess(lockPath: string): Promise<ChildProcess> {
-  const script = `
-    import { acquireInstanceLock } from ${JSON.stringify(lockModule)};
-    const lock = acquireInstanceLock(${JSON.stringify(lockPath)});
-    process.stdout.write(lock ? "held\\n" : "refused\\n");
-    setInterval(() => {}, 1000);
-  `;
-  const child = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script], {
+// Runs `script` in a separate OS process and resolves once it prints "held".
+function spawnHolder(script: string, nodeFlags: string[] = []): Promise<ChildProcess> {
+  const child = spawn(process.execPath, [...nodeFlags, "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script], {
     stdio: ["ignore", "pipe", "inherit"],
   });
   return new Promise((resolve, reject) => {
@@ -29,10 +22,21 @@ function holdInOtherProcess(lockPath: string): Promise<ChildProcess> {
   });
 }
 
+// Holds the lock from a separate OS process, the way a second `daemon.js`
+// would, and reports once it has it.
+function holdInOtherProcess(lockPath: string): Promise<ChildProcess> {
+  return spawnHolder(`
+    import { acquireInstanceLock } from ${JSON.stringify(lockModule)};
+    const lock = acquireInstanceLock(${JSON.stringify(lockPath)});
+    process.stdout.write(lock ? "held\\n" : "refused\\n");
+    setInterval(() => {}, 1000);
+  `);
+}
+
 // Drops every reference to the lock and forces GCs before reporting, the way
 // the daemon entry did with a module-scope `let` nothing else captured.
 function holdUnreferencedAfterGc(lockPath: string): Promise<ChildProcess> {
-  const script = `
+  return spawnHolder(`
     import { acquireInstanceLock } from ${JSON.stringify(lockModule)};
     if (!acquireInstanceLock(${JSON.stringify(lockPath)})) process.stdout.write("refused\\n");
     let rounds = 0;
@@ -40,17 +44,7 @@ function holdUnreferencedAfterGc(lockPath: string): Promise<ChildProcess> {
       globalThis.gc();
       if (++rounds === 5) { clearInterval(timer); process.stdout.write("held\\n"); setInterval(() => {}, 1000); }
     }, 20);
-  `;
-  const child = spawn(process.execPath, ["--expose-gc", "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  return new Promise((resolve, reject) => {
-    child.stdout!.once("data", (chunk: Buffer) => {
-      if (chunk.toString().trim() === "held") resolve(child);
-      else reject(new Error(`child did not get the lock: ${chunk}`));
-    });
-    child.once("exit", (code) => reject(new Error(`child exited early (${code})`)));
-  });
+  `, ["--expose-gc"]);
 }
 
 function exited(child: ChildProcess): Promise<void> {
