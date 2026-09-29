@@ -2112,8 +2112,8 @@ class Daemon {
   }
 }
 
-// Held for the process lifetime (module scope so it is never collected); the
-// kernel drops it on exit, so shutdown does not release it early.
+// Held for the process lifetime (instance-lock keeps the connection alive
+// against GC); the kernel drops it on exit, so shutdown does not release it.
 let instanceLock: InstanceLock | null = null;
 
 // Entry
