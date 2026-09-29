@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import { resolveInhibitBin } from "../../utils/process.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,7 +10,6 @@ import type { AgentId } from "../../core/session.js";
 
 export interface PowerReadiness {
   serviceInstalled: boolean;
-  inhibitAvailable: boolean;
 }
 
 export function powerServicePath(homeDir: string = os.homedir()): string {
@@ -25,23 +23,13 @@ export function detectPowerReadiness(homeDir?: string): PowerReadiness {
   } catch {
     serviceInstalled = false;
   }
-  let inhibitAvailable = false;
-  try {
-    inhibitAvailable = resolveInhibitBin() !== null;
-  } catch {
-    inhibitAvailable = false;
-  }
-  return { serviceInstalled, inhibitAvailable };
+  return { serviceInstalled };
 }
 
 export function resolvePowerInfo(result: { power?: PowerReadiness }): PowerReadiness {
   const power = result.power;
-  if (
-    power &&
-    typeof power.serviceInstalled === "boolean" &&
-    typeof power.inhibitAvailable === "boolean"
-  ) {
-    return { serviceInstalled: power.serviceInstalled, inhibitAvailable: power.inhibitAvailable };
+  if (power && typeof power.serviceInstalled === "boolean") {
+    return { serviceInstalled: power.serviceInstalled };
   }
   return detectPowerReadiness();
 }
@@ -50,7 +38,6 @@ export function renderPowerSection(power: PowerReadiness): string {
   return [
     "Power",
     `  ${check("service", power.serviceInstalled, power.serviceInstalled ? "unit installed" : "unit not installed")}`,
-    `  ${check("inhibit", power.inhibitAvailable, power.inhibitAvailable ? "systemd-inhibit available" : "systemd-inhibit not found")}`,
   ].join("\n");
 }
 

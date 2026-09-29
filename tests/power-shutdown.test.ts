@@ -200,6 +200,5 @@ describe("power graceful shutdown", () => {
 
     const power = JSON.parse(writes[0]).result.power;
     expect(typeof power.serviceInstalled).toBe("boolean");
-    expect(typeof power.inhibitAvailable).toBe("boolean");
   });
 });

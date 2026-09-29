@@ -210,7 +210,6 @@ describe("daemon web autostart", () => {
   it("does not start the web child from start()", async () => {
     const host = fakeHost();
     daemon = new Daemon({ webSupervisor: host });
-    (daemon as unknown as { maybeSpawnInhibit: () => void }).maybeSpawnInhibit = () => {};
 
     await daemon.start();
 
