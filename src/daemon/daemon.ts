@@ -128,6 +128,7 @@ class Daemon {
   private nativeLinks: NativeLinkStore;
   private registry = getRegistry();
   private server?: net.Server;
+  private boundPaths?: { sock: string; pid: string };
   private subscribers = new Map<string, Set<net.Socket>>(); // sessionId -> sockets
   private startTime = Date.now();
   private startupReconcilePromise: Promise<void> = Promise.resolve();
@@ -368,6 +369,10 @@ class Daemon {
       this.server!.listen(paths.daemonSock, () => resolve());
       this.server!.on("error", reject);
     });
+    this.boundPaths = {
+      sock: paths.daemonSock,
+      pid: paths.daemonPid,
+    };
 
     // Write pid file
     try { fs.writeFileSync(paths.daemonPid, String(process.pid), "utf-8"); } catch {}
@@ -2002,13 +2007,12 @@ class Daemon {
 
     try { handle.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {}
 
-    try {
-      const paths = getPaths();
-      try { fs.unlinkSync(paths.daemonSock); } catch {}
-      try { fs.unlinkSync(paths.daemonPid); } catch {}
-      try { this.server?.close(); } catch {}
-      try { this.db.close(); } catch {}
-    } catch {}
+    if (this.boundPaths) {
+      try { fs.unlinkSync(this.boundPaths.sock); } catch {}
+      try { fs.unlinkSync(this.boundPaths.pid); } catch {}
+    }
+    try { this.server?.close(); } catch {}
+    try { this.db.close(); } catch {}
   }
 
   private safeListActive(): Session[] {
