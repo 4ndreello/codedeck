@@ -1,7 +1,5 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import fs from "node:fs";
-import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,21 +53,5 @@ export async function getBaseCommit(cwd: string): Promise<string | null> {
     return stdout.trim();
   } catch {
     return null;
-  }
-}
-
-export function isGitRepository(cwd: string): boolean {
-  try {
-    // check .git existence upward
-    let cur = path.resolve(cwd);
-    while (true) {
-      if (fs.existsSync(path.join(cur, ".git"))) return true;
-      const parent = path.dirname(cur);
-      if (parent === cur) break;
-      cur = parent;
-    }
-    return false;
-  } catch {
-    return false;
   }
 }

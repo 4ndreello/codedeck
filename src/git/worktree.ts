@@ -83,16 +83,3 @@ export async function removeWorktree(worktreePath: string, repoRoot?: string): P
     } catch {}
   }
 }
-
-export async function listWorktrees(repoRoot: string): Promise<string[]> {
-  try {
-    const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot });
-    const paths: string[] = [];
-    for (const line of stdout.split("\n")) {
-      if (line.startsWith("worktree ")) paths.push(line.slice(9).trim());
-    }
-    return paths;
-  } catch {
-    return [];
-  }
-}

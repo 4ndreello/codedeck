@@ -100,8 +100,6 @@ export interface AgentDriver {
 
   stop(session: DriverSession): Promise<void>;
 
-  resume?(session: DriverSession, message?: string): Promise<void>;
-
   // Rebuild the event feed for a session whose detached process outlived a
   // daemon restart: resume tailing the session's log files from the
   // persisted offsets. MUST NOT spawn anything — the process is already
@@ -120,8 +118,6 @@ export interface AgentDriver {
 
   events(session: DriverSession): AsyncIterable<AgentEvent>;
 
-  // Optional cleanup
-  dispose?(session: DriverSession): Promise<void>;
 }
 export interface ReattachRequest {
   sessionId: string;

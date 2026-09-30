@@ -449,6 +449,10 @@ describe("parseAntigravityLine", () => {
     });
     const events = parse(line);
     expect(events.map((e) => e.type)).toEqual(["usage.updated", "message", "session.completed"]);
+    const usageEv = events.find((e) => e.type === "usage.updated") as any;
+    expect(usageEv.usage.inputTokens).toBe(2000);
+    expect(usageEv.usage.outputTokens).toBe(400);
+    expect(usageEv.usage.cachedTokens).toBe(1000);
     const msgEv = events.find((e) => e.type === "message") as any;
     expect(msgEv.content).toBe("Task complete.\n");
     expect(msgEv.role).toBe("assistant");

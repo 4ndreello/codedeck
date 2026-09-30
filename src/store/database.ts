@@ -214,10 +214,3 @@ export function getDatabase(dbPath?: string, options?: DatabaseOptions): Databas
   return singleton;
 }
 
-export function closeDatabase(): void {
-  if (singleton) {
-    singleton.close();
-    singleton = null;
-  }
-}
-

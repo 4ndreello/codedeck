@@ -1,9 +1,7 @@
 import type { AgentId, Session } from "../core/session.js";
 import type { CodexSandbox, ReasoningEffort } from "../core/driver.js";
 import type { AgentEvent } from "../core/events.js";
-import type { HarnessModels } from "../core/models.js";
 import type { Claim } from "../store/claims.js";
-import type { RunUsageSummary } from "../core/run-usage.js";
 
 export type RequestMethod =
   | "session.create"
@@ -22,7 +20,6 @@ export type RequestMethod =
   | "claims.add"
   | "claims.query"
   | "claims.release"
-  | "daemon.status"
   | "daemon.stop"
   | "doctor"
   | "models.list"
@@ -153,11 +150,6 @@ export interface ReleaseClaimRequest {
   params: { sessionId: string; claimId: number };
 }
 
-export interface DaemonStatusRequest {
-  method: "daemon.status";
-  params: Record<string, never>;
-}
-
 export interface ListModelsRequest {
   method: "models.list";
   params: { agent?: AgentId; refresh?: boolean };
@@ -260,36 +252,6 @@ export interface EnsureWebRequest {
   params?: WebEnsureParams;
 }
 
-export interface ListModelsResult {
-  agents: HarnessModels[];
-}
-
-export type RequestParams =
-  | CreateSessionRequest
-  | AdoptSessionRequest
-  | PatchSessionRequest
-  | ReleaseSessionRequest
-  | LinkNativeSessionRequest
-  | ListSessionsRequest
-  | GetSessionRequest
-  | RenameSessionRequest
-  | SendSessionRequest
-  | StopSessionRequest
-  | LogsSessionRequest
-  | DiffSessionRequest
-  | SubscribeSessionRequest
-  | AddClaimRequest
-  | QueryClaimsRequest
-  | ReleaseClaimRequest
-  | DaemonStatusRequest
-  | ListModelsRequest
-  | GetUsageRequest
-  | QueryUsageRequest
-  | EnsureWebRequest;
-
-export type UsageGetResult = RunUsageSummary;
-
-
 export interface IpcRequest {
   id: string;
   method: RequestMethod;
@@ -306,24 +268,8 @@ export interface IpcResponse {
   session?: Session;
 }
 
-export interface SessionCreateResult {
-  session: Session;
-}
-
 export interface SessionAdoptResult {
   session: Session;
-}
-
-export interface SessionPatchResult {
-  session: Session;
-}
-
-export interface SessionReleaseResult {
-  session: Session;
-}
-
-export interface SessionListResult {
-  sessions: Session[];
 }
 
 export interface ClaimAddResult {
@@ -336,12 +282,4 @@ export interface ClaimQueryResult {
 
 export interface ClaimReleaseResult {
   claim: Claim;
-}
-
-export interface DoctorResult {
-  node: { version: string };
-  git: { installed: boolean; version?: string };
-  agents: Record<string, { installed: boolean; version?: string; authenticated?: boolean; details?: string; error?: string; capabilities?: unknown }>;
-  daemon: { running: boolean; pid?: number; uptime?: number };
-  database: { path: string; exists: boolean };
 }

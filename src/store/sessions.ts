@@ -265,10 +265,6 @@ export class SessionStore {
     return rows.map(rowToSession);
   }
 
-  listByRunId(runId: string): Session[] {
-    return this.getByRunId(runId);
-  }
-
   update(id: string, patch: SessionUpdate): void {
     const existing = this.get(id);
     if (!existing) throw new Error(`Session ${id} not found`);
@@ -472,39 +468,73 @@ export class SessionStore {
       }
     };
 
-    for (const row of rows) {
-      if (runIdFilter && row.run_id !== runIdFilter) continue;
+    const usageRows = [
+      ...rows.map((row) => ({
+        id: row.id,
+        runId: row.run_id,
+        name: row.name,
+        agent: row.agent,
+        model: row.model,
+        status: row.status,
+        repository: row.repository,
+        cwd: row.cwd,
+        worktree: row.worktree,
+        repoSearch: [row.repository, row.cwd, row.worktree].filter(Boolean).join(" "),
+        timestamp: row.created_at,
+        inputTokens: row.usage_input_tokens ?? 0,
+        outputTokens: row.usage_output_tokens ?? 0,
+        cachedTokens: row.usage_cached_tokens ?? 0,
+        reportedCost: row.usage_cost,
+        origin: row.origin === "open" ? "orchestrator" : "worker",
+        legacy: false,
+      })),
+      ...legacyRows.map((row) => ({
+        id: undefined,
+        runId: null,
+        name: null,
+        agent: "claude",
+        model: row.model,
+        status: undefined,
+        repository: row.repository,
+        cwd: row.cwd ?? "",
+        worktree: null,
+        repoSearch: [row.repository, row.cwd].filter(Boolean).join(" "),
+        timestamp: row.ended_at,
+        inputTokens: row.input_tokens,
+        outputTokens: row.output_tokens,
+        cachedTokens: row.cached_tokens,
+        reportedCost: row.cost,
+        origin: "orchestrator",
+        legacy: true,
+      })),
+    ];
+
+    for (const row of usageRows) {
+      if (runIdFilter && row.runId !== runIdFilter) continue;
       if (agentFilter && row.agent !== agentFilter) continue;
       if (modelFilter && (!row.model || !row.model.toLowerCase().includes(modelFilter))) continue;
+      if (repoFilter && !row.repoSearch.toLowerCase().includes(repoFilter)) continue;
 
-      if (repoFilter) {
-        const repoStr = [row.repository, row.cwd, row.worktree].filter(Boolean).join(" ").toLowerCase();
-        if (!repoStr.includes(repoFilter)) continue;
-      }
-
-      const inputTokens = row.usage_input_tokens ?? 0;
-      const outputTokens = row.usage_output_tokens ?? 0;
-      const cachedTokens = row.usage_cached_tokens ?? 0;
+      const { inputTokens, outputTokens, cachedTokens } = row;
       const totalTokens = totalTokensFor(row.agent, { inputTokens, outputTokens, cachedTokens });
-
-      const calculatedCost = computeSessionCost({
-        model: row.model,
-        cachedInInput: cachedInInputFor(row.agent),
-        reportedCost: row.usage_cost,
-        usage: { inputTokens, outputTokens, cachedTokens },
-      });
-      const cost = unknownOpenCostSessionIds.has(row.id) ? null : calculatedCost;
+      const calculatedCost = row.legacy
+        ? row.reportedCost
+        : computeSessionCost({
+            model: row.model,
+            cachedInInput: cachedInInputFor(row.agent),
+            reportedCost: row.reportedCost,
+            usage: { inputTokens, outputTokens, cachedTokens },
+          });
+      const cost = row.id && unknownOpenCostSessionIds.has(row.id) ? null : calculatedCost;
 
       totals.sessionCount++;
-      if (isActiveStatus(row.status as SessionStatus)) totals.activeSessionCount++;
+      if (row.status && isActiveStatus(row.status as SessionStatus)) totals.activeSessionCount++;
       if (row.status === "completed") totals.completedSessionCount++;
       if (row.status === "failed") totals.failedSessionCount++;
-
       totals.inputTokens += inputTokens;
       totals.outputTokens += outputTokens;
       totals.cachedTokens += cachedTokens;
       totals.totalTokens += totalTokens;
-
       if (cost === null) {
         totals.costComplete = false;
         totals.sessionsWithoutCost++;
@@ -512,90 +542,26 @@ export class SessionStore {
         totals.costUsd += cost;
       }
 
-      // Day (local date string YYYY-MM-DD)
-      const d = new Date(row.created_at);
-      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const d = new Date(row.timestamp);
+      const dayKey = String(d.getFullYear()) + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
       accumulate(byDayMap, dayKey, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-      accumulate(byHourMap, `${dayKey} ${String(d.getHours()).padStart(2, "0")}`, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-
-      // Repo (normalized project name across worktrees)
-      const repoKey = normalizeProjectName(row);
-      accumulate(byRepoMap, repoKey, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-
-      // Model
+      accumulate(byHourMap, dayKey + " " + String(d.getHours()).padStart(2, "0"), inputTokens, outputTokens, cachedTokens, totalTokens, cost);
+      accumulate(byRepoMap, normalizeProjectName(row), inputTokens, outputTokens, cachedTokens, totalTokens, cost);
       accumulate(byModelMap, row.model || "unknown", inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-
-      // Agent
       accumulate(byAgentMap, row.agent, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-
-      // Run
-      if (row.run_id) {
+      if (row.runId) {
         accumulate(
           byRunMap,
-          row.run_id,
+          row.runId,
           inputTokens,
           outputTokens,
           cachedTokens,
           totalTokens,
           cost,
-          row.name ? `${row.name} (${row.run_id.slice(0, 8)})` : row.run_id.slice(0, 8),
+          row.name ? row.name + " (" + row.runId.slice(0, 8) + ")" : row.runId.slice(0, 8),
         );
       }
-
-      accumulate(
-        byOriginMap,
-        row.origin === "open" ? "orchestrator" : "worker",
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-        totalTokens,
-        cost,
-      );
-    }
-
-    for (const row of legacyRows) {
-      if (runIdFilter) continue;
-      if (agentFilter && agentFilter !== "claude") continue;
-      if (modelFilter && (!row.model || !row.model.toLowerCase().includes(modelFilter))) continue;
-      if (repoFilter) {
-        const repoStr = [row.repository, row.cwd].filter(Boolean).join(" ").toLowerCase();
-        if (!repoStr.includes(repoFilter)) continue;
-      }
-
-      const inputTokens = row.input_tokens;
-      const outputTokens = row.output_tokens;
-      const cachedTokens = row.cached_tokens;
-      const totalTokens = totalTokensFor("claude", { inputTokens, outputTokens, cachedTokens });
-      const cost = row.cost;
-
-      totals.sessionCount++;
-      totals.inputTokens += inputTokens;
-      totals.outputTokens += outputTokens;
-      totals.cachedTokens += cachedTokens;
-      totals.totalTokens += totalTokens;
-      if (cost === null) {
-        totals.costComplete = false;
-        totals.sessionsWithoutCost++;
-      } else {
-        totals.costUsd += cost;
-      }
-
-      const d = new Date(row.ended_at);
-      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      accumulate(byDayMap, dayKey, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-      accumulate(byHourMap, `${dayKey} ${String(d.getHours()).padStart(2, "0")}`, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-      accumulate(
-        byRepoMap,
-        normalizeProjectName({ repository: row.repository, cwd: row.cwd }),
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-        totalTokens,
-        cost,
-      );
-      accumulate(byModelMap, row.model || "unknown", inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-      accumulate(byAgentMap, "claude", inputTokens, outputTokens, cachedTokens, totalTokens, cost);
-      accumulate(byOriginMap, "orchestrator", inputTokens, outputTokens, cachedTokens, totalTokens, cost);
+      accumulate(byOriginMap, row.origin, inputTokens, outputTokens, cachedTokens, totalTokens, cost);
     }
 
     const sortDescending = (a: UsageMetricBucket, b: UsageMetricBucket) => {
@@ -699,4 +665,3 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
   const parts = cleanCwd.split("/");
   return parts[parts.length - 1] || "other";
 }
-
