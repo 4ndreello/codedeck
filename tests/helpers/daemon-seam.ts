@@ -12,6 +12,25 @@ import type { SessionStore } from "../src/store/sessions.js";
 import type { EventStore } from "../src/store/events.js";
 import type { Database } from "../src/store/database.js";
 
+const shutdownSignals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
+
+export type DaemonSignalListenerSnapshot = Map<NodeJS.Signals, Function[]>;
+
+export function snapshotDaemonSignalListeners(): DaemonSignalListenerSnapshot {
+  return new Map(shutdownSignals.map((signal) => [signal, process.listeners(signal)]));
+}
+
+export function removeAddedDaemonSignalListeners(snapshot: DaemonSignalListenerSnapshot): void {
+  for (const signal of shutdownSignals) {
+    const previous = snapshot.get(signal) ?? [];
+    for (const listener of process.listeners(signal)) {
+      if (!previous.includes(listener)) {
+        process.removeListener(signal, listener as (...args: any[]) => void);
+      }
+    }
+  }
+}
+
 export interface DaemonTestSeam {
   sessions: SessionStore;
   events: EventStore;
@@ -25,6 +44,15 @@ export interface DaemonTestSeam {
 export function seam(daemon: Daemon): DaemonTestSeam {
   // Tests drive private lifecycle methods directly (no socket/server started).
   return daemon as unknown as DaemonTestSeam;
+}
+
+export function cleanupDaemon(daemon: Daemon | undefined): void {
+  if (!daemon) return;
+  const daemonSeam = seam(daemon);
+  const daemonState = daemon as unknown as { shuttingDown: boolean; server?: net.Server };
+  try { daemonState.shuttingDown = true; } catch {}
+  try { daemonState.server?.close(); } catch {}
+  try { daemonSeam.db.close(); } catch {}
 }
 
 export function seed(daemon: Daemon, id: string, status: SessionStatus = "working", extra: Partial<Session> = {}): void {
@@ -72,6 +100,7 @@ export interface DaemonTestContext {
 export function makeDaemonTestContext(prefix: string): DaemonTestContext {
   const originalRunAgentDir = process.env.RUN_AGENT_DIR;
   let runAgentDir: string | undefined;
+  let signalListenerSnapshot = snapshotDaemonSignalListeners();
   let requestNumber = 0;
 
   return {
@@ -80,12 +109,14 @@ export function makeDaemonTestContext(prefix: string): DaemonTestContext {
       return runAgentDir;
     },
     start(): void {
+      signalListenerSnapshot = snapshotDaemonSignalListeners();
       runAgentDir = makeTempDir(prefix);
       process.env.RUN_AGENT_DIR = runAgentDir;
       requestNumber = 0;
     },
     cleanup(daemon: Daemon | undefined): void {
-      try { if (daemon) seam(daemon).db.close(); } catch {}
+      cleanupDaemon(daemon);
+      removeAddedDaemonSignalListeners(signalListenerSnapshot);
       if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
       else process.env.RUN_AGENT_DIR = originalRunAgentDir;
       removeTempDir(runAgentDir);

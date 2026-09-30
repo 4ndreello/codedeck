@@ -5,36 +5,27 @@ import { Daemon } from "../src/daemon/daemon.js";
 import type { RequestMethod } from "../src/daemon/protocol.js";
 import type { Session } from "../src/core/session.js";
 import { processStartTime } from "../src/utils/process.js";
-import { fakeSocket, makeTempDir, removeTempDir, seed, seam } from "./helpers/daemon-seam.js";
+import {
+  cleanupDaemon,
+  fakeSocket,
+  makeTempDir,
+  removeAddedDaemonSignalListeners,
+  removeTempDir,
+  seed,
+  seam,
+  snapshotDaemonSignalListeners,
+} from "./helpers/daemon-seam.js";
 
 let runAgentDir: string;
 let homeDir: string;
 let daemon: Daemon | undefined;
 const originalRunAgentDir = process.env.RUN_AGENT_DIR;
 const originalHome = process.env.HOME;
-let signalListenerSnapshot = new Map<string, Function[]>();
+let signalListenerSnapshot: ReturnType<typeof snapshotDaemonSignalListeners>;
 let requestNumber = 0;
 
-const shutdownSignals = ["SIGTERM", "SIGINT", "SIGHUP"];
-
-async function closeStartedDaemon(instance: Daemon): Promise<void> {
-  const daemonAny = instance as any;
-  if (daemonAny.server?.listening) {
-    await new Promise<void>((resolve) => daemonAny.server.close(() => resolve()));
-  }
-  for (const name of ["daemon.sock", "daemon.pid"]) {
-    try { fs.unlinkSync(path.join(runAgentDir, name)); } catch {}
-  }
-  try { daemonAny.db.close(); } catch {}
-}
-
-function removeAddedSignalListeners(): void {
-  for (const signal of shutdownSignals) {
-    const previous = signalListenerSnapshot.get(signal) ?? [];
-    for (const listener of process.listeners(signal as NodeJS.Signals)) {
-      if (!previous.includes(listener)) process.removeListener(signal as NodeJS.Signals, listener as (...args: any[]) => void);
-    }
-  }
+function closeStartedDaemon(instance: Daemon): void {
+  cleanupDaemon(instance);
 }
 
 beforeEach(() => {
@@ -43,17 +34,14 @@ beforeEach(() => {
   process.env.RUN_AGENT_DIR = runAgentDir;
   process.env.HOME = homeDir;
   requestNumber = 0;
-  signalListenerSnapshot = new Map(
-    shutdownSignals.map((signal) => [signal, process.listeners(signal as NodeJS.Signals)]),
-  );
+  signalListenerSnapshot = snapshotDaemonSignalListeners();
   daemon = new Daemon();
 });
 
-afterEach(async () => {
-  if (daemon) await closeStartedDaemon(daemon);
-  try { daemon && seam(daemon).db.close(); } catch {}
+afterEach(() => {
+  if (daemon) closeStartedDaemon(daemon);
   daemon = undefined;
-  removeAddedSignalListeners();
+  removeAddedDaemonSignalListeners(signalListenerSnapshot);
   if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
   else process.env.RUN_AGENT_DIR = originalRunAgentDir;
   if (originalHome === undefined) delete process.env.HOME;
@@ -490,8 +478,8 @@ describe("orchestrator usage daemon methods", () => {
     const firstTotal = (await request("usage.query", { period: "all" })).result.byOrigin
       .find((bucket: { key: string }) => bucket.key === "orchestrator").costUsd;
 
-    await closeStartedDaemon(firstDaemon);
-    removeAddedSignalListeners();
+    closeStartedDaemon(firstDaemon);
+    removeAddedDaemonSignalListeners(signalListenerSnapshot);
     daemon = new Daemon();
     await daemon.start();
     await (daemon as any).startupReconcilePromise;
