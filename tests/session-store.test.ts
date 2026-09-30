@@ -114,7 +114,7 @@ describe("SessionStore restart metadata", () => {
         "run-a-1",
         "run-a-2",
       ]);
-      expect(store.listByRunId("run-b").map((session) => session.id)).toEqual(["run-b-1"]);
+      expect(store.getByRunId("run-b").map((session) => session.id)).toEqual(["run-b-1"]);
       expect(store.getByRunId("missing")).toEqual([]);
     } finally {
       db.close();

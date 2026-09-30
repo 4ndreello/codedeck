@@ -1,26 +1,13 @@
-import { execFile, execSync } from "node:child_process";
 import fs from "node:fs";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export interface SpawnOptions {
   cwd: string;
   env?: Record<string, string>;
 }
 
-export function which(cmd: string): string | null {
-  try {
-    const out = execSync(`which ${cmd} 2>/dev/null`, { encoding: "utf-8" }).trim();
-    return out || null;
-  } catch {
-    return null;
-  }
-}
-
-// Fixed absolute candidates for systemd-run. PATH-based lookup (which(1))
+// Fixed absolute candidates for systemd-run. PATH-based lookup
 // lets a writable directory shadow the binary (typescript:S4036); callers
-// MUST use this instead of which()/spawn-with-bare-name for scoping.
+// MUST use this instead of a PATH lookup or spawn-with-bare-name for scoping.
 const SYSTEMD_RUN_CANDIDATES = ["/usr/bin/systemd-run", "/bin/systemd-run"];
 
 export function resolveSystemdRunBin(): string | null {
@@ -219,22 +206,4 @@ export async function killTree(pid: number, graceMs = 3000, expectedStartTime?: 
   }
   // Settle window so a follow-up start() doesn't race the dying process.
   await sleep(100);
-}
-
-export async function detectBinary(cmd: string): Promise<{ installed: boolean; path?: string; version?: string }> {
-  const path = which(cmd);
-  if (!path) return { installed: false };
-  let version: string | undefined;
-  try {
-    try {
-      const { stdout } = await execFileAsync(cmd, ["--version"], { timeout: 5000 });
-      version = stdout.trim().split("\n")[0].slice(0, 100);
-    } catch {
-      try {
-        const { stdout } = await execFileAsync(cmd, ["--help"], { timeout: 5000 });
-        version = stdout.trim().split("\n")[0].slice(0, 100);
-      } catch {}
-    }
-  } catch {}
-  return { installed: true, path, version };
 }

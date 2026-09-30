@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { Database, getDatabase } from "../store/database.js";
+import { Database } from "../store/database.js";
 import { AmbiguousSessionIdError, SessionStore } from "../store/sessions.js";
 import { EventStore } from "../store/events.js";
 import { ClaimsStore } from "../store/claims.js";
@@ -14,8 +14,8 @@ import { WebEnsureError, WebSupervisor, type WebSupervisorOptions } from "./web-
 import { getRegistry } from "../drivers/registry.js";
 import { isActiveStatus, isTerminalStatus, liveStatus, normalizeAgentId, type AgentId, type Session, type SessionStatus } from "../core/session.js";
 import { parseSandbox, type AgentDriver, type CodexSandbox, type DriverSession } from "../core/driver.js";
-import { generateSessionId, generateBranchName } from "../core/session.js";
-import { getGitInfo, getBaseCommit } from "../git/repository.js";
+import { generateSessionId } from "../core/session.js";
+import { getGitInfo } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
 import { killTree, processAlive, processStartTime, sleep } from "../utils/process.js";
@@ -24,7 +24,7 @@ import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { invalidWebHostMessage, resolveWebHost } from "../config/web-host.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
-import { classifyFailure, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
+import { classifyFailure, errorMessage, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
 import { parseRole } from "../core/roles.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
@@ -297,7 +297,7 @@ class Daemon {
   private queueReleasedTranscriptCursorCleanup(sessionId: string): void {
     queueMicrotask(() => {
       void this.cleanupReleasedTranscriptCursors(sessionId).catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = errorMessage(error);
         try {
           fs.appendFileSync(
             getPaths().daemonLog,
@@ -360,7 +360,7 @@ class Daemon {
       try {
         await this.handleRequest(req, socket);
       } catch (e) {
-        const res: IpcResponse = { id: req.id, error: { code: "INTERNAL", message: e instanceof Error ? e.message : String(e) } };
+        const res: IpcResponse = { id: req.id, error: { code: "INTERNAL", message: errorMessage(e) } };
         try { socket.write(JSON.stringify(res) + "\n"); } catch {}
       }
     });
@@ -603,7 +603,7 @@ class Daemon {
       const s = this.sessions.get(sessionId);
       if (s && isTerminalStatus(s.status)) this.sessions.update(sessionId, { completedAt: heal.endedAt });
     } catch (error) {
-      appendDaemonLog(`heal timestamps for ${sessionId} failed: ${error instanceof Error ? error.message : String(error)}`);
+      appendDaemonLog(`heal timestamps for ${sessionId} failed: ${errorMessage(error)}`);
     }
   }
 
@@ -651,7 +651,7 @@ class Daemon {
       await this.reconcileOpenUsage(sessionId, nativeIds);
       return true;
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = errorMessage(error);
       try {
         fs.appendFileSync(
           getPaths().daemonLog,
@@ -677,17 +677,44 @@ class Daemon {
     this.reservedSessionIds.delete(sessionId);
   }
 
+  private resolveRegisteredAgent(rawAgent: unknown): { agent: AgentId; registered: boolean } {
+    const agent = (normalizeAgentId(rawAgent) ?? rawAgent) as AgentId;
+    return { agent, registered: this.registry.has(agent) };
+  }
+
+  private handleClaimRequest<T>(
+    requestedSessionId: string,
+    operation: (sessionId: string) => T,
+    result: (value: T) => Omit<IpcResponse, "id">,
+    send: (response: Omit<IpcResponse, "id">) => void,
+  ): void {
+    try {
+      const sessionId = this.sessions.get(requestedSessionId)?.id ?? requestedSessionId;
+      send(result(operation(sessionId)));
+    } catch (error) {
+      if (error instanceof RunAgentError) {
+        send({ error: { code: error.code, message: error.message, details: error.details } });
+        return;
+      }
+      throw error;
+    }
+  }
+
   private async handleRequest(req: IpcRequest, socket: net.Socket): Promise<void> {
     const { id, method, params } = req;
     const send = (res: Omit<IpcResponse, "id">) => {
       try { socket.write(JSON.stringify({ id, ...res }) + "\n"); } catch {}
     };
+    const sendSessionNotFound = (sessionId: string) =>
+      send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${sessionId} not found` } });
+    const sendShuttingDown = () =>
+      send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
 
     // Power-shutdown guard: while draining, refuse new work so a send/stop
     // cannot race the interrupted persist. daemon.stop is the shutdown
     // trigger itself, so it stays admitted (idempotent via handleShutdown).
     if (this.shuttingDown && method !== "daemon.stop") {
-      send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+      sendShuttingDown();
       return;
     }
 
@@ -700,8 +727,8 @@ class Daemon {
         const cwdIn = p.cwd || process.cwd();
         const cfg = loadConfig();
         const rawAgent = p.agent || cfg.defaultAgent || "claude";
-        let agent: AgentId = (normalizeAgentId(rawAgent) ?? rawAgent) as AgentId;
-        if (!this.registry.has(agent)) { send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } }); return; }
+        const { agent, registered } = this.resolveRegisteredAgent(rawAgent);
+        if (!registered) { send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } }); return; }
         const requestSandbox = resolveRequestSandbox(p.sandbox);
         const configuredSandbox = resolveDefaultSandbox(cfg);
         const sandbox = agent === "codex" ? requestSandbox ?? configuredSandbox : undefined;
@@ -727,7 +754,7 @@ class Daemon {
         }
         if (this.shuttingDown) {
           this.releaseSessionId(sessionId);
-          send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+          sendShuttingDown();
           return;
         }
         if (gitInfo) repository = gitInfo.root;
@@ -740,7 +767,7 @@ class Daemon {
             const wt = await createWorktree({ repoRoot: gitInfo.root, sessionId, prompt, name: p.name });
             if (this.shuttingDown) {
               this.releaseSessionId(sessionId);
-              send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+              sendShuttingDown();
               return;
             }
             worktree = wt.path;
@@ -749,7 +776,7 @@ class Daemon {
             cwd = worktree;
           } catch (e) {
             this.releaseSessionId(sessionId);
-            send({ error: { code: "WORKTREE_FAILED", message: e instanceof Error ? e.message : String(e) } });
+            send({ error: { code: "WORKTREE_FAILED", message: errorMessage(e) } });
             return;
           }
         } else if (gitInfo) {
@@ -787,13 +814,12 @@ class Daemon {
         }
 
         // Start driver async (don't block response too long)
-        // But we need to start before returning? Return quickly then start
         send({ result: { session } });
 
         // Now start driver in background
         this.startDriverForSession(sessionId, prompt, p.model).catch((e) => {
           if (this.shuttingDown) return;
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = errorMessage(e);
           const failure = classifyFailure(msg);
           const failEv: AgentEvent = {
             type: "session.failed",
@@ -814,8 +840,8 @@ class Daemon {
         const p = params as any;
         const cwdIn = p.cwd || process.cwd();
         const rawAgent = p.agent || "claude";
-        const agent: AgentId = (normalizeAgentId(rawAgent) ?? rawAgent) as AgentId;
-        if (!this.registry.has(agent)) {
+        const { agent, registered } = this.resolveRegisteredAgent(rawAgent);
+        if (!registered) {
           send({ error: { code: "AGENT_NOT_FOUND", message: `Unknown agent ${agent}` } });
           return;
         }
@@ -826,7 +852,7 @@ class Daemon {
 
         const gitInfo = await getGitInfo(cwd);
         if (this.shuttingDown) {
-          send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+          sendShuttingDown();
           return;
         }
 
@@ -858,8 +884,7 @@ class Daemon {
             agent,
             nativeSessionId: p.resume,
           };
-          this.events.append(revived.id, event);
-          this.broadcast(revived.id, event);
+          this.emit(revived.id, event);
           send({ result: { session: revived } });
           break;
         }
@@ -903,10 +928,7 @@ class Daemon {
       case "session.patch": {
         const p = params as any;
         const s = this.sessions.get(p.id);
-        if (!s) {
-          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
-          return;
-        }
+        if (!s) { sendSessionNotFound(p.id); return; }
 
         let pidStartTime = p.pidStartTime;
         if (p.pid !== undefined && pidStartTime === undefined) {
@@ -934,10 +956,7 @@ class Daemon {
           return;
         }
         const session = this.sessions.get(p.id);
-        if (!session) {
-          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
-          return;
-        }
+        if (!session) { sendSessionNotFound(p.id); return; }
         if (session.origin !== "open") {
           send({ result: { created: false } });
           return;
@@ -951,10 +970,7 @@ class Daemon {
       case "session.release": {
         const p = params as any;
         const s = this.sessions.get(p.id);
-        if (!s) {
-          send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } });
-          return;
-        }
+        if (!s) { sendSessionNotFound(p.id); return; }
         // Release owns the terminal outcome: a queued message must not
         // survive as a phantom "na fila" on every exit, including the
         // terminal early return below.
@@ -1004,8 +1020,7 @@ class Daemon {
               timestamp: new Date().toISOString(),
               reason: "released",
             };
-        this.events.append(s.id, ev);
-        this.broadcast(s.id, ev);
+        this.emit(s.id, ev);
 
         const updated = this.sessions.get(s.id)!;
         send({ result: { session: updated } });
@@ -1017,7 +1032,6 @@ class Daemon {
         const all = p?.all;
         const list = this.sessions.list(100, all).map(withLiveStatus);
         const hidden = all ? 0 : this.sessions.countHiddenByWindow();
-        // Enrich with last event?
         send({ result: { sessions: list, hidden } });
         break;
       }
@@ -1025,7 +1039,7 @@ class Daemon {
       case "session.get": {
         const p = params as any;
         const stored = this.sessions.get(p.id);
-        if (!stored) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!stored) { sendSessionNotFound(p.id); return; }
         const s = withLiveStatus(stored);
         const evCount = this.events.count(s.id);
         const recent = this.events.list(s.id, 10);
@@ -1036,7 +1050,7 @@ class Daemon {
       case "session.rename": {
         const p = params as { id: string; name: string };
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
         if (!p.name || !p.name.trim()) { send({ error: { code: "INVALID", message: "name required" } }); return; }
         this.sessions.update(s.id, { name: p.name });
         send({ result: { ok: true } });
@@ -1052,7 +1066,7 @@ class Daemon {
         }
         const message = validated.message;
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
         if (s.origin === "open") {
           send({ error: { code: "CAPABILITY_NOT_SUPPORTED", message: `Session ${s.id} is an interactive head session and does not support headless prompt turns` } });
           return;
@@ -1096,7 +1110,7 @@ class Daemon {
           try {
             this.sessions.update(s.id, { pendingMessage: message, pendingAt });
           } catch (e) {
-            send({ error: { code: "SEND_FAILED", message: e instanceof Error ? e.message : String(e) } });
+            send({ error: { code: "SEND_FAILED", message: errorMessage(e) } });
             return;
           }
           const queuedEvent: AgentEvent = {
@@ -1124,7 +1138,7 @@ class Daemon {
           await this.runResumeTurn(s, message);
           send({ result: { ok: true, queued: false } });
         } catch (e) {
-          const errText = e instanceof Error ? e.message : String(e);
+          const errText = errorMessage(e);
           const code = e instanceof Error && (e as NodeJS.ErrnoException).code === "SERVICE_UNAVAILABLE"
             ? "SERVICE_UNAVAILABLE"
             : this.shuttingDown ? "SERVICE_UNAVAILABLE" : "SEND_FAILED";
@@ -1143,7 +1157,7 @@ class Daemon {
       case "session.stop": {
         const p = params as { id: string };
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
         // Stop cancels a queued message on every exit (explicit cancel),
         // including the BUSY/NOT_RUNNING/UNSAFE early returns below.
         this.clearPending(s.id);
@@ -1154,11 +1168,7 @@ class Daemon {
         }
         const handle = driver.getHandle?.(s.id);
         const hasRuntime = handle !== undefined;
-        const liveIdentity =
-          s.pid != null &&
-          s.pidStartTime != null &&
-          processAlive(s.pid) &&
-          processStartTime(s.pid) === s.pidStartTime;
+        const liveIdentity = livePidIdentity(s);
         if (isTerminalStatus(s.status) && !hasRuntime && !liveIdentity) {
           send({ error: { code: "SESSION_NOT_RUNNING", message: `Session ${s.id} is ${s.status}` } });
           return;
@@ -1184,7 +1194,7 @@ class Daemon {
             pidStartTime: s.pidStartTime,
           });
           if (this.shuttingDown) {
-            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            sendShuttingDown();
             return;
           }
 
@@ -1206,8 +1216,7 @@ class Daemon {
               reason: "stopped",
               exitCode: 130,
             };
-            this.events.append(s.id, ev);
-            this.broadcast(s.id, ev);
+            this.emit(s.id, ev);
           }
           // A send may have persisted a slot after the entry clear (it saw a
           // live turn before this stop took the lock): stop wins, clear again.
@@ -1215,11 +1224,11 @@ class Daemon {
           send({ result: { ok: true } });
         } catch (e) {
           if (this.shuttingDown) {
-            send({ error: { code: "SERVICE_UNAVAILABLE", message: "daemon is shutting down" } });
+            sendShuttingDown();
             return;
           }
           try { this.sessions.setStatus(s.id, previousStatus); } catch {}
-          send({ error: { code: "STOP_FAILED", message: e instanceof Error ? e.message : String(e) } });
+          send({ error: { code: "STOP_FAILED", message: errorMessage(e) } });
         } finally {
           if (!this.shuttingDown) this.sessionLocks.delete(s.id);
         }
@@ -1230,7 +1239,7 @@ class Daemon {
       case "session.logs": {
         const p = params as any;
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
         if (p.follow) {
           // For follow, we upgrade to subscribe behavior? But spec says logs --follow streams
           // We'll handle by keeping socket open and streaming
@@ -1251,7 +1260,7 @@ class Daemon {
       case "session.subscribe": {
         const p = params as any;
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
 
         // A late subscriber must not wait forever for a broadcast that already
         // happened. Replay the terminal event when available, then close the
@@ -1265,23 +1274,14 @@ class Daemon {
           return;
         }
 
-        // Send buffered events first?
-        // Then keep streaming
         this.addSubscriber(s.id, socket);
-        // Send ack? keep open
-        // Optionally send done when session terminal? We'll handle via broadcast.
-        // Don't send immediate response; just keep socket open for events
-        // But we should send an initial ack to confirm subscription?
-        // Use a separate message to indicate subscription started
-        // Let's not send anything; client will just wait for events
-        // Keep socket open
         return;
       }
 
       case "session.diff": {
         const p = params as any;
         const s = this.sessions.get(p.id);
-        if (!s) { send({ error: { code: "SESSION_NOT_FOUND", message: `Session ${p.id} not found` } }); return; }
+        if (!s) { sendSessionNotFound(p.id); return; }
         const diff = await getDiff({ cwd: s.cwd, worktree: s.worktree, baseCommit: s.baseCommit, repository: s.repository });
         send({ result: diff });
         break;
@@ -1289,56 +1289,22 @@ class Daemon {
 
       case "claims.add": {
         const p = params as { sessionId: string; pathGlob: string; reason: string };
-        try {
-          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
-          const claim = this.claims.add(sessionId, p.pathGlob, p.reason);
-          send({ result: { claim } });
-        } catch (error) {
-          if (error instanceof RunAgentError) {
-            send({ error: { code: error.code, message: error.message, details: error.details } });
-            return;
-          }
-          throw error;
-        }
+        this.handleClaimRequest(p.sessionId, (sessionId) => this.claims.add(sessionId, p.pathGlob, p.reason),
+          (claim) => ({ result: { claim } }), send);
         break;
       }
 
       case "claims.query": {
         const p = params as { sessionId: string; path?: string };
-        try {
-          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
-          const claims = this.claims.query(sessionId, p.path);
-          send({ result: { claims } });
-        } catch (error) {
-          if (error instanceof RunAgentError) {
-            send({ error: { code: error.code, message: error.message, details: error.details } });
-            return;
-          }
-          throw error;
-        }
+        this.handleClaimRequest(p.sessionId, (sessionId) => this.claims.query(sessionId, p.path),
+          (claims) => ({ result: { claims } }), send);
         break;
       }
 
       case "claims.release": {
         const p = params as { sessionId: string; claimId: number };
-        try {
-          const sessionId = this.sessions.get(p.sessionId)?.id ?? p.sessionId;
-          const claim = this.claims.release(sessionId, p.claimId);
-          send({ result: { claim } });
-        } catch (error) {
-          if (error instanceof RunAgentError) {
-            send({ error: { code: error.code, message: error.message, details: error.details } });
-            return;
-          }
-          throw error;
-        }
-        break;
-      }
-
-      case "daemon.status": {
-        const paths = getPaths();
-        let uptime = Date.now() - this.startTime;
-        send({ result: { running: true, pid: process.pid, uptime, db: paths.db } });
+        this.handleClaimRequest(p.sessionId, (sessionId) => this.claims.release(sessionId, p.claimId),
+          (claim) => ({ result: { claim } }), send);
         break;
       }
 
@@ -1483,7 +1449,7 @@ class Daemon {
           const result = this.sessions.queryUsage(p);
           send({ result });
         } catch (error) {
-          send({ error: { code: "USAGE_QUERY_ERROR", message: error instanceof Error ? error.message : String(error) } });
+          send({ error: { code: "USAGE_QUERY_ERROR", message: errorMessage(error) } });
         }
         break;
       }
@@ -1496,7 +1462,7 @@ class Daemon {
           if (error instanceof WebEnsureError) {
             send({ error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) } });
           } else {
-            send({ error: { code: "WEB_START_FAILED", message: error instanceof Error ? error.message : String(error) } });
+            send({ error: { code: "WEB_START_FAILED", message: errorMessage(error) } });
           }
         }
         break;
@@ -1548,6 +1514,11 @@ class Daemon {
     }
   }
 
+  private emit(sessionId: string, event: AgentEvent): void {
+    this.events.append(sessionId, event);
+    this.broadcast(sessionId, event);
+  }
+
   private webHost(): WebHost {
     this.web ??= new WebSupervisor({ log: appendDaemonLog, spawnChild: this.spawnWebChild });
     return this.web;
@@ -1565,7 +1536,7 @@ class Daemon {
     if (invalidHost !== undefined) appendDaemonLog(invalidWebHostMessage(invalidHost));
     this.webHost()
       .ensure({ preferredPort: port, preferredHost: host })
-      .catch((error: unknown) => appendDaemonLog(`web autostart failed: ${error instanceof Error ? error.message : String(error)}`));
+      .catch((error: unknown) => appendDaemonLog(`web autostart failed: ${errorMessage(error)}`));
   }
 
   private async startDriverForSession(sessionId: string, prompt: string, model?: string): Promise<void> {
@@ -1579,8 +1550,7 @@ class Daemon {
     this.sessions.update(sessionId, { status: "working" });
 
     const turnEvent: AgentEvent = { type: "turn.started", sessionId, timestamp: new Date().toISOString(), prompt };
-    this.events.append(sessionId, turnEvent);
-    this.broadcast(sessionId, turnEvent);
+    this.emit(sessionId, turnEvent);
 
     const drvSession = await driver.start({
       sessionId,
@@ -1641,10 +1611,10 @@ class Daemon {
   }
 
   /**
-  +   * Starts a resumed turn; caller MUST hold sessionLocks for the session.
-  +   * Shared by session.send (immediate) and tryDispatch (queued) so both
-  +   * paths emit the same frames in the same order.
-  +   */
+   * Starts a resumed turn; caller MUST hold sessionLocks for the session.
+   * Shared by session.send (immediate) and tryDispatch (queued) so both
+   * paths emit the same frames in the same order.
+   */
   private async runResumeTurn(s: Session, message: string): Promise<void> {
     const driver = this.registry.get(s.agent);
     if (this.shuttingDown) {
@@ -1659,8 +1629,7 @@ class Daemon {
       timestamp: new Date().toISOString(),
       prompt: message,
     };
-    this.events.append(s.id, turnEvent);
-    this.broadcast(s.id, turnEvent);
+    this.emit(s.id, turnEvent);
     const drvSession: DriverSession = {
       id: s.id,
       runId: s.runId ?? undefined,
@@ -1749,7 +1718,7 @@ class Daemon {
       await this.runResumeTurn(s, message);
       return true;
     } catch (e) {
-      const errText = e instanceof Error ? e.message : String(e);
+      const errText = errorMessage(e);
       const unavailable = (e as NodeJS.ErrnoException)?.code === "SERVICE_UNAVAILABLE" || this.shuttingDown;
       if (!unavailable) {
         const failure = classifyFailure(errText);
@@ -1833,7 +1802,7 @@ class Daemon {
       if (this.shuttingDown) return;
       // A driver exception mid-stream is a harness/pipe failure, not task
       // output — classify so agents can retry instead of blaming the work.
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errorMessage(e);
       const failure = classifyFailure(msg);
       const errEv: AgentEvent = {
         type: "session.failed",
@@ -1843,8 +1812,7 @@ class Daemon {
         failure,
         raw: e,
       };
-      this.events.append(sessionId, errEv);
-      this.broadcast(sessionId, errEv);
+      this.emit(sessionId, errEv);
       this.sessions.setStatus(sessionId, "failed", { lastEvent: msg.slice(0, 200), failure });
       return;
     }
@@ -1874,8 +1842,7 @@ class Daemon {
         };
         const error = sess.lastEvent || "event stream ended without a terminal event";
         const errEv: AgentEvent = { type: "session.failed", sessionId, timestamp: new Date().toISOString(), error, failure } as AgentEvent;
-        this.events.append(sessionId, errEv);
-        this.broadcast(sessionId, errEv);
+        this.emit(sessionId, errEv);
         this.sessions.setStatus(sessionId, "failed", { lastEvent: error.slice(0, 200), failure });
       }
     }
@@ -2109,8 +2076,7 @@ class Daemon {
         failure,
         raw: { reason },
       };
-      this.events.append(s.id, event);
-      this.broadcast(s.id, event);
+      this.emit(s.id, event);
       this.sessions.setStatus(s.id, "interrupted", { lastEvent: detail.slice(0, 200), failure });
     } catch {}
   }

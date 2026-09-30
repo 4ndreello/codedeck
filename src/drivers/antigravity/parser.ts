@@ -59,6 +59,11 @@ function parseAntigravityLineWithState(
   const events: AgentEvent[] = [];
   const ts = new Date().toISOString();
   const raw = obj;
+  const toUsage = (usage: any) => ({
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cachedTokens: usage.cache_read_tokens,
+  });
 
   // Handle generic error object
   if (obj.error && !obj.event) {
@@ -158,11 +163,7 @@ function parseAntigravityLineWithState(
         type: "usage.updated",
         sessionId,
         timestamp: ts,
-        usage: {
-          inputTokens: update.usage.input_tokens,
-          outputTokens: update.usage.output_tokens,
-          cachedTokens: update.usage.cache_read_tokens,
-        },
+        usage: toUsage(update.usage),
         nativeSessionId,
         raw,
       } as AgentEvent);
@@ -197,11 +198,7 @@ function parseAntigravityLineWithState(
         type: "usage.updated",
         sessionId,
         timestamp: ts,
-        usage: {
-          inputTokens: result.usage.input_tokens,
-          outputTokens: result.usage.output_tokens,
-          cachedTokens: result.usage.cache_read_tokens,
-        },
+        usage: toUsage(result.usage),
         nativeSessionId,
         raw,
       } as AgentEvent);

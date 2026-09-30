@@ -219,6 +219,114 @@ describe("SessionStore.queryUsage", () => {
     expect(store.list(50, true)).toEqual([]);
   });
 
+  it("merges current and legacy usage while keeping filters and breakdowns accurate", () => {
+    store.create(
+      makeSession("current-claude", {
+        agent: "claude",
+        runId: "run-claude",
+        usage: { inputTokens: 100, outputTokens: 20, cachedTokens: 10, cost: 0.5 },
+      }),
+    );
+    store.create(
+      makeSession("current-codex", {
+        agent: "codex",
+        runId: "run-codex",
+        usage: { inputTokens: 200, outputTokens: 40, cachedTokens: 20, cost: 0.25 },
+      }),
+    );
+
+    const insertLegacy = db.getHandle().prepare(`
+      INSERT INTO usage_legacy (
+        native_id, ended_at, cwd, repository, model, cost,
+        input_tokens, output_tokens, cached_tokens
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const endedAt = new Date(2026, 8, 7, 12).toISOString();
+    insertLegacy.run(
+      "native-priced",
+      endedAt,
+      "/srv/legacy-repo/project",
+      "/srv/legacy-repo",
+      "claude-sonnet-4-6",
+      1.25,
+      30,
+      5,
+      2,
+    );
+    insertLegacy.run(
+      "native-unpriced",
+      endedAt,
+      "/srv/legacy-repo/project",
+      "/srv/legacy-repo",
+      "claude-sonnet-4-6",
+      null,
+      40,
+      10,
+      3,
+    );
+
+    const result = store.queryUsage({ period: "all" });
+    // 130 Claude + 240 Codex + 37 and 53 legacy tokens = 460.
+    expect(result.totals).toMatchObject({
+      sessionCount: 4,
+      activeSessionCount: 0,
+      completedSessionCount: 2,
+      failedSessionCount: 0,
+      inputTokens: 370,
+      outputTokens: 75,
+      cachedTokens: 35,
+      totalTokens: 460,
+      costUsd: 2,
+      costComplete: false,
+      sessionsWithoutCost: 1,
+    });
+    expect(result.byOrigin).toMatchObject([
+      { key: "orchestrator", sessionCount: 2, inputTokens: 70, outputTokens: 15, cachedTokens: 5, totalTokens: 90, costUsd: 1.25, costComplete: false },
+      { key: "worker", sessionCount: 2, inputTokens: 300, outputTokens: 60, cachedTokens: 30, totalTokens: 370, costUsd: 0.75, costComplete: true },
+    ]);
+    expect(result.byRun).toHaveLength(2);
+    expect(result.byRun.find((bucket) => bucket.key === "run-claude")).toMatchObject({
+      sessionCount: 1,
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 10,
+      totalTokens: 130,
+      costUsd: 0.5,
+    });
+    expect(result.byRun.find((bucket) => bucket.key === "run-codex")).toMatchObject({
+      sessionCount: 1,
+      inputTokens: 200,
+      outputTokens: 40,
+      cachedTokens: 20,
+      totalTokens: 240,
+      costUsd: 0.25,
+    });
+    expect(result.byAgent).toMatchObject([
+      { key: "claude", sessionCount: 3, inputTokens: 170, outputTokens: 35, cachedTokens: 15, totalTokens: 220, costUsd: 1.75, costComplete: false },
+      { key: "codex", sessionCount: 1, inputTokens: 200, outputTokens: 40, cachedTokens: 20, totalTokens: 240, costUsd: 0.25, costComplete: true },
+    ]);
+
+    const runFiltered = store.queryUsage({ period: "all", runId: "run-claude" });
+    expect(runFiltered.totals).toMatchObject({ sessionCount: 1, inputTokens: 100, outputTokens: 20, costUsd: 0.5 });
+    expect(runFiltered.byRun.map((bucket) => bucket.key)).toEqual(["run-claude"]);
+
+    const codexFiltered = store.queryUsage({ period: "all", agent: "codex" });
+    expect(codexFiltered.totals).toMatchObject({ sessionCount: 1, inputTokens: 200, outputTokens: 40, costUsd: 0.25 });
+
+    const repositoryFiltered = store.queryUsage({ period: "all", repository: "legacy-repo" });
+    expect(repositoryFiltered.totals).toMatchObject({ sessionCount: 2, inputTokens: 70, outputTokens: 15, costUsd: 1.25 });
+
+    const claudeFiltered = store.queryUsage({ period: "all", agent: "claude" });
+    expect(claudeFiltered.totals).toMatchObject({
+      sessionCount: 3,
+      inputTokens: 170,
+      outputTokens: 35,
+      costUsd: 1.75,
+      costComplete: false,
+      sessionsWithoutCost: 1,
+    });
+  });
+
   it("marks costComplete as false when encountering unpriced models without reported cost", () => {
     store.create(
       makeSession("s-unknown", {
