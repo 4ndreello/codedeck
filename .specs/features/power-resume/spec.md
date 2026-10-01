@@ -26,7 +26,7 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 | Mudar parser de outros harnesses (claude, opencode, omp, antigravity) | Só o codex tem evidência medida |
 | Detectar suspend/resume (D-Bus `PrepareForSleep`) | O suspend já preserva os processos, o problema era só o parser |
 
-## Assumptions & Decisions
+## Assumptions & Open Questions
 
 | Decision | Chosen default | Rationale |
 | -------- | -------------- | --------- |
@@ -37,6 +37,8 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 | Momento do auto-resume | Uma vez por boot do daemon, depois de `recover()` e com o socket ligado, pelo mesmo caminho de `runResumeTurn` sob `sessionLocks` | Reaproveita o resume-turn verificado de `daemon-power` P2 |
 | Unit systemd | `~/.config/systemd/user/codedeck.service`, `ExecStart=<process.execPath> <dist/daemon/daemon.js resolvido> --daemon`, `Environment=PATH=<PATH no install>`, `KillMode=process`, `Restart=on-failure`, `WantedBy=default.target` | Sob systemd o PATH é mínimo e os harnesses (`~/.local/bin`) sumiriam; `KillMode=process` evita que um `restart` do serviço mate workers que caíram no cgroup do serviço |
 
+
+**Open questions:** none. O usuário escolheu auto-resume opt-in (opção a) em 2026-10-01.
 ---
 
 ## User Stories
@@ -75,10 +77,24 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 
 ---
 
-## Traceability
+## Requirement Traceability
 
 | ID | Story | Task | Status |
 | -- | ----- | ---- | ------ |
-| PRS-01..04 | P1 | T1 | Pending |
-| PRS-05..10 | P2 | T2 | Pending |
-| PRS-11..17 | P3 | T3 | Pending |
+| PRS-01 | P1 | T1 | Pending |
+| PRS-02 | P1 | T1 | Pending |
+| PRS-03 | P1 | T1 | Pending |
+| PRS-04 | P1 | T1 | Pending |
+| PRS-05 | P2 | T2 | Pending |
+| PRS-06 | P2 | T2 | Pending |
+| PRS-07 | P2 | T2 | Pending |
+| PRS-08 | P2 | T2 | Pending |
+| PRS-09 | P2 | T2 | Pending |
+| PRS-10 | P2 | T2 | Pending |
+| PRS-11 | P3 | T3 | Pending |
+| PRS-12 | P3 | T3 | Pending |
+| PRS-13 | P3 | T3 | Pending |
+| PRS-14 | P3 | T3 | Pending |
+| PRS-15 | P3 | T3 | Pending |
+| PRS-16 | P3 | T3 | Pending |
+| PRS-17 | P3 | T3 | Pending |
