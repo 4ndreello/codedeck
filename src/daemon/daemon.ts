@@ -22,7 +22,7 @@ import { killTree, processAlive, processStartTime, sleep } from "../utils/proces
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
-import { AUTO_RESUME_PROMPT, isAutoResumeEligible } from "./auto-resume.js";
+import { buildAutoResumePrompt, isAutoResumeEligible } from "./auto-resume.js";
 import { invalidWebHostMessage, resolveWebHost } from "../config/web-host.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
 import { classifyFailure, errorMessage, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
@@ -445,11 +445,21 @@ class Daemon {
       }
 
       this.sessionLocks.add(session.id);
+      const pendingMessage = session.pendingMessage;
+      const pendingAt = session.pendingAt;
       try {
         try { this.sessions.update(session.id, { pendingMessage: null, pendingAt: null }); } catch {}
-        await this.runResumeTurn(session, AUTO_RESUME_PROMPT);
+        await this.runResumeTurn(session, buildAutoResumePrompt(session.pendingMessage));
         appendDaemonLog(`auto-resume started session ${session.id}`);
       } catch (error) {
+        try {
+          if (pendingMessage) {
+            this.sessions.update(session.id, {
+              pendingMessage,
+              pendingAt: pendingAt ?? new Date().toISOString(),
+            });
+          }
+        } catch {}
         if (this.shuttingDown || (error as NodeJS.ErrnoException)?.code === "SERVICE_UNAVAILABLE") {
           appendDaemonLog(`auto-resume paused for ${session.id}: daemon is shutting down`);
           break;

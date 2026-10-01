@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultCapabilities } from "../src/core/capabilities.js";
 import type { AgentDriver, DriverSession } from "../src/core/driver.js";
 import type { Session } from "../src/core/session.js";
-import { AUTO_RESUME_PROMPT, isAutoResumeEligible } from "../src/daemon/auto-resume.js";
+import {
+  AUTO_RESUME_PROMPT,
+  buildAutoResumePrompt,
+  isAutoResumeEligible,
+} from "../src/daemon/auto-resume.js";
 import { Daemon } from "../src/daemon/daemon.js";
 import { processStartTime } from "../src/utils/process.js";
 import {
@@ -121,6 +125,22 @@ describe("auto-resume eligibility", () => {
   });
 });
 
+describe("buildAutoResumePrompt", () => {
+  it("keeps the fixed prompt when there is no pending message", () => {
+    expect(buildAutoResumePrompt()).toBe(AUTO_RESUME_PROMPT);
+    expect(buildAutoResumePrompt(null)).toBe(AUTO_RESUME_PROMPT);
+    expect(buildAutoResumePrompt("")).toBe(AUTO_RESUME_PROMPT);
+  });
+
+  it("appends a pending message after the fixed prompt", () => {
+    const message = "Please finish the queued change";
+
+    expect(buildAutoResumePrompt(message)).toBe(
+      `${AUTO_RESUME_PROMPT}\n\nBefore the shutdown, the user queued this message for you:\n\n${message}`,
+    );
+  });
+});
+
 describe("auto-resume on daemon boot", () => {
   const ineligibleCases: Array<[string, Partial<Session>]> = [
     ["open origin", { origin: "open" }],
@@ -141,7 +161,7 @@ describe("auto-resume on daemon boot", () => {
     expect(seam(daemon).sessions.get("disabled")?.status).toBe("interrupted");
   });
 
-  it("PRS-06 resumes each eligible session once with the fixed prompt", async () => {
+  it("PRS-06 resumes each eligible session once with no queued message", async () => {
     configureAutoResume(true);
     const calls: ResumeCall[] = [];
     daemon = new Daemon();
@@ -176,18 +196,19 @@ describe("auto-resume on daemon boot", () => {
     expect(log).toContain(`auto-resume skipped missing-directory: working directory missing (${missingDirectory})`);
   });
 
-  it("clears a pending message before the auto-resume turn", async () => {
+  it("includes and clears a pending message in the single auto-resume turn", async () => {
     configureAutoResume(true);
     const calls: ResumeCall[] = [];
     daemon = new Daemon();
     installResumeDriver(daemon, calls);
-    interrupted("pending", { pendingMessage: "stale queued message", pendingAt: new Date().toISOString() });
+    interrupted("pending", { pendingMessage: "queued user message", pendingAt: new Date().toISOString() });
 
     await daemon.start();
     await waitFor(() => calls.length === 1);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.prompt).toBe(AUTO_RESUME_PROMPT);
+    expect(calls[0]?.prompt.startsWith(AUTO_RESUME_PROMPT)).toBe(true);
+    expect(calls[0]?.prompt).toContain("queued user message");
     const pending = seam(daemon).db.getHandle().prepare(
       "SELECT pending_message, pending_at FROM sessions WHERE id = ?",
     ).get("pending") as { pending_message: string | null; pending_at: string | null };
@@ -268,15 +289,21 @@ describe("auto-resume on daemon boot", () => {
     const calls: ResumeCall[] = [];
     daemon = new Daemon();
     installResumeDriver(daemon, calls, "fails");
-    interrupted("fails");
+    const pendingAt = new Date().toISOString();
+    interrupted("fails", { pendingMessage: "queued failed message", pendingAt });
     interrupted("continues");
 
     await daemon.start();
     await waitFor(() => calls.length === 2);
+    await waitFor(() => seam(daemon!).sessions.get("fails")?.pendingMessage === "queued failed message");
 
     expect(calls.map(({ session }) => session.id)).toEqual(["fails", "continues"]);
     expect(seam(daemon).sessions.get("fails")?.status).toBe("failed");
     expect(seam(daemon).sessions.get("fails")?.failure).toMatchObject({ code: "UNKNOWN", retryable: true });
+    const failedPending = seam(daemon).db.getHandle().prepare(
+      "SELECT pending_message, pending_at FROM sessions WHERE id = ?",
+    ).get("fails") as { pending_message: string | null; pending_at: string | null };
+    expect(failedPending).toEqual({ pending_message: "queued failed message", pending_at: pendingAt });
     expect(seam(daemon).sessions.get("continues")?.status).toBe("working");
     const log = fs.readFileSync(path.join(context.runAgentDir, "daemon.log"), "utf8");
     expect(log).toContain("auto-resume failed for fails: resume spawn failed");
@@ -293,13 +320,19 @@ describe("auto-resume on daemon boot", () => {
         (daemon as unknown as { shuttingDown: boolean }).shuttingDown = true;
       }
     });
-    interrupted("first");
+    const pendingAt = new Date().toISOString();
+    interrupted("first", { pendingMessage: "queued during shutdown", pendingAt });
     interrupted("next");
 
     await daemon.start();
     await waitFor(() => calls.length === 1);
+    await waitFor(() => seam(daemon!).sessions.get("first")?.pendingMessage === "queued during shutdown");
 
     expect(seam(daemon).sessions.get("first")?.failure?.code).not.toBe("UNKNOWN");
+    const interruptedPending = seam(daemon).db.getHandle().prepare(
+      "SELECT pending_message, pending_at FROM sessions WHERE id = ?",
+    ).get("first") as { pending_message: string | null; pending_at: string | null };
+    expect(interruptedPending).toEqual({ pending_message: "queued during shutdown", pending_at: pendingAt });
     expect(seam(daemon).sessions.get("next")?.status).toBe("interrupted");
     expect(seam(daemon).sessions.get("next")?.failure).toMatchObject({ code: "SHUTDOWN" });
   });

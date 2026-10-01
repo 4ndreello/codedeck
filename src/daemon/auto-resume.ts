@@ -3,6 +3,11 @@ import type { Session } from "../core/session.js";
 export const AUTO_RESUME_PROMPT =
   "The previous turn was interrupted by a system shutdown before it finished. Inspect `git status` and `git diff` before acting, then continue the original task from where it stopped.";
 
+export function buildAutoResumePrompt(pendingMessage?: string | null): string {
+  if (!pendingMessage) return AUTO_RESUME_PROMPT;
+  return `${AUTO_RESUME_PROMPT}\n\nBefore the shutdown, the user queued this message for you:\n\n${pendingMessage}`;
+}
+
 export interface AutoResumeEligibilityOptions {
   now: Date;
   maxAgeHours: number;
