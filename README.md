@@ -99,7 +99,7 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 
 On Linux with systemd user services, `codedeck service install` writes and enables a user unit for the daemon. It starts at your next login. Run `codedeck service uninstall` to disable and remove it.
 
-When auto-resume support is available, set this opt-in at `~/.config/run-agent/config.json` to resume recent `run` sessions interrupted by shutdown when the daemon starts:
+Auto-resume is off by default. Set this at `~/.config/run-agent/config.json` and the daemon, when it starts, sends one continue turn to each `run` session that a shutdown interrupted within the last `maxAgeHours`. The turn asks the agent to inspect `git status` and `git diff` first, since the interrupted turn may have left work half done:
 
 ```json
 {
