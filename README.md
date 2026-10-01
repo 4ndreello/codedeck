@@ -95,6 +95,18 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck ui [--host <addr>] [--port <n>] [--no-open]` | Open the local web console |
 | `npx codedeck review [--port <n>] [--no-open]` | Open a local review of the current git changes |
 
+## Login service
+
+On Linux with systemd user services, `codedeck service install` writes and enables a user unit for the daemon. It starts at your next login. Run `codedeck service uninstall` to disable and remove it.
+
+When auto-resume support is available, set this opt-in at `~/.config/run-agent/config.json` to resume recent `run` sessions interrupted by shutdown when the daemon starts:
+
+```json
+{
+  "autoResume": { "enabled": true, "maxAgeHours": 24 }
+}
+```
+
 ## Web console
 
 The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` to an IPv4 or IPv6 address to bind another interface, such as a Tailscale address:
