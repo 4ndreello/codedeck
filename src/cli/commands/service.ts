@@ -13,7 +13,7 @@ function escapeSystemdString(value: string): string {
 }
 
 function renderExecArgument(value: string): string {
-  return `"${escapeSystemdString(value).replaceAll("$", "$$")}"`;
+  return `"${escapeSystemdString(value).replaceAll("$", () => "$$")}"`;
 }
 
 export interface ServiceUnitOptions {
@@ -31,7 +31,7 @@ export function renderServiceUnit({ nodePath, daemonScript, path: processPath }:
     "Description=CodeDeck daemon",
     "",
     "[Service]",
-    `ExecStart=${renderExecArgument(nodePath)} ${renderExecArgument(daemonScript)} --daemon`,
+    `ExecStart="${escapeSystemdString(nodePath)}" ${renderExecArgument(daemonScript)} --daemon`,
     `Environment="PATH=${escapeSystemdString(processPath)}"`,
     "KillMode=process",
     "Restart=on-failure",

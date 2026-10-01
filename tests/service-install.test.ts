@@ -38,6 +38,16 @@ describe("service commands", () => {
     expect(unit).toContain('Environment="PATH=/usr/bin:/mnt/c/Program Files/Git/bin:/opt/100%%tools/bin"');
   });
 
+  it("escapes dollar signs in ExecStart paths", () => {
+    const unit = renderServiceUnit({
+      nodePath: "/opt/$HOME/bin/node",
+      daemonScript: "/opt/${X}/daemon.js",
+      path: "/usr/bin",
+    });
+
+    expect(unit).toContain('ExecStart="/opt/$HOME/bin/node" "/opt/$${X}/daemon.js" --daemon');
+  });
+
   it("writes the unit then reloads and enables the service", async () => {
     const homeDir = temporaryHome();
     const calls: string[][] = [];
