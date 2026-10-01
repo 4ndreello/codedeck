@@ -14,38 +14,45 @@ function temporaryHome(): string {
 }
 
 describe("service commands", () => {
-  it("renders absolute ExecStart paths, PATH, KillMode, and the default target", () => {
-    const unit = renderServiceUnit({
-      nodePath: "/opt/node/bin/node",
-      daemonScript: "/opt/codedeck/dist/daemon/daemon.js",
-      path: "/home/user/.local/bin:/usr/bin",
-    });
-
-    expect(unit).toContain('ExecStart="/opt/node/bin/node" "/opt/codedeck/dist/daemon/daemon.js" --daemon');
-    expect(unit).toContain('Environment="PATH=/home/user/.local/bin:/usr/bin"');
-    expect(unit).toContain("KillMode=process");
-    expect(unit).toContain("WantedBy=default.target");
-  });
-
-  it("quotes paths containing spaces and escapes systemd specifiers", () => {
-    const unit = renderServiceUnit({
-      nodePath: "/opt/Node Runtime/bin/node",
-      daemonScript: "/opt/CodeDeck %release/dist/daemon/daemon.js",
-      path: "/usr/bin:/mnt/c/Program Files/Git/bin:/opt/100%tools/bin",
-    });
-
-    expect(unit).toContain('ExecStart="/opt/Node Runtime/bin/node" "/opt/CodeDeck %%release/dist/daemon/daemon.js" --daemon');
-    expect(unit).toContain('Environment="PATH=/usr/bin:/mnt/c/Program Files/Git/bin:/opt/100%%tools/bin"');
-  });
-
-  it("escapes dollar signs in ExecStart paths", () => {
-    const unit = renderServiceUnit({
-      nodePath: "/opt/$HOME/bin/node",
-      daemonScript: "/opt/${X}/daemon.js",
-      path: "/usr/bin",
-    });
-
-    expect(unit).toContain('ExecStart="/opt/$HOME/bin/node" "/opt/$${X}/daemon.js" --daemon');
+  it.each([
+    {
+      name: "renders absolute ExecStart paths, PATH, KillMode, and the default target",
+      input: {
+        nodePath: "/opt/node/bin/node",
+        daemonScript: "/opt/codedeck/dist/daemon/daemon.js",
+        path: "/home/user/.local/bin:/usr/bin",
+      },
+      expected: [
+        'ExecStart="/opt/node/bin/node" "/opt/codedeck/dist/daemon/daemon.js" --daemon',
+        'Environment="PATH=/home/user/.local/bin:/usr/bin"',
+        "KillMode=process",
+        "WantedBy=default.target",
+      ],
+    },
+    {
+      name: "quotes paths containing spaces and escapes systemd specifiers",
+      input: {
+        nodePath: "/opt/Node Runtime/bin/node",
+        daemonScript: "/opt/CodeDeck %release/dist/daemon/daemon.js",
+        path: "/usr/bin:/mnt/c/Program Files/Git/bin:/opt/100%tools/bin",
+      },
+      expected: [
+        'ExecStart="/opt/Node Runtime/bin/node" "/opt/CodeDeck %%release/dist/daemon/daemon.js" --daemon',
+        'Environment="PATH=/usr/bin:/mnt/c/Program Files/Git/bin:/opt/100%%tools/bin"',
+      ],
+    },
+    {
+      name: "escapes dollar signs in ExecStart paths",
+      input: {
+        nodePath: "/opt/$HOME/bin/node",
+        daemonScript: "/opt/${X}/daemon.js",
+        path: "/usr/bin",
+      },
+      expected: ['ExecStart="/opt/$HOME/bin/node" "/opt/$${X}/daemon.js" --daemon'],
+    },
+  ])("$name", ({ input, expected }) => {
+    const unit = renderServiceUnit(input);
+    for (const line of expected) expect(unit).toContain(line);
   });
 
   it("writes the unit then reloads and enables the service", async () => {
