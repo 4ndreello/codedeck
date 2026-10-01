@@ -438,8 +438,15 @@ class Daemon {
       })) continue;
       if (this.sessionLocks.has(session.id)) continue;
 
+      const workingDirectory = session.worktree || session.cwd;
+      if (!fs.existsSync(workingDirectory)) {
+        appendDaemonLog(`auto-resume skipped ${session.id}: working directory missing (${workingDirectory})`);
+        continue;
+      }
+
       this.sessionLocks.add(session.id);
       try {
+        try { this.sessions.update(session.id, { pendingMessage: null, pendingAt: null }); } catch {}
         await this.runResumeTurn(session, AUTO_RESUME_PROMPT);
         appendDaemonLog(`auto-resume started session ${session.id}`);
       } catch (error) {

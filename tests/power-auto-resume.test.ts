@@ -159,6 +159,42 @@ describe("auto-resume on daemon boot", () => {
     }
   });
 
+  it("skips an eligible session whose working directory is missing", async () => {
+    configureAutoResume(true);
+    const calls: ResumeCall[] = [];
+    daemon = new Daemon();
+    installResumeDriver(daemon, calls);
+    const missingDirectory = makeTempDir("power-auto-resume-missing-");
+    fs.rmSync(missingDirectory, { recursive: true, force: true });
+    interrupted("missing-directory", { worktree: missingDirectory });
+
+    await daemon.start();
+
+    expect(calls).toHaveLength(0);
+    expect(seam(daemon).sessions.get("missing-directory")?.status).toBe("interrupted");
+    const log = fs.readFileSync(path.join(context.runAgentDir, "daemon.log"), "utf8");
+    expect(log).toContain(`auto-resume skipped missing-directory: working directory missing (${missingDirectory})`);
+  });
+
+  it("clears a pending message before the auto-resume turn", async () => {
+    configureAutoResume(true);
+    const calls: ResumeCall[] = [];
+    daemon = new Daemon();
+    installResumeDriver(daemon, calls);
+    interrupted("pending", { pendingMessage: "stale queued message", pendingAt: new Date().toISOString() });
+
+    await daemon.start();
+    await waitFor(() => calls.length === 1);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.prompt).toBe(AUTO_RESUME_PROMPT);
+    const pending = seam(daemon).db.getHandle().prepare(
+      "SELECT pending_message, pending_at FROM sessions WHERE id = ?",
+    ).get("pending") as { pending_message: string | null; pending_at: string | null };
+    expect(pending.pending_message).toBeNull();
+    expect(pending.pending_at).toBeNull();
+  });
+
   it("PRS-07 leaves sessions older than maxAgeHours interrupted", async () => {
     configureAutoResume(true, 1);
     const calls: ResumeCall[] = [];
