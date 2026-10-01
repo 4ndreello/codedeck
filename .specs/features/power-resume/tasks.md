@@ -9,7 +9,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 ---
 
 **Design**: none (the decisions table in `spec.md` covers the design; three small independent slices)
-**Status**: In Progress
+**Status**: Done
 
 ---
 
@@ -69,10 +69,10 @@ T3
 
 **Done when**:
 
-- [ ] Reconnect, skill-budget and websocket-fallback frames parse to `error`, never `session.failed`
-- [ ] `turn.failed`/`thread.failed` still parse to `session.failed`
-- [ ] A reconnect fixture ending in `turn.completed` + exit 0 ends `completed`
-- [ ] An `error` + `turn.failed` fixture ends `failed`
+- [x] Reconnect, skill-budget and websocket-fallback frames parse to `error`, never `session.failed`
+- [x] `turn.failed`/`thread.failed` still parse to `session.failed`
+- [x] A reconnect fixture ending in `turn.completed` + exit 0 ends `completed`
+- [x] An `error` + `turn.failed` fixture ends `failed`
 
 **Tests**: unit + integration (`tests/codex-parser-errors.test.ts`, `tests/codex-reconnect-terminal.test.ts`)
 **Gate**: quick-t1 + build
@@ -94,10 +94,10 @@ T3
 
 **Done when**:
 
-- [ ] Disabled config starts no turn
-- [ ] Enabled config starts exactly one turn per eligible session with the fixed prompt
-- [ ] Old, open-origin, no-native-id, non-SHUTDOWN, no-resume and live-identity rows stay untouched
-- [ ] A failing resume is logged and does not stop the boot or the next session
+- [x] Disabled config starts no turn
+- [x] Enabled config starts exactly one turn per eligible session with the fixed prompt
+- [x] Old, open-origin, no-native-id, non-SHUTDOWN, no-resume and live-identity rows stay untouched
+- [x] A failing resume is logged and does not stop the boot or the next session
 
 **Tests**: unit + integration (`tests/power-auto-resume.test.ts`)
 **Gate**: quick-t2 + build
@@ -119,11 +119,11 @@ T3
 
 **Done when**:
 
-- [ ] Rendered unit has absolute ExecStart, captured PATH, `KillMode=process`, `WantedBy=default.target`
-- [ ] Install writes the unit and runs daemon-reload + enable through an injectable runner
-- [ ] Uninstall disables and removes the unit
-- [ ] Non-Linux or missing systemctl exits 1 without writing
-- [ ] Existing doctor test stays green
+- [x] Rendered unit has absolute ExecStart, captured PATH, `KillMode=process`, `WantedBy=default.target`
+- [x] Install writes the unit and runs daemon-reload + enable through an injectable runner
+- [x] Uninstall disables and removes the unit
+- [x] Non-Linux or missing systemctl exits 1 without writing
+- [x] Existing doctor test stays green
 
 **Tests**: unit (`tests/service-install.test.ts`, existing `tests/power-doctor.test.ts`)
 **Gate**: quick-t3 + build

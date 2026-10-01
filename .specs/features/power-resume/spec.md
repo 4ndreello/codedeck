@@ -10,9 +10,9 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 
 ## Goals
 
-- [ ] Uma sessão codex que se recupera de reconnect termina `completed`, nunca `failed`
-- [ ] Com opt-in, sessões `run` interrompidas por shutdown recentemente recebem um turno de retomada no boot do daemon, sem comando manual
-- [ ] `codedeck service install` faz o daemon subir sozinho no login, no Linux com systemd de usuário
+- [x] Uma sessão codex que se recupera de reconnect termina `completed`, nunca `failed`
+- [x] Com opt-in, sessões `run` interrompidas por shutdown recentemente recebem um turno de retomada no boot do daemon, sem comando manual
+- [x] `codedeck service install` faz o daemon subir sozinho no login, no Linux com systemd de usuário
 
 ## Out of Scope
 
@@ -81,20 +81,20 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 
 | ID | Story | Task | Status |
 | -- | ----- | ---- | ------ |
-| PRS-01 | P1 | T1 | Pending |
-| PRS-02 | P1 | T1 | Pending |
-| PRS-03 | P1 | T1 | Pending |
-| PRS-04 | P1 | T1 | Pending |
-| PRS-05 | P2 | T2 | Pending |
-| PRS-06 | P2 | T2 | Pending |
-| PRS-07 | P2 | T2 | Pending |
-| PRS-08 | P2 | T2 | Pending |
-| PRS-09 | P2 | T2 | Pending |
-| PRS-10 | P2 | T2 | Pending |
-| PRS-11 | P3 | T3 | Pending |
-| PRS-12 | P3 | T3 | Pending |
-| PRS-13 | P3 | T3 | Pending |
-| PRS-14 | P3 | T3 | Pending |
-| PRS-15 | P3 | T3 | Pending |
-| PRS-16 | P3 | T3 | Pending |
-| PRS-17 | P3 | T3 | Pending |
+| PRS-01 | P1 | T1 | Verified |
+| PRS-02 | P1 | T1 | Verified |
+| PRS-03 | P1 | T1 | Verified |
+| PRS-04 | P1 | T1 | Verified |
+| PRS-05 | P2 | T2 | Verified |
+| PRS-06 | P2 | T2 | Verified |
+| PRS-07 | P2 | T2 | Verified |
+| PRS-08 | P2 | T2 | Verified |
+| PRS-09 | P2 | T2 | Verified |
+| PRS-10 | P2 | T2 | Verified |
+| PRS-11 | P3 | T3 | Verified |
+| PRS-12 | P3 | T3 | Verified |
+| PRS-13 | P3 | T3 | Verified |
+| PRS-14 | P3 | T3 | Verified |
+| PRS-15 | P3 | T3 | Verified |
+| PRS-16 | P3 | T3 | Verified |
+| PRS-17 | P3 | T3 | Verified |
