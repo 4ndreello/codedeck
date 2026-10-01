@@ -22,6 +22,7 @@ import { killTree, processAlive, processStartTime, sleep } from "../utils/proces
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
+import { buildAutoResumePrompt, isAutoResumeEligible } from "./auto-resume.js";
 import { invalidWebHostMessage, resolveWebHost } from "../config/web-host.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
 import { classifyFailure, errorMessage, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
@@ -133,6 +134,7 @@ class Daemon {
   private startTime = Date.now();
   private startupReconcilePromise: Promise<void> = Promise.resolve();
   private sessionLocks = new Set<string>();
+  private autoResumeStarted = false;
   private reservedSessionIds = new Set<string>();
   // Sessions recover() revived from a store-busy failure: the sequence the
   // drain starts after, and the log mtime when the harness is already dead.
@@ -396,6 +398,89 @@ class Daemon {
     try {
       fs.appendFileSync(paths.daemonLog, `[${new Date().toISOString()}] daemon started pid=${process.pid}\n`);
     } catch {}
+
+    this.startAutoResume();
+  }
+
+  private startAutoResume(): void {
+    if (this.autoResumeStarted) return;
+    this.autoResumeStarted = true;
+    const config = loadConfig().autoResume;
+    if (config?.enabled !== true) return;
+    const maxAgeHours = typeof config.maxAgeHours === "number" && Number.isFinite(config.maxAgeHours)
+      ? config.maxAgeHours
+      : 24;
+    void this.autoResumeInterruptedSessions(maxAgeHours).catch((error: unknown) => {
+      appendDaemonLog(`auto-resume boot scan failed: ${errorMessage(error)}`);
+    });
+  }
+
+  private async autoResumeInterruptedSessions(maxAgeHours: number): Promise<void> {
+    const ids = this.db.getHandle().prepare(
+      "SELECT id FROM sessions WHERE status = 'interrupted' ORDER BY updated_at ASC",
+    ).all() as Array<{ id: string }>;
+    for (const { id } of ids) {
+      if (this.shuttingDown) break;
+      const session = this.sessions.getExact(id);
+      if (!session) continue;
+      let driver: AgentDriver;
+      try {
+        driver = this.registry.get(session.agent);
+      } catch (error) {
+        appendDaemonLog(`auto-resume failed for ${session.id}: ${errorMessage(error)}`);
+        continue;
+      }
+      if (!isAutoResumeEligible(session, {
+        now: new Date(),
+        maxAgeHours,
+        canResume: driver.capabilities().resume,
+        liveIdentity: livePidIdentity(session),
+      })) continue;
+      if (this.sessionLocks.has(session.id)) continue;
+
+      const workingDirectory = session.worktree || session.cwd;
+      if (!fs.existsSync(workingDirectory)) {
+        appendDaemonLog(`auto-resume skipped ${session.id}: working directory missing (${workingDirectory})`);
+        continue;
+      }
+
+      this.sessionLocks.add(session.id);
+      const pendingMessage = session.pendingMessage;
+      const pendingAt = session.pendingAt;
+      try {
+        try { this.sessions.update(session.id, { pendingMessage: null, pendingAt: null }); } catch {}
+        await this.runResumeTurn(session, buildAutoResumePrompt(session.pendingMessage));
+        appendDaemonLog(`auto-resume started session ${session.id}`);
+      } catch (error) {
+        try {
+          if (pendingMessage) {
+            this.sessions.update(session.id, {
+              pendingMessage,
+              pendingAt: pendingAt ?? new Date().toISOString(),
+            });
+          }
+        } catch {}
+        if (this.shuttingDown || (error as NodeJS.ErrnoException)?.code === "SERVICE_UNAVAILABLE") {
+          appendDaemonLog(`auto-resume paused for ${session.id}: daemon is shutting down`);
+          break;
+        }
+        const message = errorMessage(error);
+        const failure = classifyFailure(message);
+        const failedEvent: AgentEvent = {
+          type: "session.failed",
+          sessionId: session.id,
+          timestamp: new Date().toISOString(),
+          error: message,
+          failure,
+        };
+        try { this.events.append(session.id, failedEvent); } catch {}
+        this.broadcast(session.id, failedEvent);
+        try { this.sessions.setStatus(session.id, "failed", { lastEvent: message.slice(0, 200), failure }); } catch {}
+        appendDaemonLog(`auto-resume failed for ${session.id}: ${errorMessage(error)}`);
+      } finally {
+        if (!this.shuttingDown) this.sessionLocks.delete(session.id);
+      }
+    }
   }
 
   // Sessions whose detached process outlived the daemon are RE-ATTACHED, not

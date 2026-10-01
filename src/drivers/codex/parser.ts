@@ -1,5 +1,13 @@
 import type { AgentEvent } from "../../core/events.js";
 
+function errorText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "message" in value && typeof value.message === "string") {
+    return value.message;
+  }
+  return value === undefined ? "Codex error" : JSON.stringify(value);
+}
+
 export function parseCodexLine(line: string, sessionId: string): AgentEvent[] {
   let obj: any;
   try {
@@ -163,12 +171,23 @@ export function parseCodexLine(line: string, sessionId: string): AgentEvent[] {
     return events;
   }
 
-  if (obj.type === "turn.failed" || obj.type === "error" || obj.type === "thread.failed") {
+  if (obj.type === "error") {
+    events.push({
+      type: "error",
+      sessionId,
+      timestamp: ts,
+      error: errorText(obj.message || obj.error || obj),
+      raw,
+    } as AgentEvent);
+    return events;
+  }
+
+  if (obj.type === "turn.failed" || obj.type === "thread.failed") {
     events.push({
       type: "session.failed",
       sessionId,
       timestamp: ts,
-      error: obj.error || obj.message || JSON.stringify(obj),
+      error: errorText(obj.error || obj.message || obj),
       raw,
     } as AgentEvent);
     return events;

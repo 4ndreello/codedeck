@@ -95,6 +95,20 @@ The daemon owns the sessions. The CLI only follows events — closing the termin
 | `npx codedeck ui [--host <addr>] [--port <n>] [--no-open]` | Open the local web console |
 | `npx codedeck review [--port <n>] [--no-open]` | Open a local review of the current git changes |
 
+## Login service
+
+On Linux with systemd user services, `codedeck service install` writes and enables a user unit for the daemon. It starts at your next login. Run `codedeck service uninstall` to disable and remove it.
+
+The service daemon does not inherit your shell environment; only `PATH` is captured when you install it. To pass variables such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `CODEX_HOME` to harnesses, define them in `~/.config/environment.d/*.conf` so they enter the systemd user environment when its manager starts.
+
+Auto-resume is off by default. Set this at `~/.config/run-agent/config.json` and the daemon, when it starts, sends one continue turn to each `run` session that a shutdown interrupted within the last `maxAgeHours`. The turn asks the agent to inspect `git status` and `git diff` first, since the interrupted turn may have left work half done:
+
+```json
+{
+  "autoResume": { "enabled": true, "maxAgeHours": 24 }
+}
+```
+
 ## Web console
 
 The console listens on `127.0.0.1` by default. Set `web.host` in `config.json` to an IPv4 or IPv6 address to bind another interface, such as a Tailscale address:
