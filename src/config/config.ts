@@ -45,6 +45,7 @@ export interface RunAgentConfig {
   remoteControl?: boolean;
   defaultSandbox?: CodexSandbox;
   autocompact?: AutocompactConfig;
+  autoResume?: { enabled?: boolean; maxAgeHours?: number };
   /**
    * Run interactive sessions under a pty CodeDeck owns, which is what lets it
    * type harness commands — today the `/rename` that names a Claude Code
