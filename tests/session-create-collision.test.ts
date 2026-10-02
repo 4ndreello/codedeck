@@ -5,7 +5,7 @@ import { generateSessionId } from "../src/core/session.js";
 import type { Session } from "../src/core/session.js";
 import { getGitInfo } from "../src/git/repository.js";
 import { createWorktree } from "../src/git/worktree.js";
-import { fakeSocket, makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
+import { fakeSocket, makeTempDir, removeTempDir, restoreEnv, seam, seed } from "./helpers/daemon-seam.js";
 
 vi.mock("../src/core/session.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/core/session.js")>();
@@ -46,10 +46,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   try { seam(daemon).db.close(); } catch {}
-  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
-  else process.env.CODEDECK_DIR = originalCodedeckDir;
-  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
-  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
+  restoreEnv("CODEDECK_DIR", originalCodedeckDir);
+  restoreEnv("CODEDECK_CONFIG_DIR", originalConfigDir);
   removeTempDir(dir);
   removeTempDir(configDir);
 });

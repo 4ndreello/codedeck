@@ -6,7 +6,7 @@ import { Daemon } from "../src/daemon/daemon.js";
 import { saveConfig } from "../src/config/config.js";
 import type { AgentDriver, DriverSession, StartOptions } from "../src/core/driver.js";
 import type { Session } from "../src/core/session.js";
-import { fakeSocket, seam } from "./helpers/daemon-seam.js";
+import { fakeSocket, restoreEnv, seam } from "./helpers/daemon-seam.js";
 
 type StartDriverForSession = (sessionId: string, prompt: string, model?: string) => Promise<void>;
 
@@ -36,10 +36,8 @@ beforeEach(() => {
 
 afterEach(() => {
   try { seam(daemon).db.close(); } catch {}
-  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
-  else process.env.CODEDECK_DIR = originalCodedeckDir;
-  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
-  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
+  restoreEnv("CODEDECK_DIR", originalCodedeckDir);
+  restoreEnv("CODEDECK_CONFIG_DIR", originalConfigDir);
   fs.rmSync(codedeckDir, { recursive: true, force: true });
   fs.rmSync(configDir, { recursive: true, force: true });
 });

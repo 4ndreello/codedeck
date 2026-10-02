@@ -82,6 +82,12 @@ export function fakeSocket(): { writes: string[]; socket: net.Socket } {
   return { writes, socket: socket as unknown as net.Socket };
 }
 
+// Put an env var back the way a test file found it: unset stays unset.
+export function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 export function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }

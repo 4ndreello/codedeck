@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Daemon } from "../src/daemon/daemon.js";
 import type { Session } from "../src/core/session.js";
-import { fakeSocket, seam } from "./helpers/daemon-seam.js";
+import { fakeSocket, restoreEnv, seam } from "./helpers/daemon-seam.js";
 
 let codedeckDir: string;
 let configDir: string;
@@ -25,10 +25,8 @@ beforeEach(() => {
 
 afterEach(() => {
   try { seam(daemon).db.close(); } catch {}
-  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
-  else process.env.CODEDECK_DIR = originalCodedeckDir;
-  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
-  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
+  restoreEnv("CODEDECK_DIR", originalCodedeckDir);
+  restoreEnv("CODEDECK_CONFIG_DIR", originalConfigDir);
   fs.rmSync(codedeckDir, { recursive: true, force: true });
   fs.rmSync(configDir, { recursive: true, force: true });
 });
