@@ -77,7 +77,7 @@ Recommended flow:
   $ ${cli} review                       # review current git changes in the browser
 
 Run '${cli} <command> --help' for command-specific options.
-Docs: https://github.com/4ndreello/run-agent
+Docs: https://github.com/4ndreello/codedeck
 `);
 
   registerRunCommand(program);

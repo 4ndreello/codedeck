@@ -62,7 +62,7 @@ Append-only. One entry per decision, blocker, or event.
 ## entry 11: integration of feat/web-console-pages
 
 - integration batches on d9b5e15, one at a time: 67 tests (5 files), 122 (4), 56 (6), 126 (4: usage, usage-query, open-args, statusline). `npm run build` exit 0. Updated gates after the coverage matrix change: P4 71 tests (4 files), P5 plus web-pages 58 tests (6 files).
-- the build in the main checkout also updates the installed `codedeck`, because `~/.run-agent/bin/codedeck` runs `dist/cli/index.js`. The running daemon was not restarted.
+- the build in the main checkout also updates the installed `codedeck`, because `~/.codedeck/bin/codedeck` runs `dist/cli/index.js`. The running daemon was not restarted.
 
 ## entry 12: smoke test of the built `codedeck ui`
 

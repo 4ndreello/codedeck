@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { Minimatch, minimatch } from "minimatch";
 import { isTerminalStatus, type SessionStatus } from "../core/session.js";
-import { RunAgentError, SessionNotFoundError } from "../core/errors.js";
+import { CodedeckError, SessionNotFoundError } from "../core/errors.js";
 
 export interface Claim {
   id: number;
@@ -22,13 +22,13 @@ export interface ClaimRow {
   active: number;
 }
 
-export class ClaimNotFoundError extends RunAgentError {
+export class ClaimNotFoundError extends CodedeckError {
   constructor(claimId: number) {
     super(`Claim "${claimId}" not found`, "CLAIM_NOT_FOUND", { claimId });
   }
 }
 
-export class ClaimNotOwnedError extends RunAgentError {
+export class ClaimNotOwnedError extends CodedeckError {
   constructor(claimId: number) {
     super(`Claim "${claimId}" is owned by another session`, "CLAIM_NOT_OWNED", { claimId });
   }
@@ -74,7 +74,7 @@ function normalizeRepoPath(value: string, root: string): string {
   const candidate = path.resolve(rootPath, value.replaceAll("\\", "/"));
   const relative = path.relative(rootPath, candidate);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new RunAgentError(
+    throw new CodedeckError(
       `Claim path "${value}" escapes the session root`,
       "INVALID_PATH",
       { path: value, root },

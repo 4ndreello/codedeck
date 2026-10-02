@@ -1,7 +1,7 @@
 import type { BatchModelsResult, HarnessModels } from "../core/models.js";
 import type { AgentId } from "../core/session.js";
 import type { Role } from "../core/roles.js";
-import type { RoleBinding, RunAgentConfig } from "./config.js";
+import type { RoleBinding, CodedeckConfig } from "./config.js";
 import type { OrchestratorMode } from "./orchestrator-mode.js";
 
 export class SetupUsageError extends Error {
@@ -20,7 +20,7 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 export interface SetupEnvelope {
-  proposta: RunAgentConfig | null;
+  proposta: CodedeckConfig | null;
   validacoes: {
     config: {
       status: "not-run" | "ok" | "missing" | "invalid";
@@ -65,13 +65,13 @@ export interface SetupBinding {
 export interface SetupSelection {
   agents: Partial<Record<Role, RoleBinding>>;
   orchestrator?: OrchestratorMode;
-  sandbox?: RunAgentConfig["defaultSandbox"];
-  autocompact?: RunAgentConfig["autocompact"];
+  sandbox?: CodedeckConfig["defaultSandbox"];
+  autocompact?: CodedeckConfig["autocompact"];
   offCatalogConfirmed?: Partial<Record<Role, boolean>>;
 }
 
 export interface SetupPlanResult {
-  proposedConfig: RunAgentConfig;
+  proposedConfig: CodedeckConfig;
   diff: SetupEnvelope["mudancas"];
 }
 
@@ -218,7 +218,7 @@ function diffAt(
   });
 }
 
-export function diffConfig(before: RunAgentConfig, after: RunAgentConfig): SetupEnvelope["mudancas"] {
+export function diffConfig(before: CodedeckConfig, after: CodedeckConfig): SetupEnvelope["mudancas"] {
   const output: SetupEnvelope["mudancas"] = [];
   const beforeObject = jsonObject(before) ? before : {};
   const afterObject = jsonObject(after) ? after : {};
@@ -331,13 +331,13 @@ export function validateBindings(
 }
 
 export function buildSetupPlan(
-  currentConfig: RunAgentConfig,
+  currentConfig: CodedeckConfig,
   selections: SetupSelection,
 ): SetupPlanResult {
   const currentAgents = jsonObject(currentConfig.agents)
     ? currentConfig.agents as Partial<Record<Role, RoleBinding>>
     : {};
-  const updatedTarget: RunAgentConfig = {
+  const updatedTarget: CodedeckConfig = {
     ...currentConfig,
     agents: { ...currentAgents, ...selections.agents },
   };

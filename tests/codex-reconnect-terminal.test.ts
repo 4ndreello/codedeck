@@ -8,22 +8,22 @@ import { SessionRuntime } from "../src/drivers/session-runtime.js";
 import { Daemon } from "../src/daemon/daemon.js";
 import { makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
 
-let runAgentDir: string;
+let codedeckDir: string;
 let daemon: Daemon | undefined;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
 
 beforeEach(() => {
-  runAgentDir = makeTempDir("codex-terminal-daemon-");
-  process.env.RUN_AGENT_DIR = runAgentDir;
+  codedeckDir = makeTempDir("codex-terminal-daemon-");
+  process.env.CODEDECK_DIR = codedeckDir;
   daemon = new Daemon();
 });
 
 afterEach(() => {
   try { if (daemon) seam(daemon).db.close(); } catch {}
   daemon = undefined;
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  removeTempDir(runAgentDir);
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  removeTempDir(codedeckDir);
 });
 
 function spawnCodexFixture(fixtureName: string): { runtime: SessionRuntime; cwd: string } {

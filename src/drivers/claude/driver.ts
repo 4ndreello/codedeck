@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectBinary } from "../helpers.js";
-import { loadConfig, type RunAgentConfig } from "../../config/config.js";
+import { loadConfig, type CodedeckConfig } from "../../config/config.js";
 import { autocompactArgs } from "../../core/autocompact.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
@@ -11,7 +11,7 @@ import { parseClaudeLine } from "./parser.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 
 // Pure so the flag spellings are testable without spawning claude.
-export function buildClaudeArgs(options: StartOptions, config: RunAgentConfig = {}): string[] {
+export function buildClaudeArgs(options: StartOptions, config: CodedeckConfig = {}): string[] {
   const args: string[] = ["-p", "--output-format", "stream-json", "--verbose"];
   args.push("--disable-slash-commands");
   const autocompact = options.autocompact ?? (config.autocompact === undefined ? false : undefined);

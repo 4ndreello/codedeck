@@ -23,10 +23,10 @@ trap 'kill "$(cat "$STATE_DIR/daemon.pid" 2>/dev/null)" 2>/dev/null || true; rm 
 # Same reason as the theme gate: an empty `models` key means the wizard never
 # opens, so the session paints instead of waiting on a question.
 printf '{"models":{}}\n' > "$CONFIG_DIR/config.json"
-export RUN_AGENT_CONFIG_DIR="$CONFIG_DIR"
+export CODEDECK_CONFIG_DIR="$CONFIG_DIR"
 # The session file and its name sidecar live under the state directory, so the
 # gate reads them from a run of its own rather than from a machine's history.
-export RUN_AGENT_DIR="$STATE_DIR"
+export CODEDECK_DIR="$STATE_DIR"
 SESSIONS="$STATE_DIR/sessions"
 
 # The hook asks Haiku for a short title and keeps the result in the sidecar.

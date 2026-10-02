@@ -7,9 +7,9 @@ import { computeSessionCost } from "../src/core/pricing.js";
 const isApply = process.argv.includes("--apply");
 const isForce = process.argv.includes("--force");
 
-const runAgentDir = process.env.RUN_AGENT_DIR || path.join(process.env.HOME || "", ".run-agent");
-const dbPath = path.join(runAgentDir, "run-agent.db");
-const logsDir = path.join(runAgentDir, "logs");
+const codedeckDir = process.env.CODEDECK_DIR || path.join(process.env.HOME || "", ".codedeck");
+const dbPath = path.join(codedeckDir, "codedeck.db");
+const logsDir = path.join(codedeckDir, "logs");
 
 if (!fs.existsSync(dbPath)) {
   console.error(`Database not found at ${dbPath}`);

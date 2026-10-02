@@ -21,10 +21,10 @@ Commits:
 Evidence, re-run by the orchestrator on the integrated branch (not taken from worker reports):
 
 - `npx vitest run tests/driver-args.test.ts tests/codex-host-skills.test.ts tests/roles.test.ts tests/prompt-layers.test.ts tests/run-skills.test.ts`: `Tests  109 passed (109)`
-- `RUN_AGENT_DIR=/tmp/rsi-open npx vitest run tests/open-contract.test.ts tests/open-codex.test.ts`: `Tests  51 passed (51)`
-- `RUN_AGENT_DIR=/tmp/rsi-open npx vitest run tests/run-env.test.ts tests/run-linkage.test.ts tests/run-role.test.ts tests/run-sandbox.test.ts tests/run-settings.test.ts`: `Tests  44 passed (44)` (1 failed before b2114d8: the old "prompt untouched" pin)
-- `RUN_AGENT_DIR=/tmp/rsi-open npx vitest run tests/open-args.test.ts tests/open-sandbox.test.ts tests/usage-daemon.test.ts`: `Tests  105 passed (105)`
-- `RUN_AGENT_DIR=/tmp/rsi-open npx vitest run tests/session-driver-sandbox.test.ts tests/autocompact.test.ts`: `Tests  27 passed (27)`
+- `CODEDECK_DIR=/tmp/rsi-open npx vitest run tests/open-contract.test.ts tests/open-codex.test.ts`: `Tests  51 passed (51)`
+- `CODEDECK_DIR=/tmp/rsi-open npx vitest run tests/run-env.test.ts tests/run-linkage.test.ts tests/run-role.test.ts tests/run-sandbox.test.ts tests/run-settings.test.ts`: `Tests  44 passed (44)` (1 failed before b2114d8: the old "prompt untouched" pin)
+- `CODEDECK_DIR=/tmp/rsi-open npx vitest run tests/open-args.test.ts tests/open-sandbox.test.ts tests/usage-daemon.test.ts`: `Tests  105 passed (105)`
+- `CODEDECK_DIR=/tmp/rsi-open npx vitest run tests/session-driver-sandbox.test.ts tests/autocompact.test.ts`: `Tests  27 passed (27)`
 - `npx tsc --noEmit -p .`: exit 0. `npm run build`: ok, `dist/plugin/skills/tlc-spec-driven/SKILL.md` exists, generated `plugin/agents/*.md` unchanged.
 - Real codex (codex-cli 0.156.1), args taken from the built `dist/drivers/codex/driver.js` `CodexDriver.buildArgs` and fed to `codex debug prompt-input` (renders the model prompt, no model call): 148 skill entries without flags, 0 with the built flags. Host discovery: 67 SKILL.md in 19.3 ms, override 6148 bytes.
 - Real claude (haiku, headless init frame): `skills=80` without `--disable-slash-commands`, `skills=0` with it, run still `success`.

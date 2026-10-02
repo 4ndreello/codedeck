@@ -15,13 +15,13 @@ let daemon: Daemon | undefined;
 
 beforeEach(() => {
   dir = makeTempDir("store-busy-");
-  process.env.RUN_AGENT_DIR = dir;
+  process.env.CODEDECK_DIR = dir;
 });
 
 afterEach(() => {
   try { if (daemon) seam(daemon).db.close(); } catch {}
   daemon = undefined;
-  delete process.env.RUN_AGENT_DIR;
+  delete process.env.CODEDECK_DIR;
   removeTempDir(dir);
 });
 
@@ -57,7 +57,7 @@ describe("event loop under a busy store", () => {
     const store = seam(daemon).events;
     const handle = seam(daemon).db.getHandle();
     // A second writer on the same file: what a stray daemon was.
-    const other = new DatabaseSync(path.join(dir, "run-agent.db"));
+    const other = new DatabaseSync(path.join(dir, "codedeck.db"));
     other.exec("PRAGMA busy_timeout = 0; CREATE TABLE other_writer (n INTEGER);");
     const original = store.append.bind(store);
     let interleaved = false;

@@ -22,7 +22,7 @@ const originalCwd = process.cwd();
 const { runOpen } = setupOpenHarness({ prefix: "codedeck-action-", restoreCwd: true });
 
 function writeConfig(config: Record<string, unknown>): void {
-  const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const configDir = process.env.CODEDECK_CONFIG_DIR;
   if (!configDir) throw new Error("test config directory is missing");
   fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify(config));
 }
@@ -271,24 +271,24 @@ describe("diffOpencodeSession", () => {
 });
 
 describe("opencode resume capture", () => {
-  // sessionsDir() derives from RUN_AGENT_DIR, so the temp dir must cover
+  // sessionsDir() derives from CODEDECK_DIR, so the temp dir must cover
   // runOpen (which computes sessionFile) as well as onClose (which writes).
-  async function withTempRunAgentDir(body: () => Promise<void>): Promise<void> {
-    const previous = process.env.RUN_AGENT_DIR;
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-run-agent-"));
-    process.env.RUN_AGENT_DIR = dir;
+  async function withTempCodedeckDir(body: () => Promise<void>): Promise<void> {
+    const previous = process.env.CODEDECK_DIR;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-state-"));
+    process.env.CODEDECK_DIR = dir;
     try {
       await body();
     } finally {
-      if (previous === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previous;
+      if (previous === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previous;
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
 
   async function captureOpenSession(args: string[] = ["reviewer", "--no-theme"]): Promise<string | undefined> {
     let captured: string | undefined;
-    await withTempRunAgentDir(async () => {
+    await withTempCodedeckDir(async () => {
       await runOpen(args);
       const [, , opts] = vi.mocked(runtime.spawnHarness).mock.calls[0];
       opts.onClose();
@@ -422,9 +422,9 @@ describe("opencode effort", () => {
 
 describe("claude dispatch", () => {
   it("flushes native ids before finishing and releasing a Claude session", async () => {
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
-    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claude-close-"));
-    process.env.RUN_AGENT_DIR = runAgentDir;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
+    const codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claude-close-"));
+    process.env.CODEDECK_DIR = codedeckDir;
     vi.useFakeTimers();
 
     try {
@@ -460,14 +460,14 @@ describe("claude dispatch", () => {
       expect(finishOrder).toBeLessThan(releaseOrder);
     } finally {
       vi.useRealTimers();
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
-      fs.rmSync(runAgentDir, { recursive: true, force: true });
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
+      fs.rmSync(codedeckDir, { recursive: true, force: true });
     }
   });
 
   it("omits --remote-control when config disables it", async () => {
-    const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+    const configDir = process.env.CODEDECK_CONFIG_DIR;
     if (!configDir) throw new Error("test config directory is missing");
     fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remoteControl: false, agents: { general: { harness: "claude", model: "m", effort: "high" } } }));
     mockClaudeLaunch();

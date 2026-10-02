@@ -46,7 +46,7 @@ describe("run settings persistence", () => {
 
   it("adds the new columns to a database created before they existed", () => {
     // CREATE TABLE IF NOT EXISTS is a no-op on existing installs, so without an
-    // explicit ALTER every current user's ~/.run-agent/run-agent.db would throw
+    // explicit ALTER every current user's ~/.codedeck/codedeck.db would throw
     // "no such column" on the first run after upgrading.
     const file = tmpDb("legacy.db");
     const legacy = new DatabaseSync(file);

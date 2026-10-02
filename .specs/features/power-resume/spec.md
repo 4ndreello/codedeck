@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos logs reais (`~/.run-agent`) em 2026-10-01:
+Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos logs reais (`~/.codedeck`) em 2026-10-01:
 
 1. **Suspend vira `failed` falso.** O codex emite `{"type":"error","message":"Reconnecting... N/5 ..."}` como aviso de retry quando a rede some (lid-close, Wi-Fi caindo). `parseCodexLine` (`src/drivers/codex/parser.ts:166`) mapeia todo `type:"error"` para `session.failed`, e `synthesizeTerminalEvent` (`src/drivers/terminal.ts:21`) deixa de emitir o `completed` do exit 0 porque já houve terminal. As sessões `0408` e `d049` têm 4 frames de reconnect, `turn.completed` com o trabalho commitado e `status=failed` no DB. Na `0408`, o journal mostra `Lid closed. Suspending...` às 22:11:18Z, `System returned from sleep` às 22:33:02Z e o codex voltando a rodar tools às 22:33:14Z.
 2. **Reboot nunca retoma.** São 74 eventos `SHUTDOWN` (todos SIGTERM) e nenhum `session.started` depois deles. A retomada existe (`send` → `codex exec resume <thread_id>`), mas é sempre manual.
@@ -31,7 +31,7 @@ Três lacunas na reconciliação após suspend e reboot, medidas no DB e nos log
 | Decision | Chosen default | Rationale |
 | -------- | -------------- | --------- |
 | Frame `type:"error"` do codex | Vira um `AgentEvent` `error` não terminal; só `turn.failed`/`thread.failed` encerram | Em todos os logs reais, todo `error` fatal (usage limit, capacity, prompt flagged) vem seguido de `turn.failed`; os não fatais (reconnect, skill budget, WebSocket fallback) vêm seguidos de `turn.completed` |
-| Config do auto-resume | `autoResume?: { enabled?: boolean; maxAgeHours?: number }` em `RunAgentConfig`, ausente = desligado, `maxAgeHours` default 24 | Opt-in decidido pelo usuário; a janela evita retomar as 66 sessões `interrupted` antigas |
+| Config do auto-resume | `autoResume?: { enabled?: boolean; maxAgeHours?: number }` em `CodedeckConfig`, ausente = desligado, `maxAgeHours` default 24 | Opt-in decidido pelo usuário; a janela evita retomar as 66 sessões `interrupted` antigas |
 | Elegibilidade | `status=interrupted`, `failure.code=SHUTDOWN`, `failure.retryable=true`, `origin!="open"`, `nativeSessionId` presente, driver com `resume:true`, sem processo vivo com a mesma identidade, interrompida há ≤ `maxAgeHours` | Mesmas guardas do `session.send` manual mais a janela |
 | Prompt de retomada | Constante fixa em inglês: avisa que o turno anterior foi interrompido por um shutdown, pede inspeção de `git status`/`git diff` antes de agir e continuação da tarefa original | O turno morreu no meio; o worktree pode estar pela metade |
 | Momento do auto-resume | Uma vez por boot do daemon, depois de `recover()` e com o socket ligado, pelo mesmo caminho de `runResumeTurn` sob `sessionLocks` | Reaproveita o resume-turn verificado de `daemon-power` P2 |

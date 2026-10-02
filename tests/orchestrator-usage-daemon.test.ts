@@ -16,10 +16,10 @@ import {
   snapshotDaemonSignalListeners,
 } from "./helpers/daemon-seam.js";
 
-let runAgentDir: string;
+let codedeckDir: string;
 let homeDir: string;
 let daemon: Daemon | undefined;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
 const originalHome = process.env.HOME;
 let signalListenerSnapshot: ReturnType<typeof snapshotDaemonSignalListeners>;
 let requestNumber = 0;
@@ -29,9 +29,9 @@ function closeStartedDaemon(instance: Daemon): void {
 }
 
 beforeEach(() => {
-  runAgentDir = makeTempDir("orchestrator-usage-daemon-");
+  codedeckDir = makeTempDir("orchestrator-usage-daemon-");
   homeDir = makeTempDir("orchestrator-usage-home-");
-  process.env.RUN_AGENT_DIR = runAgentDir;
+  process.env.CODEDECK_DIR = codedeckDir;
   process.env.HOME = homeDir;
   requestNumber = 0;
   signalListenerSnapshot = snapshotDaemonSignalListeners();
@@ -42,11 +42,11 @@ afterEach(() => {
   if (daemon) closeStartedDaemon(daemon);
   daemon = undefined;
   removeAddedDaemonSignalListeners(signalListenerSnapshot);
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
-  removeTempDir(runAgentDir);
+  removeTempDir(codedeckDir);
   removeTempDir(homeDir);
 });
 
@@ -427,7 +427,7 @@ describe("orchestrator usage daemon methods", () => {
     const response = await request("session.release", { id: "row-reader-error" });
 
     expect(response.result.session.status).toBe("completed");
-    expect(fs.readFileSync(path.join(runAgentDir, "daemon.log"), "utf-8"))
+    expect(fs.readFileSync(path.join(codedeckDir, "daemon.log"), "utf-8"))
       .toContain("usage reconcile failed session=row-reader-error");
     expect((daemon as any).nativeLinks.unreconciled("row-reader-error")).toHaveLength(1);
 

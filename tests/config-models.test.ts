@@ -9,22 +9,22 @@ import {
   resolveModel,
   resolveRoleBinding,
   saveConfig,
-  type RunAgentConfig,
+  type CodedeckConfig,
 } from "../src/config/config.js";
 
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
-  process.env.RUN_AGENT_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-config-test-"));
+  process.env.CODEDECK_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-config-test-"));
 });
 
 afterEach(() => {
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 describe("resolveModel", () => {
-  const config: RunAgentConfig = {
+  const config: CodedeckConfig = {
     defaultModel: "legacy-default",
     models: {
       claude: "claude-configured",
@@ -41,7 +41,7 @@ describe("resolveModel", () => {
 });
 
 describe("resolveRoleBinding", () => {
-  const config: RunAgentConfig = {
+  const config: CodedeckConfig = {
     agents: {
       reviewer: { harness: "codex", model: "gpt-5.6-luna" },
       general: { harness: "claude", model: "claude-opus-5" },
@@ -69,7 +69,7 @@ describe("resolveRoleBinding", () => {
         reviewer: { harness: "codex" },
         auditor: { model: "gpt-5.6-luna" },
       },
-    } as RunAgentConfig;
+    } as CodedeckConfig;
 
     expect(resolveRoleBinding("reviewer", broken)).toBeUndefined();
     expect(resolveRoleBinding("auditor", broken)).toBeUndefined();
@@ -85,7 +85,7 @@ describe("resolveRoleBinding", () => {
         auditor: { harness: "codex", model: "   " },
         general: { harness: "codex", model: { id: "x" } },
       },
-    } as unknown as RunAgentConfig;
+    } as unknown as CodedeckConfig;
 
     expect(resolveRoleBinding("reviewer", bogus)).toBeUndefined();
     expect(resolveRoleBinding("auditor", bogus)).toBeUndefined();
@@ -95,7 +95,7 @@ describe("resolveRoleBinding", () => {
 
 describe("config model persistence", () => {
   it("round-trips models through the isolated config directory", () => {
-    const config: RunAgentConfig = {
+    const config: CodedeckConfig = {
       defaultAgent: "codex",
       worktree: true,
       remoteControl: true,
@@ -109,7 +109,7 @@ describe("config model persistence", () => {
 
     saveConfig(config);
 
-    const configFile = path.join(process.env.RUN_AGENT_CONFIG_DIR!, "config.json");
+    const configFile = path.join(process.env.CODEDECK_CONFIG_DIR!, "config.json");
     expect(fs.existsSync(configFile)).toBe(true);
     expect(JSON.parse(fs.readFileSync(configFile, "utf-8"))).toEqual(config);
     expect(loadConfig()).toEqual(config);
@@ -129,7 +129,7 @@ describe("config model persistence", () => {
   });
 
   it("round-trips the per-agent bindings setup writes", () => {
-    const config: RunAgentConfig = {
+    const config: CodedeckConfig = {
       defaultAgent: "claude",
       worktree: false,
       remoteControl: true,

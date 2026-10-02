@@ -1,6 +1,6 @@
 # Protocolo IPC
 
-`Unix Domain Socket` em `~/.run-agent/daemon.sock`, framing `JSON + \n`.
+`Unix Domain Socket` em `~/.codedeck/daemon.sock`, framing `JSON + \n`.
 
 Request:
 ```json
@@ -32,7 +32,7 @@ stream para aguardar sem polling no consumidor.
 `session.failed` pode incluir `failure` com `code`, `blame` (`harness`, `task`
 ou `infra`) e `retryable`; agentes não precisam interpretar texto de erro.
 
-Processos de harness são destacados e escrevem em `~/.run-agent/logs/`; se o
+Processos de harness são destacados e escrevem em `~/.codedeck/logs/`; se o
 daemon reiniciar, ele reatacha pelo PID + identidade de início persistidos e
 continua do offset salvo, sem iniciar um segundo processo.
 
@@ -97,7 +97,7 @@ nomes Tailscale no formato `<hostname>.<label>.ts.net`, com um ou mais labels.
 Outros sufixos são recusados. O bind padrão continua aceitando apenas
 `127.0.0.1` e `localhost`.
 
-O token fica em `~/.run-agent/web-token` (modo 0600) e vale para todo servidor
+O token fica em `~/.codedeck/web-token` (modo 0600) e vale para todo servidor
 do console, inclusive o fallback no próprio processo, então um bookmark
 sobrevive a restarts do filho e do daemon. Para trocar o token, apague o arquivo:
 o próximo filho que subir grava um novo. O review
@@ -121,7 +121,7 @@ Ciclo de vida do filho:
   `--port <n>` (explícita, sem fallback),
   `--preferred-port <n>` (fallback efêmero) ou nenhum (7777 com fallback).
 - Handshake: a primeira linha do stdout do filho é `{ port, token, build }` ou
-  `{ error: { message, port } }`. O stderr vai para `~/.run-agent/logs/web-child.log`.
+  `{ error: { message, port } }`. O stderr vai para `~/.codedeck/logs/web-child.log`.
 - Se `build` ou `entry` do pedido diferem do filho atual, o daemon manda
   `SIGTERM`, espera até 3 s, manda `SIGKILL` se preciso e sobe um filho novo.
   Um pedido sem `build` reaproveita o filho atual. Sessões não são tocadas.

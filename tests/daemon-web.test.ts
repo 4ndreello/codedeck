@@ -140,11 +140,11 @@ describe("daemon web.ensure", () => {
 });
 
 describe("daemon web autostart", () => {
-  const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
   const configDirs: string[] = [];
   afterEach(() => {
-    if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-    else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+    if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+    else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
     for (const dir of configDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -152,7 +152,7 @@ describe("daemon web autostart", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-web-autostart-"));
     configDirs.push(dir);
     fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(config));
-    process.env.RUN_AGENT_CONFIG_DIR = dir;
+    process.env.CODEDECK_CONFIG_DIR = dir;
   }
 
   const daemonLog = () => fs.readFileSync(getPaths().daemonLog, "utf8");

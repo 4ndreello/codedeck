@@ -6,7 +6,7 @@ O daemon CodeDeck morre de forma cega num `poweroff`/`reboot`/lid-close: `shutdo
 
 ## Goals
 
-- [ ] Nenhum `poweroff`/`SIGTERM` corrompe `~/.run-agent/run-agent.db` (WAL checkpointado ou recuperável via `integrity_check`)
+- [ ] Nenhum `poweroff`/`SIGTERM` corrompe `~/.codedeck/codedeck.db` (WAL checkpointado ou recuperável via `integrity_check`)
 - [ ] Toda sessão ativa no momento do `SIGTERM` termina em estado terminal honesto (`interrupted` com `failure.code=SHUTDOWN`), nunca presa em `working`
 - [ ] `codedeck ps/show/wait/doctor` explicam o estado pós-reboot e o caminho de resume (`send`)
 - [ ] Nenhuma mudança exige root, nova dep obrigatória ou `postinstall` privilegiado

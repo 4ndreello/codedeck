@@ -10,7 +10,7 @@ Today the Codex harness falls back to `workspace-write`. That mode blocks networ
 
 ### D1: Optional global field
 
-Add `defaultSandbox?: CodexSandbox` to `RunAgentConfig` in `src/config/config.ts`.
+Add `defaultSandbox?: CodexSandbox` to `CodedeckConfig` in `src/config/config.ts`.
 
 When the field is absent, the effective Codex sandbox remains `workspace-write`, exactly as it does today. Only a configured value changes the default. The field is global, not per role, project, or session.
 
@@ -33,12 +33,12 @@ This setting selects the Codex sandbox mode. It does not imply `--dangerously-by
 
 ## Configuration contract
 
-`RunAgentConfig` in `src/config/config.ts` gains a top-level field beside the other global settings:
+`CodedeckConfig` in `src/config/config.ts` gains a top-level field beside the other global settings:
 
 ```ts
 import type { CodexSandbox } from "../core/driver.js";
 
-export interface RunAgentConfig {
+export interface CodedeckConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
   defaultModel?: string;
@@ -58,7 +58,7 @@ The stored JSON shape is flat:
 
 Valid values are the existing `CodexSandbox` members: `read-only`, `workspace-write`, and `danger-full-access`. Do not add a second sandbox enum or change the enum in `src/core/driver.ts`.
 
-`DEFAULT_CONFIG` must preserve the absence of this field for users who have not selected a setting. `loadConfig` continues to shallow-merge the saved object over `DEFAULT_CONFIG`. `saveConfig` continues to write the whole `RunAgentConfig` object. A valid `defaultSandbox` must pass through `loadConfig` and `saveConfig` without losing unrelated global fields or changing the field name.
+`DEFAULT_CONFIG` must preserve the absence of this field for users who have not selected a setting. `loadConfig` continues to shallow-merge the saved object over `DEFAULT_CONFIG`. `saveConfig` continues to write the whole `CodedeckConfig` object. A valid `defaultSandbox` must pass through `loadConfig` and `saveConfig` without losing unrelated global fields or changing the field name.
 
 Expose one shared, non-throwing `resolveDefaultSandbox(config)` resolver from `src/config/config.ts`. It returns a valid configured `CodexSandbox` or `undefined` when the field is absent or invalid. Both `run.ts` and the daemon must use this same resolver so config validation and fallback cannot drift between the CLI and IPC paths.
 
@@ -135,7 +135,7 @@ Preserve the current behavior in `src/drivers/session-driver.ts:121-139`: `Sessi
 
 Each criterion must be covered by a focused unit test.
 
-1. `RunAgentConfig` accepts a top-level `defaultSandbox` with each valid `CodexSandbox` value, and a valid value round-trips through `loadConfig` and `saveConfig` without dropping unrelated config fields.
+1. `CodedeckConfig` accepts a top-level `defaultSandbox` with each valid `CodexSandbox` value, and a valid value round-trips through `loadConfig` and `saveConfig` without dropping unrelated config fields.
 
 2. A config with no `defaultSandbox` resolves to the existing Codex `workspace-write` behavior. The driver still emits `-s workspace-write`, and the config loader does not invent a user-selected value.
 
@@ -213,7 +213,7 @@ Gate: The focused open regression test passes, and `git diff -- src/cli/commands
 
 1. Making `open` honor sandbox. `open` launches Claude and opencode only.
 
-2. Per-project configuration. `defaultSandbox` is global in `~/.config/run-agent/config.json`, using the existing `getPaths` and `loadConfig` / `saveConfig` seams.
+2. Per-project configuration. `defaultSandbox` is global in `~/.config/codedeck/config.json`, using the existing `getPaths` and `loadConfig` / `saveConfig` seams.
 
 3. Enforcing a sandbox on non-Codex agents. Claude, opencode, and omp ignore this Codex-only setting.
 

@@ -27,7 +27,7 @@ describe("open run linkage", () => {
   });
 
   it("passes the adopted session ID to the Claude process", async () => {
-    const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+    const configDir = process.env.CODEDECK_CONFIG_DIR;
     if (!configDir) throw new Error("test config directory is missing");
     fs.writeFileSync(
       path.join(configDir, "config.json"),

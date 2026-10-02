@@ -19,10 +19,10 @@ The web console cannot be bookmarked. Opening `http://localhost:3100/setup` dire
 - `DEFAULT_WEB_PORT` is 3100 (src/web/server.ts:8). `listenWebServer` falls back to an ephemeral port only on `EADDRINUSE` and only with `fallbackToEphemeral` (src/web/server.ts:122-126). The child sets it only when no port was given (src/web/child.ts:37). The four web commands print `(default: 3100)` in `--port` help (src/cli/commands/setup.ts:1304, review.ts:96, usage.ts:154, ui.ts:58).
 - The supervisor reuses a running child whatever port is asked (`matches`, src/daemon/web-supervisor.ts:129-133), and a request that arrives while a start is in flight gets that start's promise, ignoring its own params (src/daemon/web-supervisor.ts:105).
 - The daemon creates the `WebSupervisor` lazily on the first `web.ensure` (src/daemon/daemon.ts:1377). `start()` never touches the web child (src/daemon/daemon.ts:328-385), and the `--daemon` entry only calls `start()` (src/daemon/daemon.ts:2003-2009). Tests call `start()` directly (tests/orchestrator-usage-daemon.test.ts:449, 485, 499).
-- `scripts/pty-gate.sh` runs a real daemon under a temp `RUN_AGENT_DIR`, and its EXIT trap only deletes directories (scripts/pty-gate.sh:21), so the daemon outlives the gate.
+- `scripts/pty-gate.sh` runs a real daemon under a temp `CODEDECK_DIR`, and its EXIT trap only deletes directories (scripts/pty-gate.sh:21), so the daemon outlives the gate.
 - `launchWebPage` prints `CodeDeck web is already running on port <port>` only when `--port` was given and differs (src/cli/web-launch.ts:61-63). The in-process fallback listens on `options.port ?? DEFAULT_WEB_PORT` with its own random token (src/cli/web-launch.ts:83-85).
 - `loadConfig` spreads the parsed file over the defaults without validating unknown keys (src/config/config.ts:432-442). Setup saves keep keys they do not manage (src/config/setup.ts:340-343). The daemon already imports `loadConfig` (src/daemon/daemon.ts:24).
-- No vitest setup sets `RUN_AGENT_DIR` globally (vitest.config.ts), so any code that writes under `getPaths().base` by default must be kept out of unit tests.
+- No vitest setup sets `CODEDECK_DIR` globally (vitest.config.ts), so any code that writes under `getPaths().base` by default must be kept out of unit tests.
 
 ## External Dependencies
 
@@ -32,7 +32,7 @@ The web console cannot be bookmarked. Opening `http://localhost:3100/setup` dire
 | a cookie set for `127.0.0.1` is not sent to `localhost` | RFC 6265 §5.1.3 | IETF RFC 6265 | yes | fetched rfc-editor.org/rfc/rfc6265.html 2026-09-24: domain matching requires identical strings or a host-name suffix, and an IP address never suffix-matches |
 | `Max-Age` is the cookie lifetime in seconds | RFC 6265 §4.1.2.2 | IETF RFC 6265 | yes | fetched rfc-editor.org/rfc/rfc6265.html 2026-09-24 |
 | web port constant | DEFAULT_WEB_PORT | repo | yes | src/web/server.ts:8 |
-| test state override | RUN_AGENT_DIR | repo | yes | src/config/paths.ts:15 |
+| test state override | CODEDECK_DIR | repo | yes | src/config/paths.ts:15 |
 
 ## Supersedes (web-daemon)
 
@@ -58,7 +58,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Starting the daemon at login (systemd user unit) | "Always" here means while the daemon runs. After a reboot the first `codedeck` command starts the daemon, and with it the console. |
 | Respawning the web child after a crash without a request | A crash is logged; the next web command respawns it (existing behavior). |
 | Removing the token | The token keeps other local users and non-browser processes off the setup API, which rewrites the harness config. |
-| A command to rotate the token | Deleting `~/.run-agent/web-token` rotates it at the next web child start; documented in `docs/protocol.md`. |
+| A command to rotate the token | Deleting `~/.codedeck/web-token` rotates it at the next web child start; documented in `docs/protocol.md`. |
 | Moving a running console to an explicit `--port` | `--port` applies only when a new child starts (WA-15). Changing the console's port for good is what `web.port` is for. |
 | Remote or LAN access | The server stays on 127.0.0.1. |
 | New pages or page visuals | This feature changes access only. |
@@ -78,7 +78,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Request with neither `port` nor `preferredPort` (a CLI from an older tree) | Reuses a running child whose entry and build match; otherwise starts a child with no port argument (WA-25). | Absent means "no opinion", not "different". | n |
 | Child port arguments | `--port <n>`: explicit, no fallback (unchanged). `--preferred-port <n>`: that port, OS-assigned on any listen error. Neither: 7777 with the same fallback. | Keeps today's meaning of `--port`; a child started by an older daemon still gets a sensible port. | n |
 | Invalid `web.port` | Treated as absent (7777). The CLI prints `Ignoring invalid web.port in config: <JSON value>` to stderr; the daemon appends the same line to `daemon.log` on its eager start. | Visible, but never fatal, like `loadConfig`'s tolerance (src/config/config.ts:439-441). | n |
-| Token storage | `~/.run-agent/web-token` (`getPaths().base`), 64 lowercase hex characters plus an optional trailing newline, mode 0600. | Same directory as the daemon's other state; 0600 keeps other users out. | n |
+| Token storage | `~/.codedeck/web-token` (`getPaths().base`), 64 lowercase hex characters plus an optional trailing newline, mode 0600. | Same directory as the daemon's other state; 0600 keeps other users out. | n |
 | Token creation | Write a random token to a 0600 temp file in the same directory, then `link(tmp, web-token)`. On `EEXIST`, read the existing file; if it is malformed, `rename(tmp, web-token)` and read the file again. Remove the temp file in every case. | `link` publishes a complete file atomically, so a concurrent reader never sees a partial token and processes racing on a missing file agree (WA-03). Two processes replacing the same malformed file at once can serve different tokens until the next child start; accepted, since it needs a corrupted file plus a start race. | n |
 | Loose token file permissions | If the existing file is readable or writable by group or others, `chmod 0600` before using it. | A hand-copied file must not stay world-readable. | n |
 | Who uses the stored token | The web child and the CLI in-process fallback. Unit tests keep a per-server random token unless they inject one. | Both servers must accept the same cookie, or the fallback would overwrite it (same cookie name, same host, RFC 6265 §8.5). | n |
@@ -86,7 +86,7 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 | Accepted risk of a persistent token | The token no longer dies with the child: the `?t=` URL a command prints and the cookie (sent by the browser to any 127.0.0.1 port, RFC 6265 §8.5) stay valid until the file is deleted. Accepted for a single-user loopback tool; rotation by deleting the file is documented. | The alternative (a new link per restart) is the pain this feature removes. | n |
 | Canonical host | `127.0.0.1`. A page GET whose Host is `localhost:<port>` answers 302 to `127.0.0.1:<port>` with the path and query of `new URL(request.url, "http://127.0.0.1:<port>")`. | RFC 6265 §5.1.3: a cookie set for `127.0.0.1` is never sent to `localhost`; building from a parsed URL keeps an absolute-form request target out of `Location`. | n |
 | Where the eager start runs | In the `--daemon` entry, after `start()` resolves, not awaited. `Daemon.start()` itself does not start the web child. | Keeps tests that call `start()` from spawning a real child, and IPC never waits on the web stack. | n |
-| Stray gate daemons | `scripts/pty-gate.sh` and `scripts/rename-gate.sh` stop the daemon they started (from `$RUN_AGENT_DIR/daemon.pid`) in their EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
+| Stray gate daemons | `scripts/pty-gate.sh` and `scripts/rename-gate.sh` stop the daemon they started (from `$CODEDECK_DIR/daemon.pid`) in their EXIT trap. | With the eager start, an orphaned gate daemon would hold 7777 with another token and break the real bookmark. | n |
 | 403 page text | `Run "codedeck ui" once in a terminal to open CodeDeck in this browser.` | The old text did not say the step is one-time. | n |
 | Port notice in the in-process fallback | None: WA-17 covers URLs the daemon returns. The fallback already prints `serving from this process` and its own URL line. | `startWebServer` prints the page line itself, so a notice could not come before it without reshaping that function. | n |
 
@@ -104,8 +104,8 @@ Tests and docs that pin the old values change with this feature: tests/web-secur
 
 **Acceptance Criteria**:
 
-1. WHEN the web child starts and `~/.run-agent/web-token` holds a valid token THEN the child SHALL serve with that token and report it in its handshake.  <!-- WA-01 -->
-2. IF `~/.run-agent/web-token` is missing or malformed THEN the web child SHALL publish a new 64-character lowercase hex token there with mode 0600 through the temp-file-and-link procedure and serve with the token the file holds afterwards.  <!-- WA-02 -->
+1. WHEN the web child starts and `~/.codedeck/web-token` holds a valid token THEN the child SHALL serve with that token and report it in its handshake.  <!-- WA-01 -->
+2. IF `~/.codedeck/web-token` is missing or malformed THEN the web child SHALL publish a new 64-character lowercase hex token there with mode 0600 through the temp-file-and-link procedure and serve with the token the file holds afterwards.  <!-- WA-02 -->
 3. WHEN two processes resolve the token at the same time with no file present THEN both SHALL serve with the same token, equal to the file's content.  <!-- WA-03 -->
 4. IF the token file is readable or writable by group or others THEN the web child SHALL set its mode to 0600 before serving.  <!-- WA-04 -->
 5. WHEN the CLI serves in-process because the daemon cannot host the console THEN it SHALL resolve the token with the same procedure as the web child.  <!-- WA-05 -->

@@ -36,7 +36,7 @@ para o binário do Claude.
 orquestrador subiu um auditor em `claude`.
 
 **Medido.** A sessão `f405 code-analysis` está no `ps` como `AGENT claude`,
-`MODEL -`. O binding salvo em `~/.config/run-agent/config.json` diz
+`MODEL -`. O binding salvo em `~/.config/codedeck/config.json` diz
 `auditor -> opencode / meta/muse-spark-1.3-contributor`.
 
 **Causa.** O `orchestrator.md` nunca cita `--role`. Manda `codedeck run

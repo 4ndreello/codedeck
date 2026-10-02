@@ -6,17 +6,17 @@ import { Daemon } from "../src/daemon/daemon.js";
 import type { AgentEvent } from "../src/core/events.js";
 import type { Session } from "../src/core/session.js";
 
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-subscribe-"));
-process.env.RUN_AGENT_DIR = testDir;
+process.env.CODEDECK_DIR = testDir;
 
 afterEach(() => {
-  process.env.RUN_AGENT_DIR = testDir;
+  process.env.CODEDECK_DIR = testDir;
 });
 
 afterEach(() => {
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
   fs.rmSync(testDir, { recursive: true, force: true });
 });
 

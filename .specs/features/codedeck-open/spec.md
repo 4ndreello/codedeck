@@ -161,7 +161,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 **Acceptance Criteria** (each line is one EARS pattern):
 
-1. The `RunAgentConfig` SHALL ganhar `models` como mapa parcial de `AgentId` pra id de modelo, preservando `defaultModel` como fallback pra quem já tem config <!-- ubiquitous --> `OPEN-21`
+1. The `CodedeckConfig` SHALL ganhar `models` como mapa parcial de `AgentId` pra id de modelo, preservando `defaultModel` como fallback pra quem já tem config <!-- ubiquitous --> `OPEN-21`
 2. WHEN o `open` roda E o arquivo de config não existe ou não tem `models` E o stdout é TTY THEN o CodeDeck SHALL rodar o wizard antes de abrir a sessão <!-- event-driven --> `OPEN-22`
 3. IF o stdout não é TTY THEN o CodeDeck SHALL pular o wizard e seguir com os defaults, nunca bloquear esperando input <!-- unwanted-behavior --> `OPEN-22`
 4. WHEN o wizard roda THEN ele SHALL oferecer, pra cada harness **instalado**, os modelos vindos de `getCachedOrDiscoverModels`, e SHALL omitir harness não instalado <!-- event-driven --> `OPEN-23`
@@ -172,7 +172,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 9. WHEN o `open` roda sem `--model` THEN ele SHALL usar `models.claude`, caindo em `claude-opus-4-8` <!-- event-driven --> `OPEN-25`
 10. IF a gravação da config falhar THEN o CodeDeck SHALL avisar e abrir a sessão mesmo assim, porque preferência não é pré-requisito de trabalho <!-- unwanted-behavior --> `OPEN-24`
 
-**Independent Test**: Com `RUN_AGENT_CONFIG_DIR` apontando pra diretório vazio, rodar o wizard sem TTY e confirmar que ele não bloqueia; rodar com TTY falso injetado, escolher um modelo por harness instalado, e conferir que o arquivo gravado é lido na execução seguinte sem nova pergunta.
+**Independent Test**: Com `CODEDECK_CONFIG_DIR` apontando pra diretório vazio, rodar o wizard sem TTY e confirmar que ele não bloqueia; rodar com TTY falso injetado, escolher um modelo por harness instalado, e conferir que o arquivo gravado é lido na execução seguinte sem nova pergunta.
 
 ---
 

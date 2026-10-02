@@ -198,14 +198,14 @@ Nenhum worker roda `npm test` inteiro nem `npm run build`. Cada um roda só o pr
 
 | # | Tarefa | AC coberto |
 | - | ------ | ---------- |
-| D1 | `RunAgentConfig` ganha `models?: Partial<Record<AgentId, string>>`, mantendo `defaultModel` funcionando como fallback | OPEN-21 |
+| D1 | `CodedeckConfig` ganha `models?: Partial<Record<AgentId, string>>`, mantendo `defaultModel` funcionando como fallback | OPEN-21 |
 | D2 | `resolveModel(agent, explicit, config)` puro e exportado, com precedência `--model` > `models[agent]` > `defaultModel` > default do driver | OPEN-25 |
 | D3 | Wizard que, por harness **instalado**, oferece os modelos de `getCachedOrDiscoverModels` e aceita id digitado à mão quando a descoberta vier vazia | OPEN-23 |
 | D4 | Wizard exportado como função pura de "precisa perguntar?" mais a parte interativa, pra ser testável sem TTY | OPEN-22 |
 | D5 | `src/cli/commands/setup.ts` expondo `registerSetupCommand`, seguindo o padrão dos comandos existentes | OPEN-24 |
 | D6 | Gravação da config, e falha de escrita vira aviso em vez de erro fatal | OPEN-24 |
 | D7 | `run.ts` passa a usar `resolveModel` quando `--model` estiver ausente | OPEN-25 |
-| D8 | Testes em `tests/setup-wizard.test.ts` e `tests/config-models.test.ts`, usando `RUN_AGENT_CONFIG_DIR` pra isolar o disco | OPEN-21 a OPEN-25 |
+| D8 | Testes em `tests/setup-wizard.test.ts` e `tests/config-models.test.ts`, usando `CODEDECK_CONFIG_DIR` pra isolar o disco | OPEN-21 a OPEN-25 |
 
 ## Gates
 

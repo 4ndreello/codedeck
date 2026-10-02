@@ -9,8 +9,8 @@ import type { ClaimAddResult, ClaimQueryResult, IpcRequest } from "../src/daemon
 import type { Claim } from "../src/store/claims.js";
 import { seed, seam } from "./helpers/daemon-seam.js";
 
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-let runAgentDir: string;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
+let codedeckDir: string;
 let socketPath: string;
 let daemon: Daemon | undefined;
 let server: net.Server | undefined;
@@ -37,13 +37,13 @@ async function closeServer(serverToClose: net.Server): Promise<void> {
 }
 
 beforeEach(async () => {
-  runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claims-socket-"));
-  socketPath = path.join(runAgentDir, "daemon.sock");
-  process.env.RUN_AGENT_DIR = runAgentDir;
+  codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claims-socket-"));
+  socketPath = path.join(codedeckDir, "daemon.sock");
+  process.env.CODEDECK_DIR = codedeckDir;
 
   daemon = new Daemon();
-  seed(daemon, "owner", "working", { cwd: runAgentDir, repository: runAgentDir });
-  seed(daemon, "reader", "working", { cwd: runAgentDir, repository: runAgentDir });
+  seed(daemon, "owner", "working", { cwd: codedeckDir, repository: codedeckDir });
+  seed(daemon, "reader", "working", { cwd: codedeckDir, repository: codedeckDir });
   server = createIpcServer((request: IpcRequest, socket) => seam(daemon!).handleRequest(request, socket));
   await listen(server, socketPath);
 });
@@ -53,9 +53,9 @@ afterEach(async () => {
   try { if (daemon) seam(daemon).db.close(); } catch {}
   server = undefined;
   daemon = undefined;
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  fs.rmSync(runAgentDir, { recursive: true, force: true });
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  fs.rmSync(codedeckDir, { recursive: true, force: true });
 });
 
 describe("claims IPC success", () => {

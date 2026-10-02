@@ -23,7 +23,7 @@ async function request(method: RequestMethod, params: unknown): Promise<Record<s
 }
 
 function seedSession(id: string): void {
-  seed(daemon!, id, "working", { cwd: testContext.runAgentDir, repository: testContext.runAgentDir });
+  seed(daemon!, id, "working", { cwd: testContext.codedeckDir, repository: testContext.codedeckDir });
 }
 
 describe("claims daemon methods", () => {
@@ -83,7 +83,7 @@ describe("claims daemon methods", () => {
     expect(invalidPathError.error).toMatchObject({
       code: "INVALID_PATH",
       message: 'Claim path "../outside/*" escapes the session root',
-      details: { path: "../outside/*", root: testContext.runAgentDir },
+      details: { path: "../outside/*", root: testContext.codedeckDir },
     });
 
     const addResponse = await request("claims.add", {

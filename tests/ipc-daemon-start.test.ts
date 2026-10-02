@@ -13,15 +13,15 @@ vi.mock("node:child_process", () => ({ spawn }));
 describe("IpcClient.ensureDaemonStarted", () => {
   let tempDir: string;
   let server: net.Server | undefined;
-  let previousRunAgentDir: string | undefined;
+  let previousCodedeckDir: string | undefined;
   let previousConfigDir: string | undefined;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-agent-ipc-start-"));
-    previousRunAgentDir = process.env.RUN_AGENT_DIR;
-    previousConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
-    process.env.RUN_AGENT_DIR = tempDir;
-    process.env.RUN_AGENT_CONFIG_DIR = path.join(tempDir, "config");
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-ipc-start-"));
+    previousCodedeckDir = process.env.CODEDECK_DIR;
+    previousConfigDir = process.env.CODEDECK_CONFIG_DIR;
+    process.env.CODEDECK_DIR = tempDir;
+    process.env.CODEDECK_CONFIG_DIR = path.join(tempDir, "config");
     spawn.mockClear();
     server = undefined;
   });
@@ -35,10 +35,10 @@ describe("IpcClient.ensureDaemonStarted", () => {
       });
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
-    if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-    else process.env.RUN_AGENT_DIR = previousRunAgentDir;
-    if (previousConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-    else process.env.RUN_AGENT_CONFIG_DIR = previousConfigDir;
+    if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+    else process.env.CODEDECK_DIR = previousCodedeckDir;
+    if (previousConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+    else process.env.CODEDECK_CONFIG_DIR = previousConfigDir;
   });
 
   it("resolves within 50 ms after the socket starts accepting connections", async () => {

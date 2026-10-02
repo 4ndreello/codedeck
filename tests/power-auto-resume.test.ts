@@ -22,18 +22,18 @@ import {
 const context = makeDaemonTestContext("power-auto-resume-");
 let daemon: Daemon | undefined;
 let configDir: string;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 registerDaemonTestHooks(context, () => daemon, () => { daemon = undefined; });
 
 beforeEach(() => {
   configDir = makeTempDir("power-auto-resume-config-");
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
 });
 
 afterEach(() => {
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
   fs.rmSync(configDir, { recursive: true, force: true });
 });
 
@@ -192,7 +192,7 @@ describe("auto-resume on daemon boot", () => {
 
     expect(calls).toHaveLength(0);
     expect(seam(daemon).sessions.get("missing-directory")?.status).toBe("interrupted");
-    const log = fs.readFileSync(path.join(context.runAgentDir, "daemon.log"), "utf8");
+    const log = fs.readFileSync(path.join(context.codedeckDir, "daemon.log"), "utf8");
     expect(log).toContain(`auto-resume skipped missing-directory: working directory missing (${missingDirectory})`);
   });
 
@@ -305,7 +305,7 @@ describe("auto-resume on daemon boot", () => {
     ).get("fails") as { pending_message: string | null; pending_at: string | null };
     expect(failedPending).toEqual({ pending_message: "queued failed message", pending_at: pendingAt });
     expect(seam(daemon).sessions.get("continues")?.status).toBe("working");
-    const log = fs.readFileSync(path.join(context.runAgentDir, "daemon.log"), "utf8");
+    const log = fs.readFileSync(path.join(context.codedeckDir, "daemon.log"), "utf8");
     expect(log).toContain("auto-resume failed for fails: resume spawn failed");
     expect(log).toContain("auto-resume started session continues");
     expect(seam(daemon).events.last("fails")?.type).toBe("session.failed");

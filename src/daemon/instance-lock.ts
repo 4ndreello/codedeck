@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-// One daemon per RUN_AGENT_DIR. Without this, a CLI whose 1s socket probe
+// One daemon per CODEDECK_DIR. Without this, a CLI whose 1s socket probe
 // times out against a busy daemon spawns another one, which unlinks the
 // live socket and reattaches the same sessions: N daemons then tail the
 // same logs and race each other in SQLite ("database is locked").
@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 // The lock is a tiny SQLite file held in EXCLUSIVE locking mode. SQLite
 // takes an fcntl lock that the kernel drops when the process dies, even on
 // SIGKILL, so there is no stale pid file to judge. It is a separate file
-// because an exclusive lock on run-agent.db would block read-only CLIs.
+// because an exclusive lock on codedeck.db would block read-only CLIs.
 //
 // Kept free of TypeScript-only syntax and relative imports: the test loads
 // this file in a child process with --experimental-strip-types.

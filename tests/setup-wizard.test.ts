@@ -12,7 +12,7 @@ import {
   BALANCED_PRESET,
   loadConfig,
   type OrchestratorMode,
-  type RunAgentConfig,
+  type CodedeckConfig,
 } from "../src/config/config.js";
 import { itemKey } from "../src/cli/picker-state.js";
 import {
@@ -32,15 +32,15 @@ import {
   runModelSetupWizard,
 } from "../src/cli/commands/setup.js";
 
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
-  process.env.RUN_AGENT_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-wizard-test-"));
+  process.env.CODEDECK_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-wizard-test-"));
 });
 
 afterEach(() => {
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 function discoveredHarnesses(): HarnessModels[] {
@@ -168,7 +168,7 @@ describe("runModelSetupWizard", () => {
       agents: { general: { harness: "claude", model: "top-level" } },
       [pointerKey]: "x",
       [savedSetsKey]: { x: { agents: { general: { harness: "omp", model: "legacy" } } } },
-    } as RunAgentConfig;
+    } as CodedeckConfig;
 
     const result = await runModelSetupWizard({ config, isTTY: false });
 
@@ -188,13 +188,13 @@ describe("runModelSetupWizard", () => {
       autocompact: { enabled: true, cap: 300_000 },
       [pointerKey]: "x",
       [savedSetsKey]: savedSets,
-    } as RunAgentConfig;
+    } as CodedeckConfig;
     drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\r", "\r", "\r"]);
 
     await runModelSetupWizard({ ...base(), config, input, output, save });
 
     expect(save).toHaveBeenCalledOnce();
-    const written = save.mock.calls[0][0] as RunAgentConfig & Record<string, unknown>;
+    const written = save.mock.calls[0][0] as CodedeckConfig & Record<string, unknown>;
     expect(written.agents?.general).toEqual({ harness: "claude", model: "top-level" });
     expect(written[pointerKey]).toBe("x");
     expect(written[savedSetsKey]).toEqual(savedSets);
@@ -209,7 +209,7 @@ describe("runModelSetupWizard", () => {
     ["manual without enabled", { cap: 300_000 }, ["ON", "OFF"]],
   ] as const)("renders the autocompact toggle from a %s config", (_name, autocompact, labels) => {
     const screen = buildAutocompactScreen(
-      autocompact === undefined ? {} : ({ autocompact } as RunAgentConfig),
+      autocompact === undefined ? {} : ({ autocompact } as CodedeckConfig),
     );
 
     expect(screen.role).toBe("autocompact");
@@ -370,7 +370,7 @@ describe("runModelSetupWizard", () => {
     ["object", { mode: "danger-full-access" }, ["OFF", "ON"]],
   ] as const)("renders the sandbox toggle from a %s config", (_name, defaultSandbox, labels) => {
     const screen = buildSandboxScreen(
-      defaultSandbox === undefined ? {} : ({ defaultSandbox } as unknown as RunAgentConfig),
+      defaultSandbox === undefined ? {} : ({ defaultSandbox } as unknown as CodedeckConfig),
     );
 
     expect(screen.title).toBe("Danger full access");
@@ -430,7 +430,7 @@ describe("runModelSetupWizard", () => {
     const config =
       defaultSandbox === undefined
         ? base().config
-        : ({ ...base().config, defaultSandbox } as unknown as RunAgentConfig);
+        : ({ ...base().config, defaultSandbox } as unknown as CodedeckConfig);
     drive(input, output, ["\x07", "\x07", "\x07", "\x07", "\x07", "\x07"]);
 
     const result = await runModelSetupWizard({ ...base(), config, input, output, save });

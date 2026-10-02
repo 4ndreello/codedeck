@@ -13,7 +13,7 @@ import { registerUsageCommand } from "../src/cli/commands/usage.js";
 let tempRoot: string;
 let tempHome: string;
 let originalHome: string | undefined;
-let originalRunAgentDir: string | undefined;
+let originalCodedeckDir: string | undefined;
 let originalExitCode: string | number | undefined;
 let logs: string[];
 
@@ -131,13 +131,13 @@ function usageTotals(): unknown {
 
 beforeEach(() => {
   originalHome = process.env.HOME;
-  originalRunAgentDir = process.env.RUN_AGENT_DIR;
+  originalCodedeckDir = process.env.CODEDECK_DIR;
   originalExitCode = process.exitCode;
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "usage-backfill-"));
   tempHome = path.join(tempRoot, "home");
   fs.mkdirSync(tempHome, { recursive: true });
   process.env.HOME = tempHome;
-  process.env.RUN_AGENT_DIR = path.join(tempRoot, "run-agent");
+  process.env.CODEDECK_DIR = path.join(tempRoot, "codedeck");
   process.exitCode = undefined;
   logs = [];
   vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => logs.push(args.join(" ")));
@@ -146,8 +146,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
   fs.rmSync(tempRoot, { recursive: true, force: true });

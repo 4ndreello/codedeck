@@ -682,9 +682,9 @@ describe("AntigravityDriver", () => {
     }
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-start-"));
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
     const previousNoScope = process.env.CODEDECK_NO_SCOPE;
-    process.env.RUN_AGENT_DIR = tempDir;
+    process.env.CODEDECK_DIR = tempDir;
     process.env.CODEDECK_NO_SCOPE = "1";
     let session: Awaited<ReturnType<AntigravityDriver["start"]>> | undefined;
 
@@ -708,8 +708,8 @@ describe("AntigravityDriver", () => {
       expect(emitted.at(-1)?.type).toBe("session.completed");
       await driver.stop(session);
     } finally {
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
       if (previousNoScope === undefined) delete process.env.CODEDECK_NO_SCOPE;
       else process.env.CODEDECK_NO_SCOPE = previousNoScope;
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -718,8 +718,8 @@ describe("AntigravityDriver", () => {
 
   it("uses the session stdout path when attaching", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-attach-"));
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
-    process.env.RUN_AGENT_DIR = tempDir;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
+    process.env.CODEDECK_DIR = tempDir;
     const stdoutPath = path.join(tempDir, "logs", `${S}.ndjson`);
     const firstLine = JSON.stringify({
       event: "step_update",
@@ -739,8 +739,8 @@ describe("AntigravityDriver", () => {
 
       expect((events.find((event) => event.type === "message") as any).content).toBe("from stdout");
     } finally {
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });

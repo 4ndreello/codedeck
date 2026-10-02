@@ -9,15 +9,15 @@ vi.mock("../src/core/session.js", async (importOriginal) => {
 
 import { Daemon } from "../src/daemon/daemon.js";
 import type { Session } from "../src/core/session.js";
-import { fakeSocket, makeTempDir, removeTempDir, seam, seed } from "./helpers/daemon-seam.js";
+import { fakeSocket, makeTempDir, removeTempDir, restoreEnv, seam, seed } from "./helpers/daemon-seam.js";
 
 type DaemonResponse = {
   result?: { session?: Session; events?: Array<{ sessionId?: string }>; ok?: boolean; queued?: boolean };
   error?: { code: string; message: string };
 };
 
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 let dir: string;
 let configDir: string;
 let daemon: Daemon;
@@ -25,8 +25,8 @@ let daemon: Daemon;
 beforeEach(() => {
   dir = makeTempDir("session-id-ipc-");
   configDir = makeTempDir("session-id-ipc-config-");
-  process.env.RUN_AGENT_DIR = dir;
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_DIR = dir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
   generateSessionId.mockReset().mockReturnValue("feed000000000001");
   daemon = new Daemon();
   (daemon as unknown as { startDriverForSession: () => Promise<void> }).startDriverForSession = async () => {};
@@ -34,10 +34,8 @@ beforeEach(() => {
 
 afterEach(() => {
   try { seam(daemon).db.close(); } catch {}
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  restoreEnv("CODEDECK_DIR", originalCodedeckDir);
+  restoreEnv("CODEDECK_CONFIG_DIR", originalConfigDir);
   removeTempDir(dir);
   removeTempDir(configDir);
 });

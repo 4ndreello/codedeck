@@ -8,14 +8,14 @@ import { parseClaudeLine } from "../src/drivers/claude/parser.js";
 import { parseCodexLine } from "../src/drivers/codex/parser.js";
 import { fakeSocket, seed, seam } from "./helpers/daemon-seam.js";
 
-let runAgentDir: string;
+let codedeckDir: string;
 let daemon: Daemon | undefined;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
 let requestNumber = 0;
 
 beforeEach(() => {
-  runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "usage-daemon-"));
-  process.env.RUN_AGENT_DIR = runAgentDir;
+  codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "usage-daemon-"));
+  process.env.CODEDECK_DIR = codedeckDir;
   requestNumber = 0;
   daemon = new Daemon();
   (daemon as unknown as { startDriverForSession: () => Promise<void> }).startDriverForSession = async () => {};
@@ -24,9 +24,9 @@ beforeEach(() => {
 afterEach(() => {
   try { daemon && seam(daemon).db.close(); } catch {}
   daemon = undefined;
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  fs.rmSync(runAgentDir, { recursive: true, force: true });
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  fs.rmSync(codedeckDir, { recursive: true, force: true });
 });
 
 async function request(method: RequestMethod, params: unknown): Promise<Record<string, any>> {
@@ -62,7 +62,7 @@ const createParams = (runId: unknown) => ({
   prompt: "collect usage",
   agent: "codex",
   model: "gpt-5.6-luna",
-  cwd: runAgentDir,
+  cwd: codedeckDir,
   noWorktree: true,
   runId,
 });
@@ -71,7 +71,7 @@ describe("usage daemon methods", () => {
   it("resolves a session-ID prefix before aggregating run usage", async () => {
     const id = "f00d000000000001";
     seed(daemon!, id, "completed", {
-      cwd: runAgentDir,
+      cwd: codedeckDir,
       runId: id,
       usage: { inputTokens: 300, outputTokens: 120, cost: 0.2 },
     });
@@ -133,7 +133,7 @@ describe("usage daemon methods", () => {
       usage: { inputTokens: 1_200, outputTokens: 800, cachedTokens: 300, cost: 0.42 },
     });
     seed(daemon!, "second-session", "completed", {
-      cwd: runAgentDir,
+      cwd: codedeckDir,
       runId,
       model: "gpt-5.6-luna",
       usage: { inputTokens: 100, outputTokens: 50, cachedTokens: 20, cost: 0.08 },
@@ -187,7 +187,7 @@ describe("usage daemon methods", () => {
       seed(daemon!, "daemon-run-session", "working", {
         runId: "run-parent",
         agent: "codex",
-        cwd: runAgentDir,
+        cwd: codedeckDir,
       });
 
       await (daemon as any).startDriverForSession("daemon-run-session", "task");

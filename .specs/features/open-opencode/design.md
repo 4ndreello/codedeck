@@ -56,7 +56,7 @@ O launcher opencode não escreve arquivo nenhum. O contrato viaja em `OPENCODE_C
 - **Location**: `src/open/contract.ts`
 - **Interfaces**:
   - `resolveRoleContract(pluginDir: string, role: Role): { agentBody: string; ultra: string }` - lê `roleBody` + `ultra.md`; falha alto se o plugin está incompleto (`OO-18`)
-  - `resolveOpenModel(role: Role, opts: OpenFlags, config: RunAgentConfig): { model: string; fromConfig: boolean }` - flag vence binding, como hoje
+  - `resolveOpenModel(role: Role, opts: OpenFlags, config: CodedeckConfig): { model: string; fromConfig: boolean }` - flag vence binding, como hoje
   - `effectiveModel(passthrough: string[]): string | undefined` - move puro como está; último `--model` vence (`OO-06`)
   - `judgeModelIn(catalog: HarnessModels | undefined, model: string, fromConfig: boolean): ModelVerdict` - o `judgeModel` atual sem o `agent === "claude"` fixo (`open.ts:835`); recebe o catálogo já filtrado em vez do array inteiro
 - **Dependencies**: `src/core/roles.ts`, `src/core/models.ts`, `src/config/config.ts`

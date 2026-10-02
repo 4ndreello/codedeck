@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { IpcClient } from "../../daemon/ipc.js";
-import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
+import { loadConfig, resolveDefaultSandbox, resolveModel, resolveRoleBinding, type CodedeckConfig } from "../../config/config.js";
 import { CODEX_SANDBOXES, parseEffort, parseSandbox, REASONING_EFFORTS } from "../../core/driver.js";
 import { exitCodeForOutcome, type FailureInfo } from "../../core/errors.js";
 import type { AgentEvent } from "../../core/events.js";
@@ -38,7 +38,7 @@ export function registerRunCommand(program: Command): void {
     .option("--dangerously-bypass-approvals-and-sandbox", "codex: bypass sandbox and approvals (sets sandbox to danger-full-access)")
     .option("--name <name>", "human-readable session name (slug for branch)")
     .option("--cwd <cwd>", "working directory (default: current directory)")
-    .option("--worktree", "create isolated git worktree at ~/.run-agent/worktrees/<hash>/<id>")
+    .option("--worktree", "create isolated git worktree at ~/.codedeck/worktrees/<hash>/<id>")
     .option("--no-worktree", "do not create worktree, run in current directory")
     .option("--bg, --detach", "run in background: print session id and exit")
     .option("--json", "output JSON instead of human-readable text")
@@ -55,7 +55,7 @@ Resume with: ${getCliName()} send <id> "continue"
     .action(async (prompt: string, opts: any) => {
       const cwd = opts.cwd ? path.resolve(opts.cwd) : process.cwd();
       const sessionName = opts.name ?? slugify(prompt);
-      const cfg: RunAgentConfig = loadConfig();
+      const cfg: CodedeckConfig = loadConfig();
       // A bound role owns both halves. The worker dispatches the role and the
       // role decides the harness and model; --agent/--model cannot override a
       // bound role. They used to, which let every worker force the run onto its

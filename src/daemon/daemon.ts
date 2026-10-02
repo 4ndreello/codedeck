@@ -25,7 +25,7 @@ import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
 import { buildAutoResumePrompt, isAutoResumeEligible } from "./auto-resume.js";
 import { invalidWebHostMessage, resolveWebHost } from "../config/web-host.js";
 import { invalidWebPortMessage, resolveWebPort } from "../config/web-port.js";
-import { classifyFailure, errorMessage, isStoreBusy, RunAgentError, type FailureInfo } from "../core/errors.js";
+import { classifyFailure, errorMessage, isStoreBusy, CodedeckError, type FailureInfo } from "../core/errors.js";
 import { parseRole } from "../core/roles.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../core/models.js";
 import { aggregateRunUsage } from "../core/run-usage.js";
@@ -777,7 +777,7 @@ class Daemon {
       const sessionId = this.sessions.get(requestedSessionId)?.id ?? requestedSessionId;
       send(result(operation(sessionId)));
     } catch (error) {
-      if (error instanceof RunAgentError) {
+      if (error instanceof CodedeckError) {
         send({ error: { code: error.code, message: error.message, details: error.details } });
         return;
       }
@@ -2173,7 +2173,7 @@ let instanceLock: InstanceLock | null = null;
 
 // Entry
 if (process.argv.includes("--daemon")) {
-  // Take the lock before opening run-agent.db: a losing daemon must not
+  // Take the lock before opening codedeck.db: a losing daemon must not
   // migrate, recover or bind the socket. Exit 0 so the spawning CLI keeps
   // polling and connects to the daemon that already runs.
   instanceLock = acquireInstanceLock(getPaths().daemonLock);

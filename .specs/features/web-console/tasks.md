@@ -227,12 +227,12 @@ T16 -> T18
 **What**: Move shared setup planning, target resolution, diffing, envelope types, and binding validation from the CLI command into the config layer.
 **Where**: src/config/setup.ts
 **Depends on**: T7
-**Reuses**: RunAgentConfig, profile helpers, role bindings, and existing catalog validation rules
+**Reuses**: CodedeckConfig, profile helpers, role bindings, and existing catalog validation rules
 **Requirement**: WEB-14, WEB-15, WEB-16, WEB-17, WEB-18, WEB-19, WEB-30, WEB-61, WEB-62, WEB-86, WEB-87
 
 **Done when**:
 
-- buildSetupPlan accepts RunAgentConfig, a resolved target, and selections; it returns proposedConfig and diff only.
+- buildSetupPlan accepts CodedeckConfig, a resolved target, and selections; it returns proposedConfig and diff only.
 - resolveSetupTarget, diffConfig, SetupEnvelope, catalogContains, and validateBindings are exported from src/config/setup.ts for CLI and web callers.
 - No src/config module imports from src/cli.
 - The planner does not read or write files, discover models, or call catalog validation.

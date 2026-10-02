@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BatchModelsOptions, BatchModelsResult, HarnessModels } from "../src/core/models.js";
 import type { Role } from "../src/core/roles.js";
-import type { RunAgentConfig, SetupConfigRead } from "../src/config/config.js";
+import type { CodedeckConfig, SetupConfigRead } from "../src/config/config.js";
 import { serializeConfig } from "../src/config/config.js";
 import { createSetupRoutes } from "../src/web/setup-routes.js";
 import { startWebServer, type WebServerHandle } from "../src/web/server.js";
@@ -16,7 +16,7 @@ interface ResponseValue {
 
 const handles: WebServerHandle[] = [];
 
-function readConfig(config: RunAgentConfig, status: SetupConfigRead["status"] = "ok"): SetupConfigRead {
+function readConfig(config: CodedeckConfig, status: SetupConfigRead["status"] = "ok"): SetupConfigRead {
   return {
     status,
     source: status === "missing" ? "none" : "canonical",
@@ -62,6 +62,19 @@ async function makeServer(
   });
   handles.push(handle);
   return handle;
+}
+
+// A server whose config binds general to claude "old" and whose codex
+// catalog knows only gpt-known.
+async function makeCodexServer() {
+  const config: CodedeckConfig = { agents: { general: { harness: "claude", model: "old" } } };
+  const saveConfig = vi.fn((_config: CodedeckConfig) => true);
+  const handle = await makeServer({
+    readConfig: () => readConfig(config),
+    saveConfig,
+    getBatchModels: async () => codexCatalog(["gpt-known"]),
+  });
+  return { saveConfig, handle };
 }
 
 function request(
@@ -129,7 +142,7 @@ describe("setup page and state route", () => {
       defaultSandbox: "workspace-write",
       autocompact: { enabled: false },
       [savedSetsKey]: legacySets,
-    } as RunAgentConfig;
+    } as CodedeckConfig;
     const handle = await makeServer({ readConfig: () => readConfig(config) });
 
     const page = await request(handle, { path: "/setup" });
@@ -170,8 +183,8 @@ describe("setup page and state route", () => {
       [pointerKey]: "x",
       agents: { general: { harness: "claude", model: "global" } },
       [savedSetsKey]: legacySets,
-    } as RunAgentConfig;
-    const saved: RunAgentConfig[] = [];
+    } as CodedeckConfig;
+    const saved: CodedeckConfig[] = [];
     const handle = await makeServer({
       readConfig: () => readConfig(config),
       saveConfig: (value) => { saved.push(value); return true; },
@@ -186,7 +199,7 @@ describe("setup page and state route", () => {
     expect(state.target).toEqual({ kind: "global" });
     expect(state.bindings).toEqual({ general: { harness: "claude", model: "global" } });
     expect(resultOf(applied)).toMatchObject({ status: "applied", saved: true, code: 0 });
-    const written = saved[0] as RunAgentConfig & Record<string, unknown>;
+    const written = saved[0] as CodedeckConfig & Record<string, unknown>;
     expect(written.agents).toEqual({
       general: { harness: "claude", model: "global" },
       reviewer: { harness: "codex", model: "gpt-known" },
@@ -287,7 +300,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("returns the exact dry-run envelope and never writes config", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
+    const config: CodedeckConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
     const saveConfig = vi.fn(() => true);
     const handle = await makeServer({
       readConfig: () => readConfig(config),
@@ -308,13 +321,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("keeps a free-text off-catalog model in the dry-run proposal", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "old" } } };
-    const saveConfig = vi.fn(() => true);
-    const handle = await makeServer({
-      readConfig: () => readConfig(config),
-      saveConfig,
-      getBatchModels: async () => codexCatalog(["gpt-known"]),
-    });
+    const { saveConfig, handle } = await makeCodexServer();
 
     const response = await post(handle, "/api/setup/dry-run", {
       agents: { general: { harness: "codex", model: "user-entered-model" } },
@@ -322,13 +329,13 @@ describe("setup dry-run and apply routes", () => {
     const envelope = json(response);
 
     expect(response.status).toBe(422);
-    expect((envelope.proposta as RunAgentConfig).agents?.general).toEqual({ harness: "codex", model: "user-entered-model" });
+    expect((envelope.proposta as CodedeckConfig).agents?.general).toEqual({ harness: "codex", model: "user-entered-model" });
     expect(resultOf(response)).toMatchObject({ code: 12, saved: false });
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
   it("validates changed harness:model bindings offline and applies a confirmed catalog match", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "old" } } };
+    const config: CodedeckConfig = { agents: { general: { harness: "claude", model: "old" } } };
     const saveConfig = vi.fn(() => true);
     const getBatchModels = vi.fn(async (_options: BatchModelsOptions) => codexCatalog(["gpt-known"]));
     const handle = await makeServer({ readConfig: () => readConfig(config), saveConfig, getBatchModels });
@@ -350,13 +357,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("rejects a changed off-catalog binding without per-role confirmation", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "old" } } };
-    const saveConfig = vi.fn(() => true);
-    const handle = await makeServer({
-      readConfig: () => readConfig(config),
-      saveConfig,
-      getBatchModels: async () => codexCatalog(["gpt-known"]),
-    });
+    const { saveConfig, handle } = await makeCodexServer();
 
     const response = await post(handle, "/api/setup/apply", {
       agents: { general: { harness: "codex", model: "typed-model" } },
@@ -369,13 +370,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("applies a changed off-catalog binding after confirmation for that role", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "old" } } };
-    const saveConfig = vi.fn(() => true);
-    const handle = await makeServer({
-      readConfig: () => readConfig(config),
-      saveConfig,
-      getBatchModels: async () => codexCatalog(["gpt-known"]),
-    });
+    const { saveConfig, handle } = await makeCodexServer();
 
     const response = await post(handle, "/api/setup/apply", {
       agents: { general: { harness: "codex", model: "typed-model" } },
@@ -389,7 +384,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("does not validate unchanged off-catalog bindings or effort-only changes", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "legacy", effort: "low" } } };
+    const config: CodedeckConfig = { agents: { general: { harness: "claude", model: "legacy", effort: "low" } } };
     const getBatchModels = vi.fn(async () => codexCatalog());
     const saveConfig = vi.fn(() => true);
     const handle = await makeServer({ readConfig: () => readConfig(config), getBatchModels, saveConfig });
@@ -407,7 +402,7 @@ describe("setup dry-run and apply routes", () => {
   });
 
   it("returns unchanged without writing an empty proposal", async () => {
-    const config: RunAgentConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
+    const config: CodedeckConfig = { agents: { general: { harness: "claude", model: "sonnet" } } };
     const saveConfig = vi.fn(() => true);
     const handle = await makeServer({ readConfig: () => readConfig(config), saveConfig });
 

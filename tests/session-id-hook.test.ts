@@ -37,7 +37,7 @@ describe("session id hook", () => {
       ...process.env,
       CODEDECK_RUN_ID: runId,
       CODEDECK_SESSION_FILE: sessionFile,
-      RUN_AGENT_DIR: dir,
+      CODEDECK_DIR: dir,
     };
     const ids = [
       "92d88cce-bdbc-46db-8573-916afd32f6f7",
@@ -61,7 +61,7 @@ describe("session id hook", () => {
 
   it("exits successfully without writing when the session file is unset", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "codedeck-session-id-empty-"));
-    const env = { ...process.env, CODEDECK_RUN_ID: "run-example", RUN_AGENT_DIR: dir };
+    const env = { ...process.env, CODEDECK_RUN_ID: "run-example", CODEDECK_DIR: dir };
     delete env.CODEDECK_SESSION_FILE;
 
     try {

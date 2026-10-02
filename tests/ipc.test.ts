@@ -3,11 +3,11 @@ import { getPaths } from "../src/config/paths.js";
 import fs from "node:fs";
 
 describe("IPC protocol", () => {
-  it("paths are under ~/.run-agent", () => {
+  it("paths are under ~/.codedeck", () => {
     const p = getPaths();
-    expect(p.base).toContain(".run-agent");
+    expect(p.base).toContain(".codedeck");
     expect(p.daemonSock).toContain("daemon.sock");
-    expect(p.db).toContain("run-agent.db");
+    expect(p.db).toContain("codedeck.db");
   });
 
   it("framing is JSON + newline", () => {

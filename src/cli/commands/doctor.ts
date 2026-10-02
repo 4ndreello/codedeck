@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { IpcClient, isDaemonRunning } from "../../daemon/ipc.js";
 import { getPaths } from "../../config/paths.js";
-import { loadConfig, resolveRoleBinding, type RunAgentConfig } from "../../config/config.js";
+import { loadConfig, resolveRoleBinding, type CodedeckConfig } from "../../config/config.js";
 import { ROLES, type Role } from "../../core/roles.js";
 import type { AgentId } from "../../core/session.js";
 
@@ -49,7 +49,7 @@ export interface RoleReadiness {
   fallback: AgentId;
 }
 
-export function resolveRoleReadiness(config: RunAgentConfig): RoleReadiness[] {
+export function resolveRoleReadiness(config: CodedeckConfig): RoleReadiness[] {
   const fallback = config.defaultAgent ?? "claude";
   return ROLES.map((role) => ({ role, fallback, ...resolveRoleBinding(role, config) }));
 }

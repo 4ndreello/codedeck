@@ -33,7 +33,7 @@ const lockedFailure: FailureInfo = { code: "UNKNOWN", blame: "harness", retryabl
 
 beforeEach(() => {
   dir = makeTempDir("heal-store-busy-");
-  process.env.RUN_AGENT_DIR = dir;
+  process.env.CODEDECK_DIR = dir;
 });
 
 afterEach(async () => {
@@ -49,7 +49,7 @@ afterEach(async () => {
   }
   try { if (daemon) seam(daemon).db.close(); } catch {}
   daemon = undefined;
-  delete process.env.RUN_AGENT_DIR;
+  delete process.env.CODEDECK_DIR;
   removeTempDir(dir);
 });
 
