@@ -8,10 +8,10 @@ import { processAlive, processStartTime, sleep } from "../src/utils/process.js";
 import type { AgentEvent } from "../src/core/events.js";
 
 // Isolate the GLOBAL log dir: tests share session ids, and session log paths
-// are derived from RUN_AGENT_DIR (honored by config/paths.ts) — without this,
+// are derived from CODEDECK_DIR (honored by config/paths.ts) — without this,
 // runs contaminate each other's <id>.ndjson and duplicate events.
 const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-logs-"));
-process.env.RUN_AGENT_DIR = logDir;
+process.env.CODEDECK_DIR = logDir;
 afterAll(() => {
   fs.rmSync(logDir, { recursive: true, force: true });
 });

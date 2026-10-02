@@ -8,7 +8,7 @@
 
 ## 1. Problem Statement
 
-Atualmente, `codedeck open` lança sessões interativas de orquestradores e roles (Claude Code, OpenCode) diretamente pelo processo CLI sem registrar a sessão no banco de dados do daemon CodeDeck (`~/.run-agent/run-agent.db`):
+Atualmente, `codedeck open` lança sessões interativas de orquestradores e roles (Claude Code, OpenCode) diretamente pelo processo CLI sem registrar a sessão no banco de dados do daemon CodeDeck (`~/.codedeck/codedeck.db`):
 
 1. **Ausência de identidade gerenciada**: `open` gera um UUID aleatório local via `randomUUID()` e o injeta como `CODEDECK_RUN_ID` no ambiente do harness. O daemon desconhece essa sessão "cabeça" (head session).
 2. **Invisibilidade operacional**: `codedeck ps` não exibe a cabeça; apenas os workers despachados via `codedeck run` aparecem na listagem.

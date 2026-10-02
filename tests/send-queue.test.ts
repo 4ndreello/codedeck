@@ -9,11 +9,11 @@ let dir: string;
 
 beforeEach(() => {
   dir = makeTempDir("send-queue-");
-  process.env.RUN_AGENT_DIR = dir;
+  process.env.CODEDECK_DIR = dir;
 });
 
 afterEach(() => {
-  delete process.env.RUN_AGENT_DIR;
+  delete process.env.CODEDECK_DIR;
   removeTempDir(dir);
 });
 

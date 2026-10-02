@@ -19,13 +19,13 @@ export function setupOpenHarness(options: OpenHarnessOptions): {
   runOpen(argv: string[]): Promise<void>;
 } {
   const originalCwd = process.cwd();
-  const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
   const originalRunId = process.env.CODEDECK_RUN_ID;
   let configDir: string;
 
   beforeEach(() => {
     configDir = fs.mkdtempSync(path.join(os.tmpdir(), options.prefix));
-    process.env.RUN_AGENT_CONFIG_DIR = configDir;
+    process.env.CODEDECK_CONFIG_DIR = configDir;
     if (options.runId !== undefined) process.env.CODEDECK_RUN_ID = options.runId;
     fs.writeFileSync(
       path.join(configDir, "config.json"),
@@ -70,8 +70,8 @@ export function setupOpenHarness(options: OpenHarnessOptions): {
 
   afterEach(() => {
     if (options.restoreCwd) process.chdir(originalCwd);
-    if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-    else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+    if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+    else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
     if (options.runId !== undefined) {
       if (originalRunId === undefined) delete process.env.CODEDECK_RUN_ID;
       else process.env.CODEDECK_RUN_ID = originalRunId;

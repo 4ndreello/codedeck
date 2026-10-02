@@ -14,8 +14,8 @@ import { CLAUDE_NOT_FOUND, assertSupport, resolveBinary } from "../src/open/laun
 const mockedDetect = vi.mocked(detectBinary);
 const originalEnv = {
   PATH: process.env.PATH,
-  RUN_AGENT_DIR: process.env.RUN_AGENT_DIR,
-  RUN_AGENT_CONFIG_DIR: process.env.RUN_AGENT_CONFIG_DIR,
+  CODEDECK_DIR: process.env.CODEDECK_DIR,
+  CODEDECK_CONFIG_DIR: process.env.CODEDECK_CONFIG_DIR,
 };
 let root: string;
 let binDir: string;
@@ -48,18 +48,18 @@ beforeEach(() => {
   counterFile = path.join(root, "counter.txt");
   claudeFile = path.join(binDir, "claude");
   process.env.PATH = binDir;
-  process.env.RUN_AGENT_DIR = path.join(root, "run-agent");
-  process.env.RUN_AGENT_CONFIG_DIR = path.join(root, "config");
+  process.env.CODEDECK_DIR = path.join(root, "codedeck");
+  process.env.CODEDECK_CONFIG_DIR = path.join(root, "config");
   mockedDetect.mockReset();
 });
 
 afterEach(() => {
   if (originalEnv.PATH === undefined) delete process.env.PATH;
   else process.env.PATH = originalEnv.PATH;
-  if (originalEnv.RUN_AGENT_DIR === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalEnv.RUN_AGENT_DIR;
-  if (originalEnv.RUN_AGENT_CONFIG_DIR === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalEnv.RUN_AGENT_CONFIG_DIR;
+  if (originalEnv.CODEDECK_DIR === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalEnv.CODEDECK_DIR;
+  if (originalEnv.CODEDECK_CONFIG_DIR === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalEnv.CODEDECK_CONFIG_DIR;
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -126,7 +126,7 @@ describe("Claude launcher probes", () => {
     await expect(assertSupport(claudeFile, root)).resolves.toBeUndefined();
 
     expect(runCount()).toBe(2);
-    expect(fs.existsSync(path.join(process.env.RUN_AGENT_DIR!, "claude-support.json"))).toBe(false);
+    expect(fs.existsSync(path.join(process.env.CODEDECK_DIR!, "claude-support.json"))).toBe(false);
   });
 
   it("does not cache unknown-option results or ENOENT failures", async () => {
@@ -135,14 +135,14 @@ describe("Claude launcher probes", () => {
     await expect(assertSupport(claudeFile, root)).rejects.toThrow(/does not support/);
     await expect(assertSupport(claudeFile, root)).rejects.toThrow(/does not support/);
     expect(runCount()).toBe(2);
-    expect(fs.existsSync(path.join(process.env.RUN_AGENT_DIR!, "claude-support.json"))).toBe(false);
+    expect(fs.existsSync(path.join(process.env.CODEDECK_DIR!, "claude-support.json"))).toBe(false);
 
     fs.writeFileSync(claudeFile, "#!/no/such/codedeck-interpreter\n", { mode: 0o755 });
     fs.chmodSync(claudeFile, 0o755);
     await expect(assertSupport(claudeFile, root)).rejects.toThrow(CLAUDE_NOT_FOUND);
     expect(runCount()).toBe(2);
     await expect(assertSupport(claudeFile, root)).rejects.toThrow(CLAUDE_NOT_FOUND);
-    expect(fs.existsSync(path.join(process.env.RUN_AGENT_DIR!, "claude-support.json"))).toBe(false);
+    expect(fs.existsSync(path.join(process.env.CODEDECK_DIR!, "claude-support.json"))).toBe(false);
 
     writeClaude("supported");
     await assertSupport(claudeFile, root);

@@ -6,7 +6,7 @@ import { getPaths } from "../config/paths.js";
 const TOKEN_PATTERN = /^[0-9a-f]{64}\n?$/;
 
 export interface ResolveWebTokenOptions {
-  /** Directory holding `web-token`; defaults to the run-agent base directory. */
+  /** Directory holding `web-token`; defaults to the codedeck base directory. */
   dir?: string;
   /** Seam for the publishing `link`, so a test can lose the creation race on purpose. */
   link?: (existing: string, target: string) => void;

@@ -152,7 +152,7 @@ export class Database {
 
   // CREATE TABLE IF NOT EXISTS is a no-op on databases that already exist, so
   // columns added after the first release have to be applied explicitly or
-  // every existing ~/.run-agent/run-agent.db throws "no such column".
+  // every existing ~/.codedeck/codedeck.db throws "no such column".
   private addMissingColumns(): void {
     const existing = new Set(
       (this.db.prepare(`PRAGMA table_info(sessions)`).all() as any[]).map((c) => c.name as string),

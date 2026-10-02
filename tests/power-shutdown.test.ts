@@ -16,7 +16,7 @@ import { fakeSocket, makeTempDir, removeTempDir, seed, seam } from "./helpers/da
 // Shutdown closes the DB by design; post-shutdown assertions reopen it like
 // a fresh process after reboot (spec independent test).
 function reopenStores(): { sessions: SessionStore; events: EventStore } {
-  const handle = new Database(path.join(dir, "run-agent.db")).getHandle();
+  const handle = new Database(path.join(dir, "codedeck.db")).getHandle();
   return { sessions: new SessionStore(handle), events: new EventStore(handle) };
 }
 
@@ -25,12 +25,12 @@ let dir: string;
 
 beforeEach(() => {
   dir = makeTempDir("power-shutdown-");
-  process.env.RUN_AGENT_DIR = dir;
+  process.env.CODEDECK_DIR = dir;
   mockedKillTree.mockClear();
 });
 
 afterEach(() => {
-  delete process.env.RUN_AGENT_DIR;
+  delete process.env.CODEDECK_DIR;
   removeTempDir(dir);
 });
 

@@ -12,7 +12,7 @@ worktree path; any other worker shows its `cwd`.
 - `codedeck ps --all --json` already returns `cwd` on every row, and
   `worktree` plus `branch` on rows created with `--worktree`. Verified
   2026-09-25 against the installed CLI: a worktree row carried
-  `worktree: /home/andreello/.run-agent/worktrees/e81a265e/9a1f`.
+  `worktree: /home/andreello/.codedeck/worktrees/e81a265e/9a1f`.
 - `SessionRow` (`plugin/mods/agents/types.ts`) does not declare either field
   and `toPaneRow` drops them, so the data reaches the hook and is discarded.
 - The hooks realm has no `process` global (docs/mods.md), so `HOME` cannot be

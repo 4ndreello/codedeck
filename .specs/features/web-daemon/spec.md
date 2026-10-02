@@ -45,7 +45,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | When the child starts | Lazily, on the first `web.ensure` IPC request. | No open port unless someone uses the web console. | n |
 | Child lifetime | Until the daemon exits, the child crashes, or a build change restarts it. The child exits when its stdin pipe from the daemon closes. | A daemon killed with SIGKILL must not leave an orphan holding port 3100. | n |
 | Child startup handshake | The child prints one JSON line on stdout: `{ "port", "token", "build" }` on success or `{ "error": { "message", "port" } }` on listen failure. The daemon buffers until the first newline, waits up to 5000 ms, then keeps draining and discarding stdout. | Simple and testable; draining keeps a later write from blocking on a full pipe. | n |
-| Child stderr | Appended to `~/.run-agent/logs/web-child.log`. | The exit code alone does not explain a crash. | n |
+| Child stderr | Appended to `~/.codedeck/logs/web-child.log`. | The exit code alone does not explain a crash. | n |
 | Build identity | The newest mtime (ms) of `.js` files under the dist root (the directory two levels above the module file), as a decimal string, `"0"` when none. The child computes it at start; the CLI computes it over its own dist root and sends it in `web.ensure` together with `entry`, the absolute path of its own `dist/web/child.js`. The daemon identifies a child by `(entry, build)`. | `tsc` rewrites every emitted file on a full build and only changed files in watch mode; the newest mtime covers both. | n |
 | Build or entry mismatch | The daemon stops the running child and starts one from the requested `entry` before answering. | The child restart touches no session, and each CLI gets the pages of its own tree. |
 | Two dist trees sharing one daemon (global install and dev checkout, the setup on this machine) | Alternating commands from the two trees restart the child each time; repeated commands from one tree reuse it. Accepted. | The cost is a new token, not lost work, and each tree serves its own pages. | n |
@@ -212,7 +212,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 - IF `interval` is present in the `/usage` query THEN the page SHALL use it as the polling interval with the existing `Math.max(1, Number(value) || 2)` normalization. WD-47
 - WHEN `/setup` loads with `refresh=1` THEN the page SHALL send `POST /api/setup/catalog/refresh` exactly once after its initial load. WD-48
 - IF `web.ensure` carries an `entry` that is not absolute, does not end in `/web/child.js`, or does not exist THEN the daemon SHALL return an error with code `WEB_BAD_ENTRY` and spawn nothing. WD-49
-- WHEN the web child writes to stderr THEN the daemon SHALL append it to `~/.run-agent/logs/web-child.log`. WD-50
+- WHEN the web child writes to stderr THEN the daemon SHALL append it to `~/.codedeck/logs/web-child.log`. WD-50
 
 ---
 
@@ -243,7 +243,7 @@ Every web command (`review`, `setup`, `usage --web`, `ui`) starts its own HTTP s
 | new daemon error code for a busy explicit port | WEB_LISTEN_FAILED | repo | yes | defined in WD-05; implemented in src/daemon/daemon.ts |
 | new daemon error code for a failed child start | WEB_START_FAILED | repo | yes | defined in WD-06; implemented in src/daemon/daemon.ts |
 | new daemon error code for an invalid child entry | WEB_BAD_ENTRY | repo | yes | defined in WD-49; implemented in src/daemon/web-supervisor.ts |
-| web child stderr log under the logs dir | ~/.run-agent/logs/web-child.log | repo | yes | src/config/paths.ts:47 (logsDir) |
+| web child stderr log under the logs dir | ~/.codedeck/logs/web-child.log | repo | yes | src/config/paths.ts:47 (logsDir) |
 | page URLs built by the commands | <baseUrl>/?t=<token> | repo | yes | src/web/server.ts:121-123 (URL + token construction reused) |
 | review URL | <baseUrl>/review?repo=<cwd>&t=<token> | repo | yes | src/web/server.ts:121-123 |
 | setup URL | <baseUrl>/setup?t=<token> | repo | yes | src/web/server.ts:121-123 |

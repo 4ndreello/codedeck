@@ -26,7 +26,7 @@ trap 'rm -rf "$CAPTURE" "$CONFIG_DIR"' EXIT
 # arrive and nothing would ever paint, so the gate brings its own answered
 # config instead of depending on whatever the machine happens to have.
 printf '{"models":{}}\n' > "$CONFIG_DIR/config.json"
-export RUN_AGENT_CONFIG_DIR="$CONFIG_DIR"
+export CODEDECK_CONFIG_DIR="$CONFIG_DIR"
 
 # Seconds to let the TUI paint before sending the quit keys. Generous because
 # a cold CI runner starts slower than a warm laptop.

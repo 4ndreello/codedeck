@@ -9,23 +9,23 @@ import {
   loadConfig,
   resolveDefaultSandbox,
   saveConfig,
-  type RunAgentConfig,
+  type CodedeckConfig,
 } from "../src/config/config.js";
 
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
-  process.env.RUN_AGENT_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-config-sandbox-test-"));
+  process.env.CODEDECK_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-config-sandbox-test-"));
 });
 
 afterEach(() => {
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 describe("default sandbox config", () => {
   it.each(CODEX_SANDBOXES)("round-trips %s without dropping other fields", (defaultSandbox) => {
-    const config: RunAgentConfig = {
+    const config: CodedeckConfig = {
       defaultAgent: "codex",
       worktree: true,
       defaultModel: "gpt-5.6-luna",
@@ -50,7 +50,7 @@ describe("default sandbox config", () => {
 
     saveConfig(config);
 
-    const configFile = path.join(process.env.RUN_AGENT_CONFIG_DIR!, "config.json");
+    const configFile = path.join(process.env.CODEDECK_CONFIG_DIR!, "config.json");
     expect(JSON.parse(fs.readFileSync(configFile, "utf-8"))).toEqual(config);
     expect(loadConfig()).toEqual(config);
     expect(resolveDefaultSandbox(loadConfig())).toBe(defaultSandbox);
@@ -75,7 +75,7 @@ describe("default sandbox config", () => {
     ["boolean", true],
     ["null", null],
   ])("treats a malformed %s as unset without rewriting it", (_description, defaultSandbox) => {
-    const config = { defaultSandbox } as unknown as RunAgentConfig;
+    const config = { defaultSandbox } as unknown as CodedeckConfig;
     saveConfig(config);
 
     expect(() => resolveDefaultSandbox(loadConfig())).not.toThrow();

@@ -1,4 +1,4 @@
-export class RunAgentError extends Error {
+export class CodedeckError extends Error {
   constructor(
     message: string,
     public readonly code: string,
@@ -9,13 +9,13 @@ export class RunAgentError extends Error {
   }
 }
 
-export class SessionNotFoundError extends RunAgentError {
+export class SessionNotFoundError extends CodedeckError {
   constructor(id: string) {
     super(`Session "${id}" not found`, "SESSION_NOT_FOUND", { id });
   }
 }
 
-export class WorktreeCreationFailedError extends RunAgentError {
+export class WorktreeCreationFailedError extends CodedeckError {
   constructor(cause?: unknown) {
     super("Failed to create git worktree", "WORKTREE_CREATION_FAILED", { cause });
   }

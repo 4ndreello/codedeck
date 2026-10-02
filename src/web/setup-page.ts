@@ -2,7 +2,7 @@ import { REASONING_EFFORTS } from "../core/driver.js";
 import { ROLES, type Role } from "../core/roles.js";
 import { AGENT_IDS } from "../core/session.js";
 import { CATALOG_DISCOVERY_TIMEOUT_MS, type BatchModelsResult } from "../core/models.js";
-import type { RoleBinding, RunAgentConfig } from "../config/config.js";
+import type { RoleBinding, CodedeckConfig } from "../config/config.js";
 import { ORCHESTRATOR_PRESETS, type OrchestratorMode } from "../config/orchestrator-mode.js";
 import type { SetupSelection } from "../config/setup.js";
 import { BRAND_CSS, LOGO_FAVICON_HREF, renderTopBar, type WebPageLink } from "./brand.js";
@@ -242,8 +242,8 @@ export interface SetupPageTargetState {
   bindings: Partial<Record<Role, RoleBinding>>;
   efforts: Partial<Record<Role, string>>;
   orchestrator?: OrchestratorMode;
-  sandbox?: RunAgentConfig["defaultSandbox"];
-  autocompact?: RunAgentConfig["autocompact"];
+  sandbox?: CodedeckConfig["defaultSandbox"];
+  autocompact?: CodedeckConfig["autocompact"];
 }
 
 export interface SetupPageClientState {

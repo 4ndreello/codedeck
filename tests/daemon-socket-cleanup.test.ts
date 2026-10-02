@@ -10,8 +10,8 @@ const testContext = makeDaemonTestContext("cdk-sock-");
 registerDaemonTestHooks(testContext, () => daemon, () => { daemon = undefined; });
 
 describe("daemon socket cleanup", () => {
-  it("removes the paths resolved at start when RUN_AGENT_DIR changes", async () => {
-    const startedDir = testContext.runAgentDir;
+  it("removes the paths resolved at start when CODEDECK_DIR changes", async () => {
+    const startedDir = testContext.codedeckDir;
     daemon = new Daemon();
     await daemon.start();
 
@@ -21,7 +21,7 @@ describe("daemon socket cleanup", () => {
       const replacementPid = path.join(replacementDir, "daemon.pid");
       fs.writeFileSync(replacementSocket, "socket sentinel");
       fs.writeFileSync(replacementPid, "pid sentinel");
-      process.env.RUN_AGENT_DIR = replacementDir;
+      process.env.CODEDECK_DIR = replacementDir;
 
       await seam(daemon).handleShutdown("test");
 
@@ -38,7 +38,7 @@ describe("daemon socket cleanup", () => {
     daemon = new Daemon();
     await daemon.start();
 
-    const client = net.createConnection(path.join(testContext.runAgentDir, "daemon.sock"));
+    const client = net.createConnection(path.join(testContext.codedeckDir, "daemon.sock"));
     await new Promise<void>((resolve, reject) => {
       client.once("connect", resolve);
       client.once("error", reject);
@@ -59,8 +59,8 @@ describe("daemon socket cleanup", () => {
   });
 
   it("leaves socket and pid files untouched when start never completed", async () => {
-    const socketPath = path.join(testContext.runAgentDir, "daemon.sock");
-    const pidPath = path.join(testContext.runAgentDir, "daemon.pid");
+    const socketPath = path.join(testContext.codedeckDir, "daemon.sock");
+    const pidPath = path.join(testContext.codedeckDir, "daemon.pid");
     fs.writeFileSync(socketPath, "socket sentinel");
     fs.writeFileSync(pidPath, "pid sentinel");
     daemon = new Daemon();

@@ -8,26 +8,26 @@ import { SessionRuntime, sessionLogPaths, type RuntimeHooks } from "../src/drive
 import { createWorktree, removeWorktree } from "../src/git/worktree.js";
 
 const SESSION_ID = "abcd1234567890ef";
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-let runAgentDir: string | undefined;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
+let codedeckDir: string | undefined;
 let worktree: string | undefined;
 let repository: string | undefined;
 
 afterEach(async () => {
   if (worktree && repository) await removeWorktree(worktree, repository);
-  if (runAgentDir) fs.rmSync(runAgentDir, { recursive: true, force: true });
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  runAgentDir = undefined;
+  if (codedeckDir) fs.rmSync(codedeckDir, { recursive: true, force: true });
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  codedeckDir = undefined;
   worktree = undefined;
   repository = undefined;
 });
 
 describe("full session ID artifacts", () => {
   it("keeps the full ID in branch names, worktree paths, logs, and harness env", async () => {
-    runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-id-artifacts-"));
-    process.env.RUN_AGENT_DIR = runAgentDir;
-    repository = path.join(runAgentDir, "repo");
+    codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-id-artifacts-"));
+    process.env.CODEDECK_DIR = codedeckDir;
+    repository = path.join(codedeckDir, "repo");
     fs.mkdirSync(repository);
     execFileSync("git", ["init", "-q"], { cwd: repository });
     execFileSync("git", ["-c", "user.email=test@example.invalid", "-c", "user.name=Test", "commit", "--allow-empty", "-m", "init"], { cwd: repository });

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-CodeDeck (`codedeck` binary, repo still named `run-agent` in places) is a local process manager for coding-agent harnesses: Claude Code, Codex, OpenCode, OMP and Antigravity. It is not an agent. It starts harnesses, normalizes their event streams, persists sessions in SQLite, and isolates work in git worktrees. It also ships a Claude Code plugin (`plugin/`) that `codedeck open` loads to run an opinionated session with a role contract.
+CodeDeck (`codedeck` binary) is a local process manager for coding-agent harnesses: Claude Code, Codex, OpenCode, OMP and Antigravity. It is not an agent. It starts harnesses, normalizes their event streams, persists sessions in SQLite, and isolates work in git worktrees. It also ships a Claude Code plugin (`plugin/`) that `codedeck open` loads to run an opinionated session with a role contract.
 
 Node >= 24 is required: the store uses `node:sqlite` (`DatabaseSync`) with no flag.
 
@@ -35,20 +35,20 @@ Spikes (`spikes/*.ts`, run with `npx tsx spikes/claude.ts`) are throwaway harnes
 
 ```
 codedeck CLI (src/cli, commander)
-  │  NDJSON over Unix socket (~/.run-agent/daemon.sock), see docs/protocol.md
+  │  NDJSON over Unix socket (~/.codedeck/daemon.sock), see docs/protocol.md
   ▼
 Daemon (src/daemon/daemon.ts)  ── auto-spawned by IpcClient.ensureDaemonStarted() from dist/daemon/daemon.js
-  ├── SessionStore / EventStore / claims (src/store, SQLite ~/.run-agent/run-agent.db)
+  ├── SessionStore / EventStore / claims (src/store, SQLite ~/.codedeck/codedeck.db)
   ├── DriverRegistry (src/drivers/registry.ts) -> one AgentDriver per harness
-  └── git worktrees (src/git) under ~/.run-agent/worktrees/<repo-hash>/<session-id>
+  └── git worktrees (src/git) under ~/.codedeck/worktrees/<repo-hash>/<session-id>
 ```
 
 - The daemon owns sessions; the CLI only subscribes. Closing the terminal does not kill an agent.
-- **Detached harness processes.** Drivers spawn harnesses detached, writing stdout/stderr to `~/.run-agent/logs/<session>.ndjson`. `SessionRuntime` (`src/drivers/session-runtime.ts`) tails those files with `FileTailer` and persists byte offsets, so a restarted daemon reattaches by PID + `/proc` start time instead of respawning (`AgentDriver.attach`). Resume turns (`send`) append to the same log files.
+- **Detached harness processes.** Drivers spawn harnesses detached, writing stdout/stderr to `~/.codedeck/logs/<session>.ndjson`. `SessionRuntime` (`src/drivers/session-runtime.ts`) tails those files with `FileTailer` and persists byte offsets, so a restarted daemon reattaches by PID + `/proc` start time instead of respawning (`AgentDriver.attach`). Resume turns (`send`) append to the same log files.
 - **Driver contract** is `src/core/driver.ts` (`detect`, `capabilities`, `start`, `send`, `stop`, `events`, optional `resume`/`attach`/`listModels`). Most drivers are built from `src/drivers/session-driver.ts`: a per-harness `parser.ts` turns one raw line into normalized `AgentEvent`s (`src/core/events.ts`), and `synthesizeTerminal` produces a `session.failed` when the process dies without a terminal frame. Every event keeps its raw payload.
 - **Failure contract.** `session.failed` carries `failure { code, blame: harness|task|infra, retryable }` (`src/core/errors.ts`), mirrored on the session row. `run`/`wait` exit codes map to it: 0 completed/stopped, 1 task, 2 harness crash, 3 infra (including `interrupted` after shutdown). A harness death is never reported as `completed`.
 - **Shutdown/power.** On SIGTERM/SIGHUP the daemon drains and marks active sessions `interrupted` with `code: SHUTDOWN`. It holds no `systemd-inhibit` delay lock on purpose: the drain starts on SIGTERM, after logind's delay window, so a lock only stalled every poweroff and suspend. Resume is explicit via `send`.
-- **Config** (`src/config/`): `~/.config/run-agent/config.json` (or `$XDG_CONFIG_HOME/run-agent`, legacy `~/.run-agent/config.json`). Holds `defaultAgent`, per-role bindings (`agents`), `models`, sandbox, autocompact. Tests override locations with `RUN_AGENT_DIR` and `RUN_AGENT_CONFIG_DIR`.
+- **Config** (`src/config/`): `~/.config/codedeck/config.json` (or `$XDG_CONFIG_HOME/codedeck`, legacy `~/.codedeck/config.json`). Holds `defaultAgent`, per-role bindings (`agents`), `models`, sandbox, autocompact. Tests override locations with `CODEDECK_DIR` and `CODEDECK_CONFIG_DIR`.
 - **Roles** (`src/core/roles.ts`): `general`, `orchestrator`, `reviewer`, `auditor`. `run --role` resolves harness + model from the role binding. On claude the role is passed as `--agent` (tool allowlist enforced by the harness); on other harnesses `composeRunPrompt` prefixes `ultra.md` + the role body to the prompt, so the restriction is prose only.
 - **`open`** (`src/open/`): per-harness launchers in `src/open/launchers/`. For claude it builds a settings payload at launch (theme, status line with resolved plugin path, spinner, tips) instead of writing to `~/.claude`. It runs the harness under a pty (`script(1)` + `plugin/pty-shim.mjs`) so it can type `/rename` once `plugin/hooks/session-name.sh` derives a name from the first prompt. Keystrokes per harness live in `src/open/injection.ts`.
 - `src/git/review.ts` + `src/web/review-page.ts` back `codedeck review` (local HTML review of current changes).

@@ -11,7 +11,7 @@ import {
   resolveRoleBinding,
   resolveOrchestratorMode,
   type RoleBinding,
-  type RunAgentConfig,
+  type CodedeckConfig,
 } from "../../config/config.js";
 import type { AgentId } from "../../core/session.js";
 import { parseEffort, REASONING_EFFORTS, type ReasoningEffort } from "../../core/driver.js";
@@ -134,7 +134,7 @@ export function ptyLaunchForHarness(
   pluginDir: string,
   sessionFile: string,
   flags: { pty?: boolean },
-  config: RunAgentConfig,
+  config: CodedeckConfig,
   interactive: boolean,
 ): PtyLaunch | undefined {
   if (!interactive) return undefined;
@@ -276,7 +276,7 @@ export function launcherFor(role: Role, binding: RoleBinding | undefined): OpenH
 export function resolveOpenEffort(
   role: Role,
   explicit: string | undefined,
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
 ): ReasoningEffort {
   if (explicit !== undefined) return parseEffort(explicit);
   const binding = resolveRoleBinding(role, config);

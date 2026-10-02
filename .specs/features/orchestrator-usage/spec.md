@@ -6,11 +6,11 @@
 
 ## Current state
 
-Counts below were captured on 2026-09-22 between 20:40 and 21:10 UTC from `~/.run-agent/run-agent.db` and the transcript directories. They drift as new sessions run; the fixtures named in the acceptance tests are the stable reference.
+Counts below were captured on 2026-09-22 between 20:40 and 21:10 UTC from `~/.codedeck/codedeck.db` and the transcript directories. They drift as new sessions run; the fixtures named in the acceptance tests are the stable reference.
 
 1. Usage enters the store only as `usage.updated` events that a driver parser emits from a worker's stream. The daemon either replaces the row's value or, when `incremental` is true, adds to it (`src/daemon/daemon.ts:1316`). One row holds one value (`sessions.usage_*`, `src/store/database.ts:62-65`).
 2. `codedeck open` runs Claude interactively under a pty, so no parser sees its stream. `session.adopt` creates the orchestrator row with `origin='open'` and `runId` equal to its own id (`src/daemon/daemon.ts:428`, `:460`). `open` exports that same id as `CODEDECK_RUN_ID` to the Claude process (`src/cli/commands/open.ts:595`, `:839`). No code path writes usage to that row.
-3. The SessionStart hook overwrites a single sidecar file with the latest native id (`plugin/hooks/session-id.sh:23`). `open` reads it only at exit (`src/cli/commands/open.ts:572`, `:818`; `src/open/runtime.ts:243`, `:369`). At capture time: 132 `open` rows (99 Claude), 31 of the Claude rows with `native_session_id`, none of the 44 `interrupted` and 8 `working` Claude rows with one, and 70 unread sidecars in `~/.run-agent/sessions/`.
+3. The SessionStart hook overwrites a single sidecar file with the latest native id (`plugin/hooks/session-id.sh:23`). `open` reads it only at exit (`src/cli/commands/open.ts:572`, `:818`; `src/open/runtime.ts:243`, `:369`). At capture time: 132 `open` rows (99 Claude), 31 of the Claude rows with `native_session_id`, none of the 44 `interrupted` and 8 `working` Claude rows with one, and 70 unread sidecars in `~/.codedeck/sessions/`.
 4. One `open` process can pass through several native ids (`/clear`, resume): pid 3595879 left 6 distinct `.name` sidecars. One native id can also appear in several `open` processes, because resume keeps the id: `55f4307e-...` appears under 4 pids.
 5. `usage.get` aggregates every row with the run id, including the orchestrator row (`src/store/sessions.ts:197`, `src/core/run-usage.ts:56`). A run with no workers returns `sessionCount: 1, costComplete: false, sessionsWithoutCost: 1` (observed on run `5d81` before its first worker).
 6. Worker rows created by `codedeck run` have `origin` NULL (`src/store/sessions.ts:56`; observed on row `d7d6`).
@@ -259,15 +259,15 @@ Worked example for one native id `X` observed by two `open` rows, used by ORCH-1
 | `cost-state` written only at session end | end-of-session write | Claude Code 2.1.280 | yes | observed: live transcript `b6b5fb85-...jsonl` had 410 lines and 0 `cost-state` at 21:05 UTC; 403 of 1,239 transcripts contain one |
 | Statusline cost is the session cumulative ledger | statusline stdin payload | Claude Code 2.1.280 | yes | observed in the installed binary `~/.local/share/mise/installs/claude/2.1.280/claude`: the statusline payload builds `cost.total_cost_usd` from `em()`, `em()` returns `costLedger.totalCostUSD()`, and `nyt()` writes the same `em()` into `cost-state.totalCostUSD` |
 | `/clear` saves then resets the cost ledger | conversation_reset | Claude Code 2.1.280 | yes | observed in the installed binary: the `conversation_reset` path calls `nRr(s)` (cost saver), then `$Me()` (`resetCostState`, `costLedger.reset(id)`), then `XTr` (`regenerateSessionId`); resume calls `aRr`, which runs `costLedger.restore` |
-| SessionStart fires per native id change | hook stdin session_id | Claude Code 2.1.280 | yes | observed: 6 `.name` sidecars for pid 3595879 in `~/.run-agent/sessions/` |
+| SessionStart fires per native id change | hook stdin session_id | Claude Code 2.1.280 | yes | observed: 6 `.name` sidecars for pid 3595879 in `~/.codedeck/sessions/` |
 | `claude -p` `total_cost_usd` restarts per process | result event | Claude Code 2.1.280 | yes | observed in events of session `2e99`: 0.4661592 (13 turns), then 0.1616463 (4 turns) |
 | Codex `turn.completed` usage is the thread total | turn.completed.usage | codex exec | yes | observed in `~/.codex/sessions/2026/09/22/rollout-...-01a0c9ee-...jsonl`: turn 1 ends at 8,359,849 and turn 2 continues from it |
 | Codex cached is a subset of input | cached_input_tokens | codex exec | yes | observed in the same rollout: input 8,359,849, cached 8,116,224 |
 | Transcript root | ~/.claude/projects | Claude Code 2.1.280 | yes | observed: 1,239 .jsonl transcripts listed under it on 2026-09-22 |
 | Transcript file per native id | ~/.claude/projects/*/<native-id>.jsonl | Claude Code 2.1.280 | yes | observed: 84 of 88 orchestrator native ids found by file name |
 | Pricing formula | computeSessionCost | repo | yes | `src/core/pricing.ts:160` |
-| Session sidecar directory | ~/.run-agent/sessions/ | repo | yes | `src/open/pty.ts:50` |
-| CodeDeck store | ~/.run-agent/run-agent.db | repo | yes | `src/config/paths.ts` (`getPaths().db`) |
+| Session sidecar directory | ~/.codedeck/sessions/ | repo | yes | `src/open/pty.ts:50` |
+| CodeDeck store | ~/.codedeck/codedeck.db | repo | yes | `src/config/paths.ts` (`getPaths().db`) |
 | Worker session env var | CODEDECK_SESSION_ID | repo | yes | `src/drivers/session-runtime.ts:141` |
 | Run id env var | CODEDECK_RUN_ID | repo | yes | `src/cli/commands/run.ts:15`, `src/cli/commands/open.ts:839` |
 | Unpriced model id | claude-opus-5-5 | repo | yes | `src/core/pricing.ts:30` (only `claude-opus-5` is listed) |

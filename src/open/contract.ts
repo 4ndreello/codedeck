@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveModel, resolveRoleBinding, type RunAgentConfig } from "../config/config.js";
+import { resolveModel, resolveRoleBinding, type CodedeckConfig } from "../config/config.js";
 import { findClosestModel, modelNames, type HarnessModels } from "../core/models.js";
 import type { AgentId } from "../core/session.js";
 import { roleBody, roleFile, type Role } from "../core/roles.js";
@@ -97,7 +97,7 @@ export function readUltra(pluginDir: string): string {
 export function resolveOpenModel(
   role: Role,
   opts: OpenModelInput,
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
 ): { model: string | undefined; fromConfig: boolean } {
   const binding = resolveRoleBinding(role, config);
   const harness: AgentId = binding?.harness ?? "claude";

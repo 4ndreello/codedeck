@@ -136,7 +136,7 @@ Três defeitos concretos:
 14. WHEN o `open` roda E `config.models.claude` existe E o preflight o rejeita THEN o CodeDeck SHALL dizer que o modelo salvo saiu do catálogo e mandar rodar `codedeck setup`, em vez de só falhar. Um modelo pode sumir do catálogo sozinho, sem ninguém ter digitado errado <!-- event-driven --> `SETUP-46`
 15. The gravação SHALL ser last-writer-wins, sem lock. Duas execuções simultâneas de `setup` são raras e o custo de um lock não se paga; a regra fica escrita pra não virar surpresa <!-- ubiquitous --> `SETUP-47`
 
-**Independent Test**: Com `RUN_AGENT_CONFIG_DIR` isolado e `{ defaultModel: "legacy", models: { codex: "gpt-x" } }` pré-gravado, rodar o wizard e pular todos; conferir que `codex` continua `gpt-x` e `defaultModel` continua `legacy`. Depois, com descoberta devolvendo `[]` pra todos, conferir que nada foi gravado.
+**Independent Test**: Com `CODEDECK_CONFIG_DIR` isolado e `{ defaultModel: "legacy", models: { codex: "gpt-x" } }` pré-gravado, rodar o wizard e pular todos; conferir que `codex` continua `gpt-x` e `defaultModel` continua `legacy`. Depois, com descoberta devolvendo `[]` pra todos, conferir que nada foi gravado.
 
 ---
 

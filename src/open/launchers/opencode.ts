@@ -12,7 +12,7 @@ import {
   type OpenFlags,
 } from "../contract.js";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
-import type { RunAgentConfig } from "../../config/config.js";
+import type { CodedeckConfig } from "../../config/config.js";
 import type { Role } from "../../core/roles.js";
 import { composeOrchestratorProse } from "../orchestrator-prose.js";
 
@@ -83,7 +83,7 @@ export function buildInlineConfig(
   pluginDir: string,
   role: Role,
   mode: OrchestratorMode = DISPATCHER_PRESET,
-  options?: { config?: RunAgentConfig; explicit?: AutocompactExplicit },
+  options?: { config?: CodedeckConfig; explicit?: AutocompactExplicit },
 ): string {
   const { agentBody, ultra } = resolveRoleContract(pluginDir, role, mode);
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";

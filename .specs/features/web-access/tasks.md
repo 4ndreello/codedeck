@@ -33,7 +33,7 @@ Implement these tasks with the `tlc-spec-driven` skill: **activate it by name an
 | --- | --- | --- |
 | Quick | Every task | `npx vitest run <each test file of the task>` (one run per file) + `npx tsc --noEmit` |
 | Full | Last task of each phase | Quick gate over every test file touched in the phase, one file per run |
-| Build | Last task | `npm run build`, `scripts/pty-gate.sh`, then a manual smoke run against `dist/` under a temp `RUN_AGENT_DIR` |
+| Build | Last task | `npm run build`, `scripts/pty-gate.sh`, then a manual smoke run against `dist/` under a temp `CODEDECK_DIR` |
 
 ---
 
@@ -137,7 +137,7 @@ T8 → T9 → T10
 
 ### T4: Resolve the preferred web port from config
 
-**What**: `resolveWebPort(config)` returns `{ port, invalid? }`: `web.port` when an integer in 1-65535, else 7777, with `invalid` holding the raw value when `web.port` is present but bad; plus the `Ignoring invalid web.port in config: <JSON value>` formatter. Adds `web?: { port?: number }` to `RunAgentConfig`.
+**What**: `resolveWebPort(config)` returns `{ port, invalid? }`: `web.port` when an integer in 1-65535, else 7777, with `invalid` holding the raw value when `web.port` is present but bad; plus the `Ignoring invalid web.port in config: <JSON value>` formatter. Adds `web?: { port?: number }` to `CodedeckConfig`.
 **Where**: `src/config/web-port.ts` (new), `src/config/config.ts`; `src/web/server.ts` re-exports `DEFAULT_WEB_PORT` from it so daemon code can resolve the port without reaching `src/web`
 **Depends on**: None (previous phase)
 **Reuses**: `isJsonObject` style guards in `src/config/config.ts`
@@ -282,7 +282,7 @@ T8 → T9 → T10
 
 ### T10: Stop gate daemons, document, and smoke-test the build
 
-**What**: `scripts/pty-gate.sh` and `scripts/rename-gate.sh` kill the daemon from `$RUN_AGENT_DIR/daemon.pid` in their EXIT trap; `docs/protocol.md` documents `preferredPort`, the child arguments, the token file and its rotation. Run the build gate and a smoke run.
+**What**: `scripts/pty-gate.sh` and `scripts/rename-gate.sh` kill the daemon from `$CODEDECK_DIR/daemon.pid` in their EXIT trap; `docs/protocol.md` documents `preferredPort`, the child arguments, the token file and its rotation. Run the build gate and a smoke run.
 **Where**: `scripts/pty-gate.sh`, `scripts/rename-gate.sh`, `docs/protocol.md`
 **Depends on**: T9
 **Reuses**: none
@@ -290,8 +290,8 @@ T8 → T9 → T10
 
 **Done when**:
 
-- [x] `npm run build` exits 0; `scripts/pty-gate.sh` prints its ok line and leaves no daemon with its `RUN_AGENT_DIR`
-- [x] Smoke under a temp `RUN_AGENT_DIR` and config: daemon start → 403 on the preferred port within 5 s; `ui --no-open` URL → cookie with `Max-Age`; restarting the daemon keeps the token; `localhost` page GET → 302; `web.port` change + one command moves the port
+- [x] `npm run build` exits 0; `scripts/pty-gate.sh` prints its ok line and leaves no daemon with its `CODEDECK_DIR`
+- [x] Smoke under a temp `CODEDECK_DIR` and config: daemon start → 403 on the preferred port within 5 s; `ui --no-open` URL → cookie with `Max-Age`; restarting the daemon keeps the token; `localhost` page GET → 302; `web.port` change + one command moves the port
 - [x] Gate check passes: build gate
 
 **Tests**: none

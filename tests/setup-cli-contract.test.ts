@@ -16,7 +16,7 @@ import {
   DEFAULT_CONFIG,
   saveConfig,
   serializeConfig,
-  type RunAgentConfig,
+  type CodedeckConfig,
   type SetupConfigRead,
 } from "../src/config/config.js";
 import { getPaths } from "../src/config/paths.js";
@@ -34,8 +34,8 @@ import {
 
 const originalEnv = {
   HOME: process.env.HOME,
-  RUN_AGENT_DIR: process.env.RUN_AGENT_DIR,
-  RUN_AGENT_CONFIG_DIR: process.env.RUN_AGENT_CONFIG_DIR,
+  CODEDECK_DIR: process.env.CODEDECK_DIR,
+  CODEDECK_CONFIG_DIR: process.env.CODEDECK_CONFIG_DIR,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
 };
 
@@ -85,7 +85,7 @@ function catalog(
   };
 }
 
-function configStore(config: RunAgentConfig = {}): {
+function configStore(config: CodedeckConfig = {}): {
   read: ReturnType<typeof vi.fn<() => SetupConfigRead>>;
   save: ReturnType<typeof vi.fn>;
 } {
@@ -124,18 +124,18 @@ function dependencies(
 }
 
 beforeEach(() => {
-  process.env.RUN_AGENT_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-setup-runtime-"));
-  process.env.RUN_AGENT_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-setup-config-"));
+  process.env.CODEDECK_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-setup-runtime-"));
+  process.env.CODEDECK_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-setup-config-"));
   delete process.env.XDG_CONFIG_HOME;
 });
 
 afterEach(() => {
   if (originalEnv.HOME === undefined) delete process.env.HOME;
   else process.env.HOME = originalEnv.HOME;
-  if (originalEnv.RUN_AGENT_DIR === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalEnv.RUN_AGENT_DIR;
-  if (originalEnv.RUN_AGENT_CONFIG_DIR === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalEnv.RUN_AGENT_CONFIG_DIR;
+  if (originalEnv.CODEDECK_DIR === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalEnv.CODEDECK_DIR;
+  if (originalEnv.CODEDECK_CONFIG_DIR === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalEnv.CODEDECK_CONFIG_DIR;
   if (originalEnv.XDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = originalEnv.XDG_CONFIG_HOME;
 });
@@ -293,7 +293,7 @@ describe("setup batch execution", () => {
       defaultSandbox: "danger-full-access",
       [pointerKey]: "x",
       [savedSetsKey]: savedSets,
-    } as RunAgentConfig;
+    } as CodedeckConfig;
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, serializeConfig({ ...DEFAULT_CONFIG, ...before }), "utf8");
 
@@ -641,10 +641,10 @@ describe("setup config persistence", () => {
 
   it("reads and migrates the legacy file only without a config override", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "codedeck-setup-home-"));
-    delete process.env.RUN_AGENT_CONFIG_DIR;
+    delete process.env.CODEDECK_CONFIG_DIR;
     delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = home;
-    const legacy = path.join(home, ".run-agent", "config.json");
+    const legacy = path.join(home, ".codedeck", "config.json");
     fs.mkdirSync(path.dirname(legacy), { recursive: true, mode: 0o700 });
     fs.writeFileSync(legacy, JSON.stringify({ defaultModel: "legacy" }), "utf8");
 
@@ -671,13 +671,13 @@ describe("setup config persistence", () => {
     const runtime = mkdtempSync(path.join(tmpdir(), "codedeck-runtime-path-"));
     const config = mkdtempSync(path.join(tmpdir(), "codedeck-config-path-"));
     const xdg = mkdtempSync(path.join(tmpdir(), "codedeck-xdg-path-"));
-    process.env.RUN_AGENT_DIR = runtime;
-    process.env.RUN_AGENT_CONFIG_DIR = config;
+    process.env.CODEDECK_DIR = runtime;
+    process.env.CODEDECK_CONFIG_DIR = config;
     process.env.XDG_CONFIG_HOME = xdg;
     expect(getPaths().base).toBe(path.resolve(runtime));
     expect(getPaths().configFile).toBe(path.resolve(config, "config.json"));
-    delete process.env.RUN_AGENT_CONFIG_DIR;
-    expect(getPaths().configFile).toBe(path.resolve(xdg, "run-agent", "config.json"));
+    delete process.env.CODEDECK_CONFIG_DIR;
+    expect(getPaths().configFile).toBe(path.resolve(xdg, "codedeck", "config.json"));
   });
 
   it("does not call save when the injected config store rejects a write", async () => {

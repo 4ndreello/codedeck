@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcClient } from "../src/daemon/ipc.js";
 import { registerClaimsCommand } from "../src/cli/commands/claims.js";
 
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
 const originalExitCode = process.exitCode;
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-claims-ipc-"));
 const socketPath = path.join(testDir, "daemon.sock");
@@ -79,7 +79,7 @@ let logs: string[];
 let errors: string[];
 
 beforeEach(() => {
-  process.env.RUN_AGENT_DIR = testDir;
+  process.env.CODEDECK_DIR = testDir;
   process.exitCode = undefined;
   logs = [];
   errors = [];
@@ -94,8 +94,8 @@ beforeEach(() => {
 afterEach(() => {
   process.exitCode = originalExitCode;
   vi.restoreAllMocks();
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
   try { fs.unlinkSync(socketPath); } catch {}
 });
 

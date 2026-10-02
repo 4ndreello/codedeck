@@ -13,19 +13,19 @@ import {
   resolveOrchestratorMode,
   saveConfig,
   type OrchestratorMode,
-  type RunAgentConfig,
+  type CodedeckConfig,
 } from "../src/config/config.js";
 import { loadConfig } from "../src/config/config.js";
 
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
-  process.env.RUN_AGENT_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-orchestrator-test-"));
+  process.env.CODEDECK_CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "codedeck-orchestrator-test-"));
 });
 
 afterEach(() => {
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 describe("orchestratorModeLabel", () => {
@@ -77,7 +77,7 @@ describe("orchestrator mode resolution", () => {
   it("falls back to dispatcher for an invalid configured block", () => {
     const invalid = {
       orchestrator: { investigate: "none", selfWork: "none", tools: "dispatch", parallelism: 0 },
-    } as unknown as RunAgentConfig;
+    } as unknown as CodedeckConfig;
 
     expect(resolveOrchestratorMode(invalid)).toEqual(DISPATCHER_PRESET);
   });
@@ -88,7 +88,7 @@ describe("orchestrator config persistence", () => {
     ["without parallelism", { investigate: "read", selfWork: "trivial", tools: "edit" }],
     ["with parallelism", { investigate: "free", selfWork: "small", tools: "edit", parallelism: 3 }],
   ])("round-trips the orchestrator block %s", (_description, orchestrator) => {
-    const config: RunAgentConfig = {
+    const config: CodedeckConfig = {
       defaultAgent: "claude",
       worktree: true,
       remoteControl: true,
@@ -99,7 +99,7 @@ describe("orchestrator config persistence", () => {
 
     saveConfig(config);
 
-    const configFile = path.join(process.env.RUN_AGENT_CONFIG_DIR!, "config.json");
+    const configFile = path.join(process.env.CODEDECK_CONFIG_DIR!, "config.json");
     expect(JSON.parse(fs.readFileSync(configFile, "utf-8"))).toEqual(config);
     expect(loadConfig()).toEqual(config);
 

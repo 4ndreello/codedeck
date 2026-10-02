@@ -111,7 +111,7 @@ const CATALOG: BatchModelsResult = {
 };
 
 const STATE: SetupPageTargetState = {
-  config: { status: "ok", source: "global", path: "/home/me/.config/run-agent/config.json" },
+  config: { status: "ok", source: "global", path: "/home/me/.config/codedeck/config.json" },
   target: { kind: "global" },
   bindings: {
     orchestrator: { harness: "opencode", model: "qwen" },

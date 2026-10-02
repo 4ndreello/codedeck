@@ -907,9 +907,9 @@ describe("pty input gate", () => {
 
 describe("startPtySession", () => {
   beforeEach(() => {
-    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-pty-run-agent-"));
-    tempDirs.push(runAgentDir);
-    vi.stubEnv("RUN_AGENT_DIR", runAgentDir);
+    const codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-pty-state-"));
+    tempDirs.push(codedeckDir);
+    vi.stubEnv("CODEDECK_DIR", codedeckDir);
     vi.stubEnv("CODEDECK_PTY_DEBUG", "");
   });
 
@@ -979,7 +979,7 @@ describe("startPtySession", () => {
 
     session.dispose();
 
-    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    const sessions = path.join(process.env.CODEDECK_DIR!, "sessions");
     const traces = fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"));
     expect(traces).toHaveLength(1);
     expect(traces[0]).toMatch(new RegExp(`^pty-trace-${process.pid}-[0-9a-z]+\\.ndjson$`));
@@ -992,12 +992,12 @@ describe("startPtySession", () => {
 
     session.dispose();
 
-    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    const sessions = path.join(process.env.CODEDECK_DIR!, "sessions");
     expect(fs.readdirSync(sessions).filter((file) => file.startsWith("pty-trace-") && file.endsWith(".ndjson"))).toEqual([]);
   });
 
   it("prunes old session traces and keeps the nine newest plus the new trace", () => {
-    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    const sessions = path.join(process.env.CODEDECK_DIR!, "sessions");
     fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
     const existing = Array.from({ length: 12 }, (_, index) => {
       const file = `pty-trace-old-${index}.ndjson`;
@@ -1020,7 +1020,7 @@ describe("startPtySession", () => {
   });
 
   it("opens the trace when pruning the sessions directory fails", () => {
-    const sessions = path.join(process.env.RUN_AGENT_DIR!, "sessions");
+    const sessions = path.join(process.env.CODEDECK_DIR!, "sessions");
     vi.spyOn(fs, "readdirSync").mockImplementation(() => {
       throw new Error("prune failed");
     });

@@ -150,7 +150,7 @@ Re-run on `ff8b930` in a fresh scratch worktree: M5-M9, M11, M12, M28 (every mut
 
 ## Runtime checks (verifier)
 
-- `node dist/web/child.js --web-child --preferred-port 7793` twice under a temp `RUN_AGENT_DIR` (dist newer than every `src/*.ts`): the first child printed `{"port":7793,...}` and the second fell back to `{"port":36771,...}`. Both used the same token, equal to `web-token`, mode `600`. So the real entry does wire `--preferred-port` (the behavior M12 targets), and WA-01/WA-02/WA-18 hold at runtime.
+- `node dist/web/child.js --web-child --preferred-port 7793` twice under a temp `CODEDECK_DIR` (dist newer than every `src/*.ts`): the first child printed `{"port":7793,...}` and the second fell back to `{"port":36771,...}`. Both used the same token, equal to `web-token`, mode `600`. So the real entry does wire `--preferred-port` (the behavior M12 targets), and WA-01/WA-02/WA-18 hold at runtime.
 - `scripts/pty-gate.sh` (worktree `dist/`): exit 0, `pty path ok: tty, 137x41, /rename corrigir-auth-do-login typed, keys still flowing`. Afterwards no `daemon.js` or `web/child.js` process from the worktree's `dist/` was left. Every running daemon belongs to `/home/andreello/dev/codedeck/dist`.
 - The author's 8-step smoke against `dist/` is cited from the brief and was not re-run.
 
@@ -178,7 +178,7 @@ Re-run on `ff8b930` in a fresh scratch worktree: M5-M9, M11, M12, M28 (every mut
 | Spec-anchored outcome check | ✅ (WA-10 body pinned on all three paths since `ff8b930`) |
 | Per-layer coverage expectation | ✅ (child entry covered by `web-child.test.ts:141-146`) |
 | Every test maps to a spec requirement | ✅ |
-| Documented guidelines followed: `CLAUDE.md` (scoped vitest, seams keep tests off `~/.run-agent`) | ✅ every new default-path writer (`resolveWebToken`) is injected in unit tests (`web-child.test.ts:44,147,188`, `web-launch.test.ts:43-44`); the daemon tests use a temp `RUN_AGENT_DIR` (`tests/helpers/daemon-seam.ts:87`) and a temp `RUN_AGENT_CONFIG_DIR` |
+| Documented guidelines followed: `CLAUDE.md` (scoped vitest, seams keep tests off `~/.codedeck`) | ✅ every new default-path writer (`resolveWebToken`) is injected in unit tests (`web-child.test.ts:44,147,188`, `web-launch.test.ts:43-44`); the daemon tests use a temp `CODEDECK_DIR` (`tests/helpers/daemon-seam.ts:87`) and a temp `CODEDECK_CONFIG_DIR` |
 
 ---
 

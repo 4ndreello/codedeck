@@ -12,7 +12,7 @@ Each web command starts the shared Node HTTP server in the CLI process. The serv
 
 Every request passes a Host check before route dispatch. POST routes also require the per-port session cookie and a matching HTTP Origin. A valid token query on an HTML GET bootstraps the cookie and redirects to the URL without the query token. The server closes with its owning command.
 
-Setup uses a pure planner that accepts a RunAgentConfig and selections, then returns a proposal and diff. Config reading, binding validation, and writing remain separate. The web apply path validates only bindings whose harness or model changed. Batch keeps validating only its winning --bind values. The terminal wizard continues accepting typed and off-catalog models without catalog validation.
+Setup uses a pure planner that accepts a CodedeckConfig and selections, then returns a proposal and diff. Config reading, binding validation, and writing remain separate. The web apply path validates only bindings whose harness or model changed. Batch keeps validating only its winning --bind values. The terminal wizard continues accepting typed and off-catalog models without catalog validation.
 
 Usage shares one pure query parameter builder between the CLI and the web API. The page keeps its view-state, filter, and polling transitions in testable TypeScript functions and injects those function sources into its self-contained HTML string.
 
@@ -68,7 +68,7 @@ The existing review command uses Node's built-in HTTP server and browser opener.
 | --- | --- |
 | CLI command registry | Register codedeck ui while preserving the current review, setup, and usage command contracts. |
 | Review data | Keep GET /api/review read-only and delegate to the current review loader. |
-| Setup config | Read with readConfigForSetup, resolve the target, plan from RunAgentConfig, validate changed bindings separately, then save only a valid proposal. |
+| Setup config | Read with readConfigForSetup, resolve the target, plan from CodedeckConfig, validate changed bindings separately, then save only a valid proposal. |
 | Setup catalog | GET calls getBatchModels with allowNetwork:false. Protected refresh calls it with refresh:true, allowNetwork:true, and timeoutMs:12000. |
 | Usage query | Convert URL filters to the options accepted by buildUsageQueryParams, then inject the result into fetchUsageQuery. |
 | Daemon | No changes. HTTP stays in the CLI process; usage keeps its existing IPC and SQLite fallback. |
@@ -121,14 +121,14 @@ The home page does not hard-code future routes. The initial ui command links onl
 
 ### Setup planner
 
-- **Purpose**: Apply setup selections to RunAgentConfig and return a proposed config and diff without I/O or catalog validation.
+- **Purpose**: Apply setup selections to CodedeckConfig and return a proposed config and diff without I/O or catalog validation.
 - **Location**: src/config/setup.ts
 - **Interfaces**:
   - buildSetupPlan(currentConfig, targetProfile, selections) returns proposedConfig and diff.
   - resolveSetupTarget applies explicit and active profile rules.
   - SetupSelection represents selected bindings, effort values, optional orchestrator mode and parameters, sandbox, autocompact, and per-role off-catalog confirmation.
   - SetupEnvelope, diffConfig, catalogContains, and validateBindings are exported for the CLI and web routes.
-- **Dependencies**: RunAgentConfig, Role, role binding, orchestrator, sandbox, and autocompact types; profile snapshot helpers; cached catalog result types.
+- **Dependencies**: CodedeckConfig, Role, role binding, orchestrator, sandbox, and autocompact types; profile snapshot helpers; cached catalog result types.
 - **Reuses**: Existing setup merge, target resolution, envelope, binding validation, and config diff behavior.
 
 Config reads happen before planning through readConfigForSetup. The shared config helper resolves explicit and active profiles using the current rules. An absent active profile keeps the existing SetupUsageError. A first-run target with all roles skipped keeps agents: {} as the empty sentinel. Turning autocompact off writes enabled=false only when the target already has an autocompact block. An omitted orchestrator selection preserves the target's current value or its absence, so an otherwise untouched selection has an empty diff.
@@ -210,8 +210,8 @@ Polling uses Math.max(1, Number(opts.interval) || 2). Commander supplies the def
 interface SetupSelection {
   agents: Partial<Record<Role, RoleBinding>>
   orchestrator?: OrchestratorMode
-  sandbox?: RunAgentConfig["defaultSandbox"]
-  autocompact?: RunAgentConfig["autocompact"]
+  sandbox?: CodedeckConfig["defaultSandbox"]
+  autocompact?: CodedeckConfig["autocompact"]
   offCatalogConfirmed?: Partial<Record<Role, boolean>>
 }
 ~~~
@@ -222,12 +222,12 @@ Missing role entries mean the user skipped that role. An omitted orchestrator pr
 
 ~~~typescript
 interface SetupPlanResult {
-  proposedConfig: RunAgentConfig
+  proposedConfig: CodedeckConfig
   diff: SetupDiff
 }
 ~~~
 
-The current config input is RunAgentConfig. Catalog validation and SetupConfigRead are not planner inputs. The CLI route adapts the result, separate validation result, and config status into the existing SetupEnvelope fields.
+The current config input is CodedeckConfig. Catalog validation and SetupConfigRead are not planner inputs. The CLI route adapts the result, separate validation result, and config status into the existing SetupEnvelope fields.
 
 ### Usage result
 
@@ -276,7 +276,7 @@ The route returns UsageQueryResult. The type in main requires byOrigin and conta
 | HTML framing | Add Content-Security-Policy: frame-ancestors 'none' to every HTML response. | Local pages should not be embedded by another origin. |
 | Catalog source | Use getBatchModels for both GET and refresh. | One helper defines cache, discovery timeout, incomplete-result, and fallback behavior. |
 | Setup apply catalog | Call getBatchModels with allowNetwork:false when validating changed bindings. | Apply checks the cache and does not start discovery. |
-| Planner boundary | Accept RunAgentConfig and selections; return proposed config and diff only. | Validation depends on the selected catalog and belongs in separate callers. |
+| Planner boundary | Accept CodedeckConfig and selections; return proposed config and diff only. | Validation depends on the selected catalog and belongs in separate callers. |
 | Validation | Web validates changed harness:model pairs against the cached catalog with allowNetwork:false and requires per-role confirmation for off-catalog models; batch validates winning --bind entries; wizard adds no catalog validation. | This keeps web apply offline, preserves explicit user choice, and leaves existing wizard behavior intact. |
 | Page tests | Export behavior functions from the page module and inject their source into HTML. | Node tests call the functions directly and run extracted inline scripts in node:vm without a DOM package. |
 | Usage query params | Extract buildUsageQueryParams into src/core/usage-query.ts and call it from CLI and web. | A pure shared function makes filter mapping and parity testable. |

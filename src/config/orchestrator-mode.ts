@@ -1,4 +1,4 @@
-import type { RunAgentConfig } from "./config.js";
+import type { CodedeckConfig } from "./config.js";
 
 export type InvestigateMode = "none" | "read" | "free";
 export type SelfWorkMode = "none" | "trivial" | "small";
@@ -66,7 +66,7 @@ function copyMode(mode: OrchestratorMode): OrchestratorMode {
   };
 }
 
-export function resolveOrchestratorMode(config: RunAgentConfig = {}): OrchestratorMode {
+export function resolveOrchestratorMode(config: CodedeckConfig = {}): OrchestratorMode {
   const configured = config.orchestrator;
   if (!isOrchestratorMode(configured)) return copyMode(DISPATCHER_PRESET);
   return copyMode(configured);

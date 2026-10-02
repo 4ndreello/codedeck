@@ -31,12 +31,12 @@ function runProgram(argv: string[]) {
 
 let errors: string[];
 let configDir: string;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
   errors = [];
   configDir = mkdtempSync(path.join(tmpdir(), "codedeck-run-sandbox-"));
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
   request.mockReset();
   request.mockResolvedValue({ session: { id: "abcd", agent: "codex" } });
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -51,8 +51,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   rmSync(configDir, { recursive: true, force: true });
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 function writeConfig(config: unknown): void {

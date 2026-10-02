@@ -32,11 +32,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/4ndreello/run-agent.git"
+    "url": "git+https://github.com/4ndreello/codedeck.git"
   },
-  "homepage": "https://github.com/4ndreello/run-agent#readme",
+  "homepage": "https://github.com/4ndreello/codedeck#readme",
   "bugs": {
-    "url": "https://github.com/4ndreello/run-agent/issues"
+    "url": "https://github.com/4ndreello/codedeck/issues"
   },
   "engines": {
     "node": ">=24.0.0"

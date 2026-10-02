@@ -44,7 +44,7 @@ exit 133
 After `npm run build`, the UI launch command also could not bind its local server:
 
 ```text
-env RUN_AGENT_DIR=/tmp/setup-redesign/run-agent RUN_AGENT_CONFIG_DIR=/tmp/setup-redesign/config node dist/cli/index.js ui --no-open --port 3147
+env CODEDECK_DIR=/tmp/setup-redesign/codedeck CODEDECK_CONFIG_DIR=/tmp/setup-redesign/config node dist/cli/index.js ui --no-open --port 3147
 Failed to listen on 127.0.0.1:3147: listen EPERM: operation not permitted 127.0.0.1:3147
 ```
 

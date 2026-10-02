@@ -38,7 +38,7 @@ export interface RoleBinding {
   effort?: ReasoningEffort;
 }
 
-export interface RunAgentConfig {
+export interface CodedeckConfig {
   defaultAgent?: AgentId;
   worktree?: boolean;
   defaultModel?: string;
@@ -76,7 +76,7 @@ export interface RunAgentConfig {
  */
 export function resolveRoleBinding(
   role: Role | undefined,
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
 ): RoleBinding | undefined {
   if (role === undefined) return undefined;
   const binding = config.agents?.[role];
@@ -102,7 +102,7 @@ export function resolveRoleBinding(
 export function resolveModel(
   agent: AgentId,
   explicit?: string,
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
 ): string | undefined {
   return explicit ?? config.models?.[agent] ?? config.defaultModel;
 }
@@ -112,7 +112,7 @@ export function resolveModel(
  * reach a driver. An invalid value is treated as absent, so the driver keeps
  * its own fallback.
  */
-export function resolveDefaultSandbox(config: RunAgentConfig = {}): CodexSandbox | undefined {
+export function resolveDefaultSandbox(config: CodedeckConfig = {}): CodexSandbox | undefined {
   try {
     const value = config?.defaultSandbox;
     return typeof value === "string" ? parseSandbox(value) : undefined;
@@ -124,14 +124,14 @@ export function resolveDefaultSandbox(config: RunAgentConfig = {}): CodexSandbox
 // Native auto-compaction is intentionally not materialized in the default
 // object. Existing config and open-argument contracts compare exact vectors;
 // enable it explicitly with `autocompact: { enabled: true }`.
-export const DEFAULT_CONFIG: RunAgentConfig = {
+export const DEFAULT_CONFIG: CodedeckConfig = {
   defaultAgent: "claude",
   worktree: false,
   remoteControl: true,
   pty: true,
 };
 
-export function defaultConfig(): RunAgentConfig {
+export function defaultConfig(): CodedeckConfig {
   return { ...DEFAULT_CONFIG };
 }
 
@@ -142,7 +142,7 @@ export interface SetupConfigRead {
   status: SetupConfigStatus;
   source: SetupConfigSource;
   path: string;
-  config: RunAgentConfig | null;
+  config: CodedeckConfig | null;
   raw: string | null;
   message: string | null;
   readError?: Error;
@@ -150,14 +150,14 @@ export interface SetupConfigRead {
 
 export interface SetupConfigStore {
   read(): SetupConfigRead;
-  save(config: RunAgentConfig): void | boolean;
+  save(config: CodedeckConfig): void | boolean;
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function serializeConfig(config: RunAgentConfig): string {
+export function serializeConfig(config: CodedeckConfig): string {
   const sortJson = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(sortJson);
     if (!isJsonObject(value)) return value;
@@ -182,7 +182,7 @@ function configInvalidMessage(file: string): string {
 interface ReadFileResult {
   kind: "missing" | "ok" | "invalid" | "error";
   raw?: string;
-  config?: RunAgentConfig;
+  config?: CodedeckConfig;
   message?: string;
   error?: Error;
 }
@@ -432,7 +432,7 @@ export function writeConfigAtomically(file: string, contents: string): boolean {
   }
 }
 
-export function loadConfig(): RunAgentConfig {
+export function loadConfig(): CodedeckConfig {
   const { configFile } = getPaths();
   try {
     if (!fs.existsSync(configFile)) return { ...DEFAULT_CONFIG };
@@ -444,7 +444,7 @@ export function loadConfig(): RunAgentConfig {
   }
 }
 
-export function saveConfig(cfg: RunAgentConfig): boolean {
+export function saveConfig(cfg: CodedeckConfig): boolean {
   const { configFile } = getPaths();
   return writeConfigAtomically(configFile, serializeConfig(cfg));
 }

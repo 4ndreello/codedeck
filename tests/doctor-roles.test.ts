@@ -18,12 +18,12 @@ import { registerDoctorCommand, renderRolesSection, resolveRoleReadiness } from 
 import { ROLES } from "../src/core/roles.js";
 
 const strip = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, "");
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 afterEach(() => {
   vi.restoreAllMocks();
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
 });
 
 describe("doctor roles section", () => {
@@ -90,7 +90,7 @@ describe("doctor roles section", () => {
 
   it("uses top-level bindings and omits legacy setup keys from doctor output", async () => {
     const configDir = mkdtempSync(path.join(tmpdir(), "codedeck-doctor-config-"));
-    process.env.RUN_AGENT_CONFIG_DIR = configDir;
+    process.env.CODEDECK_CONFIG_DIR = configDir;
     const pointerKey = "activeProfile";
     const savedSetsKey = "profiles";
     writeFileSync(path.join(configDir, "config.json"), JSON.stringify({

@@ -29,7 +29,7 @@ function runProgram(argv: string[]) {
 }
 
 let errors: string[];
-const originalTopConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalTopConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
   errors = [];
@@ -43,14 +43,14 @@ beforeEach(() => {
     throw new Exited(code ?? 0);
   }) as never);
   const dir = mkdtempSync(path.join(tmpdir(), "codedeck-run-effort-"));
-  process.env.RUN_AGENT_CONFIG_DIR = dir;
+  process.env.CODEDECK_CONFIG_DIR = dir;
   writeFileSync(path.join(dir, "config.json"), JSON.stringify({}), "utf-8");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  if (originalTopConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalTopConfigDir;
+  if (originalTopConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalTopConfigDir;
 });
 
 // The helpers are covered directly in roles.test.ts. What is only covered here
@@ -169,11 +169,11 @@ describe("codedeck run --role", () => {
 // them and the resolver reading them are both covered elsewhere; only here does
 // a wrong pairing actually reach a harness.
 describe("the harness and model a role is bound to", () => {
-  const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
   function writeConfig(config: unknown): void {
     const dir = mkdtempSync(path.join(tmpdir(), "codedeck-run-role-"));
-    process.env.RUN_AGENT_CONFIG_DIR = dir;
+    process.env.CODEDECK_CONFIG_DIR = dir;
     writeFileSync(path.join(dir, "config.json"), JSON.stringify(config), "utf-8");
   }
   const bound = {

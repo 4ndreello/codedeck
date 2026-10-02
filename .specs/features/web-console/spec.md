@@ -129,7 +129,7 @@ Setup and usage analytics currently require the terminal, while review already s
 **Acceptance Criteria**:
 
 
-1. WHEN the setup planner receives a current RunAgentConfig, resolved target, and complete selections THEN it SHALL return a proposed config and diff without reading or writing files, discovering models, or validating against a catalog. WEB-14
+1. WHEN the setup planner receives a current CodedeckConfig, resolved target, and complete selections THEN it SHALL return a proposed config and diff without reading or writing files, discovering models, or validating against a catalog. WEB-14
 2. WHEN the selection contains a role binding THEN the planner SHALL set that role's harness, model, and optional effort to the selected values. WEB-15
 3. WHEN a role is omitted from selections THEN the planner SHALL preserve that role's current binding. WEB-86
 4. WHEN the planner updates selected config fields THEN it SHALL preserve unrelated config keys. WEB-87
@@ -140,7 +140,7 @@ Setup and usage analytics currently require the terminal, while review already s
 9. WHEN setup has no explicit --profile and an existing active profile THEN the planner SHALL use the resolved active profile snapshot. WEB-62
 10. WHEN the terminal wizard completes selections THEN it SHALL use the shared planner without adding catalog validation to the wizard path. WEB-22
 11. WHEN the selection turns autocompact off THEN the planner SHALL set enabled to false if the target config has an autocompact block and SHALL preserve the absent block otherwise. WEB-61
-**Independent Test**: Call the planner with global and profile RunAgentConfig values. Assert exact proposal and diff paths for each field, skipped role behavior, and absence of file, network, and catalog-validation calls. Run the existing setup wizard and CLI contract tests unchanged.
+**Independent Test**: Call the planner with global and profile CodedeckConfig values. Assert exact proposal and diff paths for each field, skipped role behavior, and absence of file, network, and catalog-validation calls. Run the existing setup wizard and CLI contract tests unchanged.
 
 ### P4: Browser setup
 

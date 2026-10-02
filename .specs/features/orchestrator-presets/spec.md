@@ -17,7 +17,7 @@ The configuration has four independent parameters. `tools` selects a native tool
 | `tools` | `dispatch`, `read`, `edit` | The native tool tier available to the orchestrator. The launched harness enforces this tier on the `codedeck open` path. |
 | `parallelism` | Optional positive number | An advisory concurrent-worker cap. Version 1 puts the cap in the orchestrator prompt for review verification. Code does not enforce it. Real enforcement is a follow-up. |
 
-The nested `orchestrator` block belongs on `RunAgentConfig` in `src/config/config.ts`. The global file remains `~/.config/run-agent/config.json`, subject to `getConfigDir` and the `configFile` path assembled in `src/config/paths.ts`. `loadConfig` and `saveConfig` in `src/config/config.ts` remain the persistence seam.
+The nested `orchestrator` block belongs on `CodedeckConfig` in `src/config/config.ts`. The global file remains `~/.config/codedeck/config.json`, subject to `getConfigDir` and the `configFile` path assembled in `src/config/paths.ts`. `loadConfig` and `saveConfig` in `src/config/config.ts` remain the persistence seam.
 
 The block stores parameters only:
 
@@ -133,7 +133,7 @@ Implement the slices in this dependency order:
 
 | Slice | Scope | Dependencies |
 | --- | --- | --- |
-| S1 | Add the nested config type, resolved `OrchestratorMode`, dispatcher fallback, fixed preset constants, parameter validation, and derived label computation. Cover `loadConfig` and `saveConfig` round trips. The relevant symbols are `RunAgentConfig`, `loadConfig`, and `saveConfig` in `src/config/config.ts`, plus `getConfigDir` and `configFile` in `src/config/paths.ts`. | None |
+| S1 | Add the nested config type, resolved `OrchestratorMode`, dispatcher fallback, fixed preset constants, parameter validation, and derived label computation. Cover `loadConfig` and `saveConfig` round trips. The relevant symbols are `CodedeckConfig`, `loadConfig`, and `saveConfig` in `src/config/config.ts`, plus `getConfigDir` and `configFile` in `src/config/paths.ts`. | None |
 | S2 | Add `orchestrator-read.md` and `orchestrator-edit.md` tier files, with dispatch staying in `orchestrator.md`, plus the composed-prose block. Keep all three bodies tier-neutral and keep dispatcher output unchanged. | S1; may run in parallel with S4 |
 | S3 | Resolve the mode in `open.ts`, select the Claude agent file by `tools` tier, compose and append the `investigate` and `selfWork` prose, inject the advisory `parallelism` instruction, and parameterize OpenCode `rolePermission` by tier. Wire the new mode argument through `buildOpenArgs` and `buildInlineConfig`. | S1 and S2 |
 | S4 | Add the orchestrator screen to `buildScreens` in `src/cli/commands/setup.ts`, persist the block through the existing setup flow, display the computed preset or `custom` label, and surface the advisory parallelism note. | S1; may run in parallel with S2 |
@@ -154,6 +154,6 @@ S3 waits for the configuration contract from S1 and the tier files from S2. S2 a
 
    The version 1 decision is to scope only the open path. The code comment records that boundary and does not add enforcement to `run`.
 
-3. Per-project configuration is out of scope. The orchestrator block remains global at `~/.config/run-agent/config.json`.
+3. Per-project configuration is out of scope. The orchestrator block remains global at `~/.config/codedeck/config.json`.
 
 4. Real code enforcement of `parallelism` is a follow-up. Version 1 only injects the advisory instruction and verifies it in review.

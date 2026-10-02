@@ -80,4 +80,4 @@ that a row without calculable cost remains incomplete.
 - Validating model names entered by a user.
 - Changing session, usage, transcript, driver, web, or database behavior outside
   the pricing resolver and its tests.
-- Reading or changing the real `~/.run-agent` database.
+- Reading or changing the real `~/.codedeck` database.

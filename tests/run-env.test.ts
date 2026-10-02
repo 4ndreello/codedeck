@@ -7,14 +7,14 @@ import type { DriverSession, StartOptions } from "../src/core/driver.js";
 import { createRuntimeHooks, SessionDriver } from "../src/drivers/session-driver.js";
 
 const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-env-logs-"));
-const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+const previousCodedeckDir = process.env.CODEDECK_DIR;
 const previousNoScope = process.env.CODEDECK_NO_SCOPE;
-process.env.RUN_AGENT_DIR = logDir;
+process.env.CODEDECK_DIR = logDir;
 process.env.CODEDECK_NO_SCOPE = "1";
 
 afterAll(() => {
-  if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+  if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = previousCodedeckDir;
   if (previousNoScope === undefined) delete process.env.CODEDECK_NO_SCOPE;
   else process.env.CODEDECK_NO_SCOPE = previousNoScope;
   fs.rmSync(logDir, { recursive: true, force: true });

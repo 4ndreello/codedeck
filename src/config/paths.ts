@@ -10,37 +10,37 @@ function nonEmpty(value: string | undefined): value is string {
   return value !== undefined && value.trim() !== "";
 }
 
-export function getRunAgentDir(): string {
+export function getCodedeckDir(): string {
   // Allow override via env for testing
-  if (nonEmpty(process.env.RUN_AGENT_DIR)) return path.resolve(process.env.RUN_AGENT_DIR);
-  // Respect XDG_DATA_HOME if set, otherwise ~/.run-agent as per spec
-  // Spec says ~/.run-agent, we honor that
-  return path.resolve(getHomeDir(), ".run-agent");
+  if (nonEmpty(process.env.CODEDECK_DIR)) return path.resolve(process.env.CODEDECK_DIR);
+  // Respect XDG_DATA_HOME if set, otherwise ~/.codedeck as per spec
+  // Spec says ~/.codedeck, we honor that
+  return path.resolve(getHomeDir(), ".codedeck");
 }
 
 export function getConfigDir(): string {
-  if (nonEmpty(process.env.RUN_AGENT_CONFIG_DIR)) {
-    return path.resolve(process.env.RUN_AGENT_CONFIG_DIR);
+  if (nonEmpty(process.env.CODEDECK_CONFIG_DIR)) {
+    return path.resolve(process.env.CODEDECK_CONFIG_DIR);
   }
   const xdg = process.env.XDG_CONFIG_HOME;
-  if (nonEmpty(xdg)) return path.resolve(xdg, "run-agent");
-  return path.resolve(getHomeDir(), ".config", "run-agent");
+  if (nonEmpty(xdg)) return path.resolve(xdg, "codedeck");
+  return path.resolve(getHomeDir(), ".config", "codedeck");
 }
 
 export function hasConfigOverride(env: NodeJS.ProcessEnv = process.env): boolean {
-  return nonEmpty(env.RUN_AGENT_CONFIG_DIR) || nonEmpty(env.XDG_CONFIG_HOME);
+  return nonEmpty(env.CODEDECK_CONFIG_DIR) || nonEmpty(env.XDG_CONFIG_HOME);
 }
 
 export function getLegacyConfigFile(): string {
-  return path.resolve(getHomeDir(), ".run-agent", "config.json");
+  return path.resolve(getHomeDir(), ".codedeck", "config.json");
 }
 
 export function getPaths() {
-  const base = getRunAgentDir();
+  const base = getCodedeckDir();
   const configBase = getConfigDir();
   return {
     base,
-    db: path.join(base, "run-agent.db"),
+    db: path.join(base, "codedeck.db"),
     daemonSock: path.join(base, "daemon.sock"),
     daemonPid: path.join(base, "daemon.pid"),
     daemonLock: path.join(base, "daemon.lock"),

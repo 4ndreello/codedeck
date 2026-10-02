@@ -61,7 +61,7 @@ describe("daemon instance lock", () => {
   const children: ChildProcess[] = [];
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "run-agent-instance-lock-"));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-instance-lock-"));
     lockPath = path.join(tempDir, "daemon.lock");
   });
 

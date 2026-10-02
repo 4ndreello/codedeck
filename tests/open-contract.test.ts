@@ -34,7 +34,7 @@ const pluginDir = resolvePluginDir();
 const { runOpen } = setupOpenHarness({ prefix: "codedeck-open-link-contract-" });
 
 function runClaudeOpen(argv: string[]): Promise<void> {
-  const configDir = process.env.RUN_AGENT_CONFIG_DIR;
+  const configDir = process.env.CODEDECK_CONFIG_DIR;
   if (!configDir) throw new Error("test config directory is missing");
   fs.writeFileSync(path.join(configDir, "config.json"), JSON.stringify({
     agents: { reviewer: { harness: "claude", model: "claude-sonnet-4-6", effort: "high" } },

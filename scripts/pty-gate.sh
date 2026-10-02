@@ -89,7 +89,7 @@ chmod +x "$WORK/bin/claude"
   done
   printf 'quit\r'
   sleep 2
-) | RUN_AGENT_CONFIG_DIR="$CONFIG_DIR" RUN_AGENT_DIR="$STATE_DIR" PATH="$WORK/bin:$PATH" FAKE_NAME="$NAME" \
+) | CODEDECK_CONFIG_DIR="$CONFIG_DIR" CODEDECK_DIR="$STATE_DIR" PATH="$WORK/bin:$PATH" FAKE_NAME="$NAME" \
   timeout "$LIMIT" script -qec \
     "sh -c 'stty rows $ROWS cols $COLS; exec node \"$HERE/dist/cli/index.js\" open general --effort xhigh --no-theme --no-worktree'" \
     /dev/null > "$CAPTURE" 2>&1 || true

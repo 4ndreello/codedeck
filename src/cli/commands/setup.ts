@@ -49,7 +49,7 @@ import {
   type OrchestratorMode,
   type OrchestratorTools,
   type RoleBinding,
-  type RunAgentConfig,
+  type CodedeckConfig,
   type SelfWorkMode,
 } from "../../config/config.js";
 import { parseOptionalWebPort } from "../../web/server.js";
@@ -132,7 +132,7 @@ export function orchestratorConfigFromSelection(
   return isOrchestratorMode(mode) ? mode : undefined;
 }
 
-export function orchestratorDisplayLabel(config: RunAgentConfig): string {
+export function orchestratorDisplayLabel(config: CodedeckConfig): string {
   return orchestratorModeLabel(resolveOrchestratorMode(config));
 }
 
@@ -163,7 +163,7 @@ function parameterItems(parameter: OrchestratorParameter, mode: OrchestratorMode
 }
 
 export function buildOrchestratorScreen(
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
   index = 0,
   total = 1,
 ): Screen {
@@ -210,7 +210,7 @@ export function buildOrchestratorScreen(
 }
 
 export function buildSandboxScreen(
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
   index = 0,
   total = 1,
 ): Screen {
@@ -238,7 +238,7 @@ export function buildSandboxScreen(
 }
 
 export function buildAutocompactScreen(
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
   index = 0,
   total = 1,
 ): Screen {
@@ -410,7 +410,7 @@ export function collectOrchestratorParameters(
 export function collectOrchestratorSelection(
   selection: ScreenResult | undefined,
   parameters: readonly ScreenResult[],
-  existing: RunAgentConfig = {},
+  existing: CodedeckConfig = {},
 ): OrchestratorMode | undefined {
   if (selection?.kind !== "picked") return undefined;
   if (selection.id !== "custom") return orchestratorConfigFromSelection(selection);
@@ -419,7 +419,7 @@ export function collectOrchestratorSelection(
 }
 
 export interface ModelWizardOptions {
-  config?: RunAgentConfig;
+  config?: CodedeckConfig;
   registry?: DriverRegistry;
   input?: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode?(value: boolean): void };
   output?: NodeJS.WritableStream & { isTTY?: boolean; rows?: number; columns?: number };
@@ -427,7 +427,7 @@ export interface ModelWizardOptions {
   refresh?: boolean;
   dimensions?: Dimensions;
   discoverModels?: (registry: DriverRegistry, refresh: boolean) => Promise<HarnessModels[]>;
-  save?: (config: RunAgentConfig) => void;
+  save?: (config: CodedeckConfig) => void;
 }
 
 /**
@@ -444,7 +444,7 @@ export function isInteractiveTerminal(): boolean {
  * Keeping the terminal state as an argument makes the first-run policy pure.
  */
 export function needsModelSetup(
-  config: RunAgentConfig | null | undefined,
+  config: CodedeckConfig | null | undefined,
   isTTY: boolean = isInteractiveTerminal(),
 ): boolean {
   if (!isTTY) return false;
@@ -625,7 +625,7 @@ function watchResize(listener: () => void): () => void {
   };
 }
 
-export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
+export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<CodedeckConfig> {
   const loaded = options.config ?? loadConfig();
   const config = loaded;
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
@@ -1020,7 +1020,7 @@ function catalogValidation(
   };
 }
 
-function configSummary(config: RunAgentConfig): string {
+function configSummary(config: CodedeckConfig): string {
   const agents = config.agents ?? {};
   return ROLES.map((role) => {
     const binding = agents[role];
@@ -1030,7 +1030,7 @@ function configSummary(config: RunAgentConfig): string {
 
 function errorResult(
   read: SetupConfigRead,
-  proposal: RunAgentConfig | null,
+  proposal: CodedeckConfig | null,
   catalog: SetupEnvelope["validacoes"]["catalogo"],
   bindings: BindingValidation[],
   changes: SetupEnvelope["mudancas"],
@@ -1075,11 +1075,11 @@ export async function runSetupBatch(
     return errorResult(read, null, notNeededCatalog(), [], [], read.readError ? 15 : 14, message);
   }
 
-  const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
+  const current: CodedeckConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
   const lastByRole = new Map<Role, number>();
   options.binds.forEach((binding, index) => lastByRole.set(binding.role, index));
   const winning = options.binds.filter((binding, index) => lastByRole.get(binding.role) === index);
-  let proposed: RunAgentConfig;
+  let proposed: CodedeckConfig;
   let changes: SetupEnvelope["mudancas"];
   if (winning.length === 0) {
     proposed = { ...current };
@@ -1206,7 +1206,7 @@ export interface SetupCommandDependencies extends SetupBatchDependencies {
   isTTY?: boolean;
   wizardDiscoverModels?: ModelWizardOptions["discoverModels"];
   runWizard?: typeof runModelSetupWizard;
-  saveConfig?: (config: RunAgentConfig) => void;
+  saveConfig?: (config: CodedeckConfig) => void;
   launch?: typeof launchWebPage;
 }
 

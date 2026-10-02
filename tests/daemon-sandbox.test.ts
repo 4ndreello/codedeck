@@ -10,20 +10,20 @@ import { fakeSocket, seam } from "./helpers/daemon-seam.js";
 
 type StartDriverForSession = (sessionId: string, prompt: string, model?: string) => Promise<void>;
 
-let runAgentDir: string;
+let codedeckDir: string;
 let configDir: string;
 let daemon: Daemon;
 let startSandboxes: Array<Session["sandbox"]>;
 let requestNumber: number;
 let realStartDriverForSession: StartDriverForSession;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
-  runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-sandbox-"));
+  codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-sandbox-"));
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-sandbox-config-"));
-  process.env.RUN_AGENT_DIR = runAgentDir;
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_DIR = codedeckDir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
   requestNumber = 0;
   startSandboxes = [];
   daemon = new Daemon();
@@ -36,11 +36,11 @@ beforeEach(() => {
 
 afterEach(() => {
   try { seam(daemon).db.close(); } catch {}
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
-  fs.rmSync(runAgentDir, { recursive: true, force: true });
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
+  fs.rmSync(codedeckDir, { recursive: true, force: true });
   fs.rmSync(configDir, { recursive: true, force: true });
 });
 
@@ -60,7 +60,7 @@ function params(agent: string, sandbox?: unknown): Record<string, unknown> {
   return {
     prompt: "check sandbox",
     agent,
-    cwd: runAgentDir,
+    cwd: codedeckDir,
     noWorktree: true,
     ...(sandbox === undefined ? {} : { sandbox }),
   };

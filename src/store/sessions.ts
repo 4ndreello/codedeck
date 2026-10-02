@@ -648,7 +648,7 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
   }
 
   // If explicit repository exists and is not a worktree folder
-  if (row.repository && !row.repository.includes(".run-agent/worktrees")) {
+  if (row.repository && !row.repository.includes(".codedeck/worktrees")) {
     const clean = row.repository.replace(/\/+$/, "");
     const parts = clean.split("/");
     return parts[parts.length - 1] || clean;

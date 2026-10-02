@@ -28,14 +28,14 @@ type DaemonResponse = {
 let dir: string;
 let configDir: string;
 let daemon: Daemon;
-const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalCodedeckDir = process.env.CODEDECK_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
   dir = makeTempDir("session-create-collision-");
   configDir = makeTempDir("session-create-collision-config-");
-  process.env.RUN_AGENT_DIR = dir;
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_DIR = dir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
   vi.mocked(generateSessionId).mockReset();
   vi.mocked(getGitInfo).mockReset().mockResolvedValue(null);
   vi.mocked(createWorktree).mockReset();
@@ -46,10 +46,10 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   try { seam(daemon).db.close(); } catch {}
-  if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-  else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+  else process.env.CODEDECK_DIR = originalCodedeckDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
   removeTempDir(dir);
   removeTempDir(configDir);
 });

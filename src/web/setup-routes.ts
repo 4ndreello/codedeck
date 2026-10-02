@@ -10,7 +10,7 @@ import {
   saveConfig,
   serializeConfig,
   type RoleBinding,
-  type RunAgentConfig,
+  type CodedeckConfig,
   type SetupConfigRead,
 } from "../config/config.js";
 import { isOrchestratorMode } from "../config/orchestrator-mode.js";
@@ -35,7 +35,7 @@ const MODEL_PATTERN = /^[^\p{White_Space}\p{Cc}\p{Cf}=]+$/u;
 export interface SetupRoutesDependencies {
   pages?: WebPageLink[];
   readConfig?: () => SetupConfigRead;
-  saveConfig?: (config: RunAgentConfig) => void | boolean;
+  saveConfig?: (config: CodedeckConfig) => void | boolean;
   registry?: DriverRegistry;
   getBatchModels?: (options: BatchModelsOptions) => Promise<BatchModelsResult>;
   configPath?: () => string;
@@ -43,7 +43,7 @@ export interface SetupRoutesDependencies {
 
 interface LoadedSetup {
   read: SetupConfigRead;
-  current: RunAgentConfig;
+  current: CodedeckConfig;
   state: BuiltSetupState;
 }
 
@@ -59,9 +59,9 @@ export interface BuiltSetupState {
   target: { kind: "global" };
   bindings: Partial<Record<Role, RoleBinding>>;
   efforts: Partial<Record<Role, string>>;
-  orchestrator?: RunAgentConfig["orchestrator"];
-  sandbox?: RunAgentConfig["defaultSandbox"];
-  autocompact?: RunAgentConfig["autocompact"];
+  orchestrator?: CodedeckConfig["orchestrator"];
+  sandbox?: CodedeckConfig["defaultSandbox"];
+  autocompact?: CodedeckConfig["autocompact"];
 }
 
 interface ParsedBody {
@@ -131,7 +131,7 @@ export function buildSetupState(read: SetupConfigRead): BuiltSetupState {
   if (read.status === "invalid") {
     throw new Error(read.message ?? `Config file "${read.path}" could not be read.`);
   }
-  const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
+  const current: CodedeckConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
   const bindings = current.agents ?? {};
   const efforts = Object.fromEntries(ROLES.flatMap((role) => {
     const effort = bindings[role]?.effort;
@@ -166,7 +166,7 @@ function readAndResolve(dependencies: SetupRoutesDependencies): ReadResult {
   const problem = setupReadProblem(read, dependencies);
   if (problem) return { problem };
 
-  const current: RunAgentConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
+  const current: CodedeckConfig = { ...DEFAULT_CONFIG, ...(read.config ?? {}) };
   try {
     const state = buildSetupState(read);
     return { loaded: { read, current, state } };

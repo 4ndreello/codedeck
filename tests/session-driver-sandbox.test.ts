@@ -7,17 +7,17 @@ import { CodexDriver } from "../src/drivers/codex/driver.js";
 import { SessionRuntime } from "../src/drivers/session-runtime.js";
 
 let configDir: string;
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 
 beforeEach(() => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-driver-sandbox-config-"));
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
   fs.rmSync(configDir, { recursive: true, force: true });
 });
 

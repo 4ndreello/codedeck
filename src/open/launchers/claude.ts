@@ -9,7 +9,7 @@ import { detectBinary } from "../../drivers/helpers.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { autocompactArgs } from "../../core/autocompact.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
-import type { RunAgentConfig } from "../../config/config.js";
+import type { CodedeckConfig } from "../../config/config.js";
 import { parseEffort } from "../../core/driver.js";
 import type { Role } from "../../core/roles.js";
 import { catalogWarning, judgeModelIn, readUltra, type ModelVerdict, type OpenFlags } from "../contract.js";
@@ -159,7 +159,7 @@ export function buildOpenArgs(
   passthrough: string[],
   cwd?: string,
   mode: OrchestratorMode = DISPATCHER_PRESET,
-  config: RunAgentConfig = {},
+  config: CodedeckConfig = {},
 ): string[] {
   const orchestratorProse = role === "orchestrator" ? composeOrchestratorProse(mode) : "";
   const agent = role !== "orchestrator"

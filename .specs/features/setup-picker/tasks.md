@@ -1568,7 +1568,7 @@ o corpo:
 /** Abaixo disso não sobra lista pra desenhar depois do chrome. */
 const MIN_ROWS = 8;
 
-export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<RunAgentConfig> {
+export async function runModelSetupWizard(options: ModelWizardOptions = {}): Promise<CodedeckConfig> {
   const config = options.config ?? loadConfig();
   if (!(options.isTTY ?? isInteractiveTerminal())) return config;
 
@@ -1616,7 +1616,7 @@ export async function runModelSetupWizard(options: ModelWizardOptions = {}): Pro
   const { models, write } = collectSelections(results, config.models, screens.length);
   if (!write) return config;
 
-  const updatedConfig: RunAgentConfig = { ...config, models };
+  const updatedConfig: CodedeckConfig = { ...config, models };
   try {
     (options.save ?? saveConfig)(updatedConfig);
   } catch (error) {

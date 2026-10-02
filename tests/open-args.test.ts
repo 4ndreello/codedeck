@@ -420,14 +420,14 @@ describe("open command pure helpers", () => {
   });
 
   it("writes an executable Claude-facing codedeck shim", () => {
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
-    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-shim-"));
-    process.env.RUN_AGENT_DIR = runAgentDir;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
+    const codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-shim-"));
+    process.env.CODEDECK_DIR = codedeckDir;
 
     try {
       const binDir = ensureCodedeckShim();
 
-      expect(binDir).toBe(path.join(runAgentDir, "bin"));
+      expect(binDir).toBe(path.join(codedeckDir, "bin"));
       if (binDir === undefined) return;
 
       const shim = path.join(binDir, "codedeck");
@@ -440,9 +440,9 @@ describe("open command pure helpers", () => {
       expect(body.split("\n", 1)[0]).toBe("#!/usr/bin/env sh");
       expect(body).toContain(process.execPath);
     } finally {
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
-      fs.rmSync(runAgentDir, { recursive: true, force: true });
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
+      fs.rmSync(codedeckDir, { recursive: true, force: true });
     }
   });
 
@@ -487,37 +487,37 @@ describe("open command pure helpers", () => {
   });
 
   it("refuses to write an alias shim for hostile CLI names", () => {
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
     try {
       for (const hostile of ["../evil", "/tmp/codedeck-evil-probe", "a b", "a;b"]) {
-        const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-hostile-"));
-        process.env.RUN_AGENT_DIR = runAgentDir;
+        const codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-hostile-"));
+        process.env.CODEDECK_DIR = codedeckDir;
         process.env.CODEDECK_CLI_NAME = hostile;
 
         const binDir = ensureCodedeckShim();
-        expect(binDir).toBe(path.join(runAgentDir, "bin"));
+        expect(binDir).toBe(path.join(codedeckDir, "bin"));
         if (binDir === undefined) continue;
         expect(fs.readdirSync(binDir)).toEqual(["codedeck"]);
 
-        fs.rmSync(runAgentDir, { recursive: true, force: true });
+        fs.rmSync(codedeckDir, { recursive: true, force: true });
       }
       expect(fs.existsSync("/tmp/codedeck-evil-probe")).toBe(false);
     } finally {
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
     }
   });
 
   it("writes a renamed alias shim pointing at the real CLI entry", () => {
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
-    const runAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-alias-"));
-    process.env.RUN_AGENT_DIR = runAgentDir;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
+    const codedeckDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-alias-"));
+    process.env.CODEDECK_DIR = codedeckDir;
     process.env.CODEDECK_CLI_NAME = "codedeck-dev";
 
     try {
       const binDir = ensureCodedeckShim();
 
-      expect(binDir).toBe(path.join(runAgentDir, "bin"));
+      expect(binDir).toBe(path.join(codedeckDir, "bin"));
       if (binDir === undefined) return;
 
       for (const name of ["codedeck", "codedeck-dev"]) {
@@ -533,9 +533,9 @@ describe("open command pure helpers", () => {
       );
       expect(fs.statSync(path.join(binDir, "codedeck-dev")).mode & 0o777).toBe(0o700);
     } finally {
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
-      fs.rmSync(runAgentDir, { recursive: true, force: true });
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
+      fs.rmSync(codedeckDir, { recursive: true, force: true });
     }
   });
 
@@ -758,13 +758,13 @@ describe("open command pure helpers", () => {
 
   it("writes the farewell when a force-killed child closes", async () => {
     vi.useFakeTimers();
-    const previousRunAgentDir = process.env.RUN_AGENT_DIR;
+    const previousCodedeckDir = process.env.CODEDECK_DIR;
     const previousExitCode = process.exitCode;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codedeck-open-force-test-"));
     const sessionFile = path.join(tempDir, "session");
     const sessionId = "92d88cce-bdbc-46db-8573-916afd32f6f7";
     fs.writeFileSync(sessionFile, sessionId);
-    process.env.RUN_AGENT_DIR = tempDir;
+    process.env.CODEDECK_DIR = tempDir;
 
     const close = vi.fn();
     const child = {
@@ -814,8 +814,8 @@ describe("open command pure helpers", () => {
       expect(signalHost.removeListener).toHaveBeenCalledTimes(1);
     } finally {
       process.exitCode = previousExitCode;
-      if (previousRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = previousRunAgentDir;
+      if (previousCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = previousCodedeckDir;
       fs.rmSync(tempDir, { recursive: true, force: true });
       vi.useRealTimers();
     }

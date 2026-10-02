@@ -21,7 +21,7 @@ import { formatWaitResult, registerWaitCommand } from "../src/cli/commands/wait.
 import type { Session } from "../src/core/session.js";
 
 const SESSION_ID = "abcd1234567890ef";
-const originalConfigDir = process.env.RUN_AGENT_CONFIG_DIR;
+const originalConfigDir = process.env.CODEDECK_CONFIG_DIR;
 const originalExitCode = process.exitCode;
 let configDir: string;
 let logs: string[];
@@ -56,7 +56,7 @@ function runCommand(register: (program: Command) => void, name: string, args: st
 beforeEach(() => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-id-cli-config-"));
   fs.writeFileSync(path.join(configDir, "config.json"), "{}", "utf-8");
-  process.env.RUN_AGENT_CONFIG_DIR = configDir;
+  process.env.CODEDECK_CONFIG_DIR = configDir;
   process.exitCode = undefined;
   request.mockReset().mockResolvedValue({ session: session(), events: [], eventCount: 0 });
   logs = [];
@@ -71,8 +71,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   process.exitCode = originalExitCode;
-  if (originalConfigDir === undefined) delete process.env.RUN_AGENT_CONFIG_DIR;
-  else process.env.RUN_AGENT_CONFIG_DIR = originalConfigDir;
+  if (originalConfigDir === undefined) delete process.env.CODEDECK_CONFIG_DIR;
+  else process.env.CODEDECK_CONFIG_DIR = originalConfigDir;
   fs.rmSync(configDir, { recursive: true, force: true });
 });
 

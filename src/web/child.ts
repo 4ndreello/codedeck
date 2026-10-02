@@ -12,7 +12,7 @@ export interface RunWebChildOptions {
   port?: number;
   /** Preferred port (`--preferred-port`): an OS-assigned port on any listen error. Defaults to 7777. */
   preferredPort?: number;
-  /** Seam for the shared console token; defaults to `~/.run-agent/web-token`. */
+  /** Seam for the shared console token; defaults to `~/.codedeck/web-token`. */
   resolveToken?: () => string;
   stdin: Readable;
   stdout: Writable;

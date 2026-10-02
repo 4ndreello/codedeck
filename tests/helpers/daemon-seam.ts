@@ -91,36 +91,36 @@ export function removeTempDir(dir: string | undefined): void {
 }
 
 export interface DaemonTestContext {
-  readonly runAgentDir: string;
+  readonly codedeckDir: string;
   start(): void;
   cleanup(daemon: Daemon | undefined): void;
   nextRequestId(prefix: string): string;
 }
 
 export function makeDaemonTestContext(prefix: string): DaemonTestContext {
-  const originalRunAgentDir = process.env.RUN_AGENT_DIR;
-  let runAgentDir: string | undefined;
+  const originalCodedeckDir = process.env.CODEDECK_DIR;
+  let codedeckDir: string | undefined;
   let signalListenerSnapshot = snapshotDaemonSignalListeners();
   let requestNumber = 0;
 
   return {
-    get runAgentDir(): string {
-      if (runAgentDir === undefined) throw new Error("daemon test context is not active");
-      return runAgentDir;
+    get codedeckDir(): string {
+      if (codedeckDir === undefined) throw new Error("daemon test context is not active");
+      return codedeckDir;
     },
     start(): void {
       signalListenerSnapshot = snapshotDaemonSignalListeners();
-      runAgentDir = makeTempDir(prefix);
-      process.env.RUN_AGENT_DIR = runAgentDir;
+      codedeckDir = makeTempDir(prefix);
+      process.env.CODEDECK_DIR = codedeckDir;
       requestNumber = 0;
     },
     cleanup(daemon: Daemon | undefined): void {
       cleanupDaemon(daemon);
       removeAddedDaemonSignalListeners(signalListenerSnapshot);
-      if (originalRunAgentDir === undefined) delete process.env.RUN_AGENT_DIR;
-      else process.env.RUN_AGENT_DIR = originalRunAgentDir;
-      removeTempDir(runAgentDir);
-      runAgentDir = undefined;
+      if (originalCodedeckDir === undefined) delete process.env.CODEDECK_DIR;
+      else process.env.CODEDECK_DIR = originalCodedeckDir;
+      removeTempDir(codedeckDir);
+      codedeckDir = undefined;
     },
     nextRequestId(requestPrefix: string): string {
       return `${requestPrefix}-${++requestNumber}`;
