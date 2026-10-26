@@ -56,14 +56,15 @@ export const HARNESS_INJECTION: Record<AgentId, HarnessInjection> = {
   claude: {
     rename: (name) => slashCommandKeystrokes("rename", name),
   },
-  // The other three are listed so a harness is never silently forgotten. None
-  // has a rename command CodeDeck has verified, and an unverified guess would
-  // be typed into someone's session as a prompt, so they stay empty until one
+  // Listed so a harness is never silently forgotten. None of these has a
+  // rename command CodeDeck has verified, and an unverified guess would be
+  // typed into someone's session as a prompt, so they stay empty until one
   // is probed the way `/rename` was.
   codex: {},
   opencode: {},
   omp: {},
   antigravity: {},
+  grok: {},
 };
 
 export function harnessInjection(harness: AgentId): HarnessInjection {

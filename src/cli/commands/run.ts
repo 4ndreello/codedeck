@@ -29,7 +29,7 @@ export function registerRunCommand(program: Command): void {
     .command("run")
     .description("Start a new agent session (creates a CodeDeck session, not a raw harness call)")
     .argument("<prompt>", "prompt for the agent (e.g. \"implement authentication\")")
-    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp | antigravity (ignored for a role with a binding; default: claude or config.defaultAgent)")
+    .option("--agent <agent>", "agent to use: claude | codex | opencode | omp | antigravity | grok (ignored for a role with a binding; default: claude or config.defaultAgent)")
     .option("--model <model>", "model to use (e.g. claude-opus-5, gpt-5; ignored for a role with a binding)")
     .option("--effort <level>", `reasoning effort: ${REASONING_EFFORTS.join(" | ")} (required unless the role binds one; opencode ignores)`)
     .option("--role <role>", `prefix the prompt with a CodeDeck role: ${ROLES.join(" | ")} (3-letter prefixes accepted)`)
@@ -49,6 +49,7 @@ Examples:
   $ ${getCliInvocation()} run "refactor" --agent codex --model gpt-5.6-luna --effort max --fast
   $ ${getCliInvocation()} run "refactor module" --agent opencode --worktree --name refactor
   $ ${getCliInvocation()} run "investigate bug" --agent omp --cwd ./my-project --json
+  $ ${getCliInvocation()} run "summarize this module" --agent grok --effort high
 Power: a poweroff/reboot marks running sessions interrupted (exit 3).
 Resume with: ${getCliName()} send <id> "continue"
 `)

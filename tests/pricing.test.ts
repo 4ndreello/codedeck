@@ -71,7 +71,7 @@ describe("computeSessionCost", () => {
 
   it("identifies only Codex as reporting cached tokens inside input", () => {
     expect(cachedInInputFor("codex")).toBe(true);
-    for (const agent of ["claude", "antigravity", "omp", "opencode", undefined, null]) {
+    for (const agent of ["claude", "antigravity", "omp", "opencode", "grok", undefined, null]) {
       expect(cachedInInputFor(agent)).toBe(false);
     }
   });

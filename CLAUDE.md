@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-CodeDeck (`codedeck` binary) is a local process manager for coding-agent harnesses: Claude Code, Codex, OpenCode, OMP and Antigravity. It is not an agent. It starts harnesses, normalizes their event streams, persists sessions in SQLite, and isolates work in git worktrees. It also ships a Claude Code plugin (`plugin/`) that `codedeck open` loads to run an opinionated session with a role contract.
+CodeDeck (`codedeck` binary) is a local process manager for coding-agent harnesses: Claude Code, Codex, OpenCode, OMP, Antigravity and Grok. It is not an agent. It starts harnesses, normalizes their event streams, persists sessions in SQLite, and isolates work in git worktrees. It also ships a Claude Code plugin (`plugin/`) that `codedeck open` loads to run an opinionated session with a role contract.
 
 Node >= 24 is required: the store uses `node:sqlite` (`DatabaseSync`) with no flag.
 

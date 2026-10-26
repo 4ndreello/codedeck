@@ -20,6 +20,7 @@ describe("usage source keys", () => {
     );
     expect(workerSourceKey({ id: "s2", agent: "antigravity" }, 1)).toBe("session:s2");
     expect(workerSourceKey({ id: "s3", agent: "omp" }, 1)).toBe("session:s3");
+    expect(workerSourceKey({ id: "s4", agent: "grok", nativeSessionId: "g" }, 2)).toBe("grok:g#2");
   });
 
   it("does not assign opencode a source key", () => {

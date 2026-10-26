@@ -902,7 +902,7 @@ describe("an agent bound to another harness", () => {
   // An explicit --model changes which binary runs, never whether it is the
   // right harness, so it is no escape from the refusal.
   it("refuses every harness without a launcher", () => {
-    for (const harness of ["omp", "antigravity"] as const) {
+    for (const harness of ["omp", "antigravity", "grok"] as const) {
       expect(harnessMismatch("auditor", { harness, model: "whatever" })).toContain(harness);
     }
   });

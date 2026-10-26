@@ -26,7 +26,8 @@
     "claude",
     "codex",
     "opencode",
-    "omp"
+    "omp",
+    "grok"
   ],
   "author": "",
   "license": "MIT",

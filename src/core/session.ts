@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { CodexSandbox, ReasoningEffort } from "./driver.js";
 import type { FailureInfo } from "./errors.js";
-export const AGENT_IDS = ["claude", "codex", "opencode", "omp", "antigravity"] as const;
+export const AGENT_IDS = ["claude", "codex", "opencode", "omp", "antigravity", "grok"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 export function normalizeAgentId(value: unknown): AgentId | undefined {

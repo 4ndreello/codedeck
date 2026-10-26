@@ -12,6 +12,7 @@ CodeDeck is not an agent. It manages the lifecycle of existing harnesses:
 - **Codex** (`codex exec --json` / app-server)
 - **OpenCode** (`opencode run --format json`)
 - **OMP** (`omp --mode rpc`)
+- **Grok** (`grok -p --output-format streaming-messages-json`)
 
 The `codedeck` CLI provides a single unified interface for all of them:
 
@@ -20,6 +21,7 @@ npx codedeck run "implement authentication" --agent claude --effort medium
 npx codedeck run "fix the tests" --agent codex --effort medium
 npx codedeck run "investigate this bug" --agent opencode
 npx codedeck run "refactor this module" --agent omp --effort medium
+npx codedeck run "summarize this module" --agent grok --effort high
 
 npx codedeck ps
 npx codedeck logs a83f --follow
@@ -416,7 +418,7 @@ npx codedeck send <claude-session> "run the tests before finishing"
 npx codedeck stop <codex-session>
 ```
 
-The same experience across all four harnesses.
+Those commands work the same way for every harness `run` starts. `open` launches Claude, Codex and OpenCode.
 
 ## Security
 
