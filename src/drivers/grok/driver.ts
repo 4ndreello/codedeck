@@ -20,7 +20,8 @@ const execFileAsync = promisify(execFile);
 export function buildGrokArgs(options: StartOptions): string[] {
   const args = ["--output-format", "streaming-messages-json", "--always-approve", "--verbatim"];
   if (options.model) args.push("--model", options.model);
-  if (options.effort) args.push("--reasoning-effort", options.effort);
+  // grok 1.0.70 rejects `max`. Its menu is low, medium, high, xhigh.
+  if (options.effort) args.push("--reasoning-effort", options.effort === "max" ? "xhigh" : options.effort);
   if (options.resumeSessionId) args.push("--resume", options.resumeSessionId);
   if (options.fork && options.resumeSessionId) args.push("--fork-session");
   const prompt = options.prompt ?? "";

@@ -27,9 +27,10 @@ Open questions: none
 **Acceptance Criteria**
 
 1. WHEN the user passes `--agent grok` and Grok is on PATH, the system SHALL spawn `grok` with `--output-format streaming-messages-json`, `--always-approve` and `--verbatim`.
-2. WHEN a model or effort is set, the system SHALL forward them as `--model` and `--reasoning-effort`.
-3. WHEN a native session id is known, the system SHALL resume with `--resume` and that id.
-4. WHEN the prompt starts with a dash, the system SHALL pass it as `--single=<prompt>` so the CLI does not read it as a flag.
+2. WHEN a model or an effort of low, medium, high or xhigh is set, the system SHALL forward them as `--model` and `--reasoning-effort`.
+3. WHEN the effort is max, the system SHALL send `--reasoning-effort xhigh`, because grok 1.0.70 rejects max.
+4. WHEN a native session id is known, the system SHALL resume with `--resume` and that id.
+5. WHEN the prompt starts with a dash, the system SHALL pass it as `--single=<prompt>` so the CLI does not read it as a flag.
 
 ### GH-02: Normalize the stream
 

@@ -45,6 +45,12 @@ describe("buildGrokArgs", () => {
     ]);
   });
 
+  it("sends max as xhigh because grok 1.0.70 rejects max", () => {
+    const args = buildGrokArgs({ ...base, effort: "max" });
+    expect(args).toContain("--reasoning-effort");
+    expect(args[args.indexOf("--reasoning-effort") + 1]).toBe("xhigh");
+  });
+
   it("does not fork a new session", () => {
     expect(buildGrokArgs({ ...base, fork: true })).not.toContain("--fork-session");
   });
