@@ -7,6 +7,8 @@ export function workerSourceKey(
   switch (session.agent) {
     case "claude":
       return `claude:${session.nativeSessionId ?? session.id}#${processOrdinal}`;
+    case "grok":
+      return `grok:${session.nativeSessionId ?? session.id}#${processOrdinal}`;
     case "codex":
       return `codex:${session.nativeSessionId ?? session.id}`;
     case "antigravity":

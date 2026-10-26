@@ -45,7 +45,7 @@ export function createCliProgram(): Command {
 
   program
     .name(cliName)
-    .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode and OMP through a single session interface")
+    .description("CodeDeck — local runtime for coding agents\nManage Claude, Codex, OpenCode, OMP, Antigravity and Grok through a single session interface")
     .version(getVersion())
     .helpOption("-h, --help", "display help for command")
     .showHelpAfterError("(add --help for details)")

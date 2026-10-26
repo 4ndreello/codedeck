@@ -63,12 +63,14 @@ const HARNESS_GLYPH = vocab({
   opencode: "\uE902",
   codex: "\uEC81",
   omp: "\uE903",
+  grok: "G",
 });
 const HARNESS_LABEL = vocab({
   claude: "Claude",
   opencode: "OpenCode",
   codex: "Codex",
   omp: "OMP",
+  grok: "Grok",
 });
 
 function timestamp(row: SessionRow): number {

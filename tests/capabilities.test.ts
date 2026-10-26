@@ -13,7 +13,7 @@ describe("capabilities", () => {
     }
   });
 
-  it("detectAll returns 5 agents", async () => {
+  it("detectAll returns every registered harness", async () => {
     const reg = getRegistry();
     const all = await reg.detectAll();
     expect(Object.keys(all)).toContain("claude");
@@ -21,6 +21,7 @@ describe("capabilities", () => {
     expect(Object.keys(all)).toContain("opencode");
     expect(Object.keys(all)).toContain("omp");
     expect(Object.keys(all)).toContain("antigravity");
+    expect(Object.keys(all)).toContain("grok");
     for (const v of Object.values(all)) {
       expect(typeof v.installed).toBe("boolean");
     }
@@ -41,5 +42,16 @@ describe("capabilities", () => {
     expect(a.streaming).toBe(true);
     expect(a.modelSelection).toBe(true);
     expect(a.approvals).toBe(true);
+  });
+
+  it("grok supports streaming, resume, usage and model selection", () => {
+    const reg = getRegistry();
+    const g = reg.get("grok").capabilities();
+    expect(g.streaming).toBe(true);
+    expect(g.resume).toBe(true);
+    expect(g.usage).toBe(true);
+    expect(g.cost).toBe(true);
+    expect(g.modelSelection).toBe(true);
+    expect(g.fork).toBe(true);
   });
 });
