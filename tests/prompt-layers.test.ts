@@ -322,7 +322,8 @@ describe("prompt layers: build reproduces generated files", () => {
 
   it.each([
     ["an unknown key", "disallowed-tools: Edit\n", /zz-bogus.*unknown line: disallowed-tools: Edit/s],
-    ["both tools and disallowedTools", "tools: Bash\ndisallowedTools: Edit\n", /zz-bogus.*both tools and disallowedTools/s],
+    ["a tools allowlist", "tools: Bash\ndisallowedTools: Edit\n", /zz-bogus.*unknown line: tools: Bash/s],
+    ["a repeated key", "disallowedTools: Edit\ndisallowedTools: Bash\n", /zz-bogus.*repeats disallowedTools/s],
     ["no disallowedTools", "", /zz-bogus.*needs a disallowedTools list/s],
   ])("fails naming the manifest on %s", (_case, extra, error) => {
     const bad = path.join(manifestsDir, "zz-bogus.md");

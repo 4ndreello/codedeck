@@ -52,8 +52,8 @@ Facts the design rests on:
   `EnterWorktree`, `ExitWorktree`, `RemoteTrigger`, `SendMessage`,
   `ListAgents`, `Monitor`, `CronCreate`, `CronDelete`, `CronList`,
   `ScheduleWakeup`, `PublishPlugin`, `PushNotification`, `TaskStop`, `LSP`,
-  `WebFetch`, `WebSearch`, `Skill`, `ToolSearch`, `DesignSync`, and every
-  `mcp__` tool. RTD-03 denies the ones a role's prose forbids.
+  `WebFetch`, `WebSearch`, `Skill`, `ToolSearch`, `DesignSync`,
+  `ReportFindings`, `ShareOnboardingGuide`, and every `mcp__` tool. RTD-03 denies the ones a role's prose forbids.
 
 ## Goals
 
@@ -109,8 +109,8 @@ Facts the design rests on:
 ### Plugin build
 
 - **RTD-04**: WHEN `scripts/copy-plugin.mjs` reads a role manifest with `disallowedTools:` THEN `dist/plugin/agents/<role>.md` (the copy `open` loads, `src/core/roles.ts:11-21`) and `plugin/agents/<role>.md` SHALL carry `disallowedTools: <same value>`.
-- **RTD-05**: IF a role manifest declares both `tools:` and `disallowedTools:` THEN the build SHALL fail with an error naming the file.
-- **RTD-06**: IF a role manifest frontmatter has a key outside `name`, `description`, `tools`, `disallowedTools`, `includes`, or a non-blank line that is neither a key nor an `includes` item, THEN the build SHALL fail with an error naming the file and the line. (Today `parseManifest` drops unknown keys silently, so `disallowed-tools:` would ship an unrestricted agent.)
+- **RTD-05**: IF a role manifest declares `tools:` THEN the build SHALL fail with an error naming the file, and IF it repeats a key THEN the build SHALL fail naming the file and the key.
+- **RTD-06**: IF a role manifest frontmatter has a key outside `name`, `description`, `disallowedTools`, `includes`, or a non-blank line that is neither a key nor an `includes` item, THEN the build SHALL fail with an error naming the file and the line. (Today `parseManifest` drops unknown keys silently, so `disallowed-tools:` would ship an unrestricted agent.)
 - **RTD-07**: IF a role manifest other than `general.md` lacks `disallowedTools:` THEN the build SHALL fail with an error naming the file.
 
 ### Run and non-claude open invariant

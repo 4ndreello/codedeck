@@ -26,19 +26,21 @@ function splitFrontmatter(source, where) {
   return { front: match[1], body: source.slice(match[0].length).trim() };
 }
 
-const MANIFEST_KEYS = new Set(["name", "description", "tools", "disallowedTools", "includes"]);
+// No `tools:`: an allowlist hides every MCP tool, Skill and deferred tool the
+// user has, so roles restrict by denylist. See docs/harness-behaviour.md.
+const MANIFEST_KEYS = new Set(["name", "description", "disallowedTools", "includes"]);
 
 // Minimal frontmatter reader for the controlled manifest shape: scalar
-// name/description/tools/disallowedTools plus an `includes:` list. No YAML
-// dependency. Anything else fails the build: a dropped `disallowed-tools:`
-// would ship an agent with no restriction at all.
+// name/description/disallowedTools plus an `includes:` list. No YAML
+// dependency. Anything else, or a repeated key, fails the build: a dropped
+// `disallowed-tools:` would ship an agent with no restriction at all.
 function parseManifest(source, manifestPath) {
   const { front, body } = splitFrontmatter(source, manifestPath);
   let name;
   let description;
-  let tools;
   let disallowedTools;
   const includes = [];
+  const seen = new Set();
   let inIncludes = false;
   for (const line of front.split(/\r?\n/)) {
     if (line.trimStart().startsWith("#") || line.trim() === "") continue;
@@ -51,23 +53,19 @@ function parseManifest(source, manifestPath) {
     if (!key || !MANIFEST_KEYS.has(key[1])) {
       throw new Error(`${manifestPath} frontmatter has an unknown line: ${line.trim()}`);
     }
+    if (seen.has(key[1])) throw new Error(`${manifestPath} frontmatter repeats ${key[1]}`);
+    seen.add(key[1]);
     inIncludes = key[1] === "includes";
     if (key[1] === "name") name = key[2].trim();
     else if (key[1] === "description") description = key[2].trim();
-    else if (key[1] === "tools") tools = key[2].trim();
     else if (key[1] === "disallowedTools") disallowedTools = key[2].trim();
   }
   if (!name) throw new Error(`${manifestPath} frontmatter needs a name`);
   if (!description) throw new Error(`${manifestPath} frontmatter needs a description`);
-  // An allowlist hides every MCP tool, Skill and deferred tool the user has,
-  // so roles restrict by denylist. See docs/harness-behaviour.md.
-  if (tools !== undefined && disallowedTools !== undefined) {
-    throw new Error(`${manifestPath} declares both tools and disallowedTools; use disallowedTools only`);
-  }
   if (name !== "general" && !disallowedTools) {
     throw new Error(`${manifestPath} needs a disallowedTools list (only general is unrestricted)`);
   }
-  return { name, description, tools, disallowedTools, includes, body };
+  return { name, description, disallowedTools, includes, body };
 }
 
 // Partials generated from a standalone skill in skills/, so the skill stays
@@ -171,7 +169,6 @@ function generateAgents() {
       `name: ${manifest.name}`,
       `description: ${manifest.description}`,
     ];
-    if (manifest.tools) lines.push(`tools: ${manifest.tools}`);
     if (manifest.disallowedTools) lines.push(`disallowedTools: ${manifest.disallowedTools}`);
     lines.push("---", "", sections.join("\n\n") + "\n");
     pending.set(role, lines.join("\n"));

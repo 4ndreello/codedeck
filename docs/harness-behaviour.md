@@ -108,8 +108,8 @@ tools (approximate, counts drift by a few between runs):
 
 Naming servers cannot fix it: they are the user's and change over time. So
 every role except `general` declares `disallowedTools:` instead, and the build
-(`scripts/copy-plugin.mjs`) rejects `tools:`, unknown keys, and a restricted
-role with no denylist.
+(`scripts/copy-plugin.mjs`) rejects `tools:`, any other unknown or repeated
+key, and a restricted role with no denylist.
 
 Measured from the authoritative source, `.tools` in the `init` event of
 `claude -p hi --output-format stream-json --verbose`:
@@ -128,7 +128,10 @@ not name. On 2.1.312 that meant `Workflow`, `EnterWorktree`, `ExitWorktree`,
 `RemoteTrigger`, `SendMessage`, `ListAgents`, `Monitor`, `CronCreate`,
 `CronDelete`, `CronList`, `ScheduleWakeup`, `PublishPlugin`,
 `PushNotification`, `TaskStop`, `LSP`, `WebFetch`, `WebSearch`, `Skill`,
-`ToolSearch`, `DesignSync` and every `mcp__` tool. The roles deny the ones
+`ToolSearch`, `DesignSync`, `ReportFindings`, `ShareOnboardingGuide` (which
+publishes a file outside the machine) and every `mcp__` tool. The list depends
+on the claude version and the account, so the check below is the source, not
+this list. The roles deny the ones
 their prose forbids (`Workflow` and the worktree tools spawn or move work
 outside CodeDeck). MCP tools that write or delete outside the repo stay on
 every role, and under bypass they run without a prompt: that widening is
