@@ -6,7 +6,7 @@ exports[`orchestrator tier agent files > pins the frontmatter and body for orche
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: orchestrator
 description: Coordinate CodeDeck workers and track their state without doing the work yourself.
-tools: Bash
+disallowedTools: Read, Edit, Write, NotebookEdit, Grep, Glob, LSP, WebFetch, WebSearch, Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Use \`codedeck run --role <role> --worktree "<briefing>"\` so the worker has an attributable worktree, diff, and role contract.
@@ -127,7 +127,7 @@ exports[`orchestrator tier agent files > pins the frontmatter and body for orche
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: orchestrator-edit
 description: Coordinate CodeDeck workers and track their state.
-tools: Read, Grep, Glob, Edit, Write, Bash
+disallowedTools: Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Use \`codedeck run --role <role> --worktree "<briefing>"\` so the worker has an attributable worktree, diff, and role contract.
@@ -226,7 +226,7 @@ exports[`orchestrator tier agent files > pins the frontmatter and body for orche
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: orchestrator-read
 description: Coordinate CodeDeck workers and track their state.
-tools: Read, Grep, Glob, Bash
+disallowedTools: Edit, Write, NotebookEdit, Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Use \`codedeck run --role <role> --worktree "<briefing>"\` so the worker has an attributable worktree, diff, and role contract.

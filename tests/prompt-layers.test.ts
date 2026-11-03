@@ -18,7 +18,7 @@ const ultraFile = path.join(root, "plugin", "ultra.md");
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 // Minimal frontmatter reader for the controlled manifest/generated shape:
-// `#` comment lines, scalar name/description/tools, one `includes:` list.
+// `#` comment lines, scalar name/description/tools/disallowedTools, one `includes:` list.
 function parseFrontmatter(source: string): { fields: Record<string, string>; includes: string[] } {
   const match = FRONTMATTER.exec(source);
   if (!match) throw new Error("missing frontmatter");
@@ -208,15 +208,30 @@ describe("prompt layers: frontmatter preserved as parsed YAML", () => {
     expect(generated.fields).toEqual(manifest.fields);
   });
 
-  it("keeps the exact tools allowlist per role", () => {
-    const tools = (role: string) =>
-      parseFrontmatter(fs.readFileSync(path.join(agentsDir, `${role}.md`), "utf8")).fields.tools;
-    expect(tools("general")).toBeUndefined();
-    expect(tools("orchestrator")).toBe("Bash");
-    expect(tools("orchestrator-read")).toBe("Read, Grep, Glob, Bash");
-    expect(tools("orchestrator-edit")).toBe("Read, Grep, Glob, Edit, Write, Bash");
-    expect(tools("reviewer")).toBe("Read, Grep, Glob, Bash, WebFetch, WebSearch");
-    expect(tools("auditor")).toBe("Read, Grep, Glob, Bash, WebFetch, WebSearch, Task");
+  it("keeps the exact tools denylist per role", () => {
+    const fields = (role: string) =>
+      parseFrontmatter(fs.readFileSync(path.join(agentsDir, `${role}.md`), "utf8")).fields;
+    const SPAWN = "Workflow, EnterWorktree, ExitWorktree, RemoteTrigger";
+    expect(fields("general").tools).toBeUndefined();
+    expect(fields("general").disallowedTools).toBeUndefined();
+    for (const role of ROLES) expect(fields(role).tools, role).toBeUndefined();
+    expect(fields("orchestrator").disallowedTools).toBe(
+      `Read, Edit, Write, NotebookEdit, Grep, Glob, LSP, WebFetch, WebSearch, Agent, ${SPAWN}`,
+    );
+    expect(fields("orchestrator-read").disallowedTools).toBe(`Edit, Write, NotebookEdit, Agent, ${SPAWN}`);
+    expect(fields("orchestrator-edit").disallowedTools).toBe(`Agent, ${SPAWN}`);
+    expect(fields("reviewer").disallowedTools).toBe(`Edit, Write, NotebookEdit, Agent, ${SPAWN}`);
+    expect(fields("auditor").disallowedTools).toBe(`Edit, Write, NotebookEdit, ${SPAWN}`);
+  });
+
+  // orchestrator.md tells the role which tools it lacks; each one has to be
+  // denied or the sentence is false.
+  it("denies every tool the dispatch orchestrator says it lacks", () => {
+    const denied = parseFrontmatter(fs.readFileSync(path.join(agentsDir, "orchestrator.md"), "utf8"))
+      .fields.disallowedTools.split(/,\s*/);
+    const claim = /You have no ([^.]+?), and that is deliberate/.exec(manifestBody("orchestrator"));
+    expect(claim).not.toBeNull();
+    for (const tool of claim![1].split(/,\s*(?:or\s+)?|\s+or\s+/)) expect(denied).toContain(tool);
   });
 });
 
@@ -291,7 +306,7 @@ describe("prompt layers: build reproduces generated files", () => {
     const bad = path.join(manifestsDir, "zz-bogus.md");
     fs.writeFileSync(
       bad,
-      "---\nname: zz-bogus\ndescription: Bogus role.\nincludes:\n  - nope\n---\n\nBody.\n",
+      "---\nname: zz-bogus\ndescription: Bogus role.\ndisallowedTools: Edit\nincludes:\n  - nope\n---\n\nBody.\n",
     );
     try {
       expect(() => execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" })).toThrow(
@@ -303,6 +318,22 @@ describe("prompt layers: build reproduces generated files", () => {
       execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" });
     }
     expect(fs.existsSync(path.join(agentsDir, "zz-bogus.md"))).toBe(false);
+  });
+
+  it.each([
+    ["an unknown key", "disallowed-tools: Edit\n", /zz-bogus.*unknown line: disallowed-tools: Edit/s],
+    ["both tools and disallowedTools", "tools: Bash\ndisallowedTools: Edit\n", /zz-bogus.*both tools and disallowedTools/s],
+    ["no disallowedTools", "", /zz-bogus.*needs a disallowedTools list/s],
+  ])("fails naming the manifest on %s", (_case, extra, error) => {
+    const bad = path.join(manifestsDir, "zz-bogus.md");
+    fs.writeFileSync(bad, `---\nname: zz-bogus\ndescription: Bogus role.\n${extra}---\n\nBody.\n`);
+    try {
+      expect(() => execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" })).toThrow(error);
+    } finally {
+      fs.rmSync(bad, { force: true });
+      fs.rmSync(path.join(agentsDir, "zz-bogus.md"), { force: true });
+      execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" });
+    }
   });
 
   it("leaves plugin/agents/ and dist/ untouched when the build fails", () => {
@@ -322,7 +353,7 @@ describe("prompt layers: build reproduces generated files", () => {
     const bad = path.join(manifestsDir, "zz-bogus.md");
     fs.writeFileSync(
       bad,
-      "---\nname: zz-bogus\ndescription: Bogus role.\nincludes:\n  - nope\n---\n\nBody.\n",
+      "---\nname: zz-bogus\ndescription: Bogus role.\ndisallowedTools: Edit\nincludes:\n  - nope\n---\n\nBody.\n",
     );
     try {
       expect(() => execFileSync("node", ["scripts/copy-plugin.mjs"], { cwd: root, stdio: "pipe" })).toThrow(

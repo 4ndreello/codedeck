@@ -1,7 +1,7 @@
 ---
 name: auditor
 description: Review a scope too large for one pass by fanning out, then consolidate the findings and prove them.
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Task
+disallowedTools: Edit, Write, NotebookEdit, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 includes:
   - dispatch
   - proof
