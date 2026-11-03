@@ -241,35 +241,47 @@ describe("CodeDeck plugin manifest contract", () => {
     }
   });
 
-  // An agent file with no `tools:` key inherits the whole toolset, which is the
-  // only way general keeps Edit and Write. Adding the key would silently take
-  // them away, so its absence is the contract.
+  // An agent file with neither `tools:` nor `disallowedTools:` inherits the
+  // whole toolset, which is the only way general keeps Edit and Write. Adding
+  // either key would silently take tools away, so their absence is the contract.
   it("leaves general's toolset inherited", () => {
-    expect(frontmatter(plugin("agents", "general.md"))).not.toMatch(/^tools:/m);
+    expect(frontmatter(plugin("agents", "general.md"))).not.toMatch(/^(tools|disallowedTools):/m);
+  });
+
+  // A `tools:` allowlist hides every MCP tool, Skill and deferred tool the
+  // user has, so the restricted roles deny instead of allow.
+  it("restricts every non-general role by denylist", () => {
+    const agents = readdirSync(plugin("agents")).filter((file) => file.endsWith(".md") && file !== "general.md");
+    for (const file of agents) {
+      const source = frontmatter(plugin("agents", file));
+      expect(source, file).not.toMatch(/^tools:/m);
+      expect(field(source, "disallowedTools"), file).not.toBe("");
+    }
   });
 
   it("pins tool restrictions for the three constrained roles", () => {
-    const tools = (name: string) => field(frontmatter(plugin("agents", `${name}.md`)), "tools");
+    const denied = (name: string) => field(frontmatter(plugin("agents", `${name}.md`)), "disallowedTools");
 
     for (const name of ["reviewer", "orchestrator", "auditor"]) {
-      expect(tools(name), name).not.toMatch(/\b(Edit|Write)\b/);
-      expect(tools(name), name).toMatch(/\bBash\b/);
+      expect(denied(name), name).toMatch(/\bEdit\b/);
+      expect(denied(name), name).toMatch(/\bWrite\b/);
+      expect(denied(name), name).not.toMatch(/\bBash\b/);
     }
 
     // The reviewer is the single pass. Dispatching is what separates it from
-    // the auditor, so the allowlist has to carry that and not just the prose.
-    expect(tools("reviewer")).not.toMatch(/\b(Task|Agent)\b/);
-    expect(tools("orchestrator")).toBe("Bash");
-    expect(tools("orchestrator")).not.toMatch(/\b(Read|Grep|Glob|Task)\b/);
-    expect(tools("auditor")).toMatch(/\bTask\b/);
+    // the auditor, so the denylist has to carry that and not just the prose.
+    expect(denied("reviewer")).toMatch(/\bAgent\b/);
+    expect(denied("orchestrator")).toMatch(/\bRead\b/);
+    expect(denied("orchestrator")).toMatch(/\bAgent\b/);
+    expect(denied("auditor")).not.toMatch(/\bAgent\b/);
   });
 
   it("requires --role on every dispatching role", () => {
-    const agents = readdirSync(plugin("agents")).filter((file) => file.endsWith(".md"));
+    const agents = readdirSync(plugin("agents")).filter((file) => file.endsWith(".md") && file !== "general.md");
     for (const file of agents) {
       const name = file.replace(/\.md$/, "");
       const path = plugin("agents", `${name}.md`);
-      if (/\bTask\b/.test(field(frontmatter(path), "tools"))) {
+      if (!/\bAgent\b/.test(field(frontmatter(path), "disallowedTools"))) {
         expect(agentBody(path), name).toContain("codedeck run --role");
       }
     }

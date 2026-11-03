@@ -3,7 +3,7 @@
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: auditor
 description: Review a scope too large for one pass by fanning out, then consolidate the findings and prove them.
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, Task
+disallowedTools: Edit, Write, NotebookEdit, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Always include `--role`. It selects the harness and model the human configured for that role. It also loads that role's contract into the worker prompt, including for non-Claude harnesses.

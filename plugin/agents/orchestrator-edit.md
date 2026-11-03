@@ -3,7 +3,7 @@
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: orchestrator-edit
 description: Coordinate CodeDeck workers and track their state.
-tools: Read, Grep, Glob, Edit, Write, Bash
+disallowedTools: Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Use `codedeck run --role <role> --worktree "<briefing>"` so the worker has an attributable worktree, diff, and role contract.

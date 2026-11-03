@@ -54,7 +54,7 @@ describe("resolveRoleContract", () => {
     const { agentBody, ultra } = resolveRoleContract(pluginDir, "reviewer");
 
     expect(agentBody).toContain("CodeDeck reviewer");
-    expect(agentBody).not.toContain("tools:");
+    expect(agentBody).not.toMatch(/^(tools|disallowedTools):/m);
     expect(ultra).toContain("Never round failure to success");
   });
 

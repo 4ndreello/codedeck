@@ -3,7 +3,7 @@
 # Do not hand-edit; edit the manifest or partials and rebuild.
 name: reviewer
 description: Inspect changes rigorously, tie every finding to evidence, and change nothing.
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+disallowedTools: Edit, Write, NotebookEdit, Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 ---
 
 - Verify before you claim.

@@ -45,7 +45,7 @@ CodeDeck sends codebase discovery questions to `general`, which can edit files a
 | Generated prompts and budgets | Pin generated headings and prohibitions. Keep scout and consultant prompts within 8,192 bytes and set the `orchestrator-read` and `orchestrator-edit` budget checks to 12,288 bytes. | Heading and prohibition checks preserve the contract while leaving explanatory prose editable. The orchestrator budgets leave room for the routing rules. | Yes |
 | Installed skill copy | Mirror the two role rows in the repository skill and the installed `~/.claude` copy. | The installed copy is outside the repository and needs a manual check. Unrelated differences between the copies stay out of scope. | Yes |
 
-**Enforcement boundary:** Claude's `--agent` path in `open` applies the agent's `tools:` allowlist, but `Bash` remains available and can write through shell redirection or launch CodeDeck commands. Claude's measured toolset omits `Grep` and `Glob` when `Bash` is granted, so prompts direct repository searches through the shell with `rg`. Codex `open` passes a read-only sandbox setting on new sessions, but its default bypass flag disables that setting. `--no-bypass` leaves the read-only sandbox active. OpenCode denies `edit`, `write`, and `task` while allowing `bash`, which can still write or launch commands. `run --role` strips frontmatter and delivers the role contract as prose, without native permission enforcement. Read-only and no-dispatch rules therefore remain prompt rules wherever an allowed shell can act. These are the same limits that apply to `reviewer` today.
+**Enforcement boundary:** Claude's `--agent` path in `open` applies the agent's `disallowedTools:` denylist (superseded from `tools:` by `open-role-tool-denylist`), but `Bash` remains available and can write through shell redirection or launch CodeDeck commands. Claude's toolset on 2.1.312 has no `Grep` or `Glob`, so prompts direct repository searches through the shell with `rg`. Codex `open` passes a read-only sandbox setting on new sessions, but its default bypass flag disables that setting. `--no-bypass` leaves the read-only sandbox active. OpenCode denies `edit`, `write`, and `task` while allowing `bash`, which can still write or launch commands. `run --role` strips frontmatter and delivers the role contract as prose, without native permission enforcement. Read-only and no-dispatch rules therefore remain prompt rules wherever an allowed shell can act. These are the same limits that apply to `reviewer` today.
 
 **Open questions:** none.
 
@@ -91,7 +91,7 @@ CodeDeck sends codebase discovery questions to `general`, which can edit files a
 
 **Acceptance Criteria:**
 
-11. **SC-11:** The generated Claude agent files for `scout` and `consultant` SHALL declare the exact `tools:` allowlist `Read, Grep, Glob, Bash, WebFetch, WebSearch`.
+11. **SC-11:** The generated Claude agent files for `scout` and `consultant` SHALL declare `disallowedTools:` with the reviewer's denied set from `open-role-tool-denylist` RTD-03 (amended from a `tools:` allowlist, which hides MCP tools and skills).
 12. **SC-12:** WHEN Codex or OpenCode opens either new role THEN Codex with `--no-bypass` SHALL use `-s read-only` and OpenCode SHALL apply the existing reviewer permission map, denying `edit`, `write`, and `task` while allowing `bash`.
 13. **SC-13:** WHEN `run --role` composes either role THEN it SHALL remove the role prompt frontmatter.
 14. **SC-14:** WHEN `run --role` composes either role THEN it SHALL include the role contract body in the prompt.

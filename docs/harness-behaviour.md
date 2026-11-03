@@ -4,9 +4,10 @@ Things CodeDeck depends on that no harness documents. Each one was measured,
 not read off a page, and each is re-runnable. Measurements below are against
 `claude 2.1.258` on 2026-09-05.
 
-This file exists because the role frontmatter in `plugin/agents/` lists tools
-that never arrive, and until now the only explanation lived in a merged pull
-request body.
+This file exists because agent frontmatter does not do what it reads like:
+an allowlist once listed tools that never arrived, and hid tools nobody meant
+to take away. Until this file, the only explanation lived in merged pull
+request bodies.
 
 ## Run-time skill suppression
 
@@ -63,7 +64,7 @@ asked to list the exact names of every tool it can call.
 | F | E minus `Bash`, nothing else changed | `Read`, `WebFetch`, `WebSearch`, `Grep`, `Glob` |
 | D | *(no key)* | 12 tools, `Bash` among them, no `Grep` or `Glob` |
 
-E is the frontmatter `plugin/agents/reviewer.md` actually ships. F removes one
+E is the frontmatter `plugin/agents/reviewer.md` shipped until the denylist switch. F removes one
 word from it and the two tools come back, which is the controlled contrast: the
 only variable is `Bash`. B and C ask for the same four in a different order and
 lose the same two, so it is not a parse order artifact either.
@@ -79,15 +80,74 @@ established is the effect.
 
 Consequences for the roles that ship today:
 
-- `reviewer` and `auditor` list `Grep` in their frontmatter and never receive
-  it. Their real search path is `rg` through `Bash`.
-- `orchestrator`'s prose does not say it runs without `Grep`. Anything written
-  for these roles should assume shell search, not the tool.
-- Asking for `Grep` costs nothing and is not an error, so the frontmatter is
-  left as written intent. This table is the correction.
+- The roles no longer use `tools:` (see the next section), so this rule no
+  longer shapes their toolset. On `claude 2.1.312` a bare session has no
+  `Grep` or `Glob` at all, so every role searches with `rg` through `Bash`.
+- Anything written for these roles should assume shell search, not the tool.
 
-`Task` in frontmatter resolves to the tool named `Agent`, which is why the
-roles allowed to dispatch list `Task` and the probe above reports `Agent`.
+`Task` and `Agent` name the same dispatch tool: frontmatter accepts `Agent`,
+and the `init` event of a stream-json run reports it as `Task`.
+
+## A `tools:` allowlist hides MCP tools and skills
+
+An allowlist is enforced literally. Any tool not named is gone, and that
+includes every MCP tool, `Skill`, `ToolSearch` and the deferred tools
+(`DesignSync`, `Monitor`, `WebFetch`, ...), none of which a role meant to
+forbid. On 2026-11-03 an `open` session on `codedeck:orchestrator-edit` could
+not see the user's `claude_design` MCP server, and blamed the server.
+
+Measured on `claude 2.1.312`, `--model haiku`, by asking the model to list its
+tools (approximate, counts drift by a few between runs):
+
+| `--agent` frontmatter | tools | MCP tools | `Skill` |
+| --- | --- | --- | --- |
+| none, or no `tools:` key (`general`) | 63 | all | yes |
+| `tools: Read, Grep, Glob, Edit, Write, Bash` (old `orchestrator-edit`) | 4 | none | no |
+| `tools: ..., Skill, ToolSearch, mcp__claude_design` | 6 + 23 MCP | that server only | yes |
+| `tools: ..., Skill, ToolSearch, mcp__*` | 5 | none, wildcard not honored | yes |
+
+Naming servers cannot fix it: they are the user's and change over time. So
+every role except `general` declares `disallowedTools:` instead, and the build
+(`scripts/copy-plugin.mjs`) rejects `tools:`, any other unknown or repeated
+key, and a restricted role with no denylist.
+
+Measured from the authoritative source, `.tools` in the `init` event of
+`claude -p hi --output-format stream-json --verbose`:
+
+| `--agent` | tools | difference from no agent |
+| --- | --- | --- |
+| none | 59 (31 `mcp__`) | n/a |
+| `disallowedTools: Agent, NotebookEdit` | 57 | exactly `Task` and `NotebookEdit` |
+| same, with `--dangerously-skip-permissions` | 57 | same two |
+| each shipped role after the switch | base minus its denylist | exact, all 31 `mcp__` kept |
+
+The denylist holds under bypass, which `open` turns on by default.
+
+The cost of a denylist is that a restricted role inherits every tool it does
+not name. On 2.1.312 that meant `Workflow`, `EnterWorktree`, `ExitWorktree`,
+`RemoteTrigger`, `SendMessage`, `ListAgents`, `Monitor`, `CronCreate`,
+`CronDelete`, `CronList`, `ScheduleWakeup`, `PublishPlugin`,
+`PushNotification`, `TaskStop`, `LSP`, `WebFetch`, `WebSearch`, `Skill`,
+`ToolSearch`, `DesignSync`, `ReportFindings`, `ShareOnboardingGuide` (which
+publishes a file outside the machine) and every `mcp__` tool. The list depends
+on the claude version and the account, so the check below is the source, not
+this list. The roles deny the ones
+their prose forbids (`Workflow` and the worktree tools spawn or move work
+outside CodeDeck). MCP tools that write or delete outside the repo stay on
+every role, and under bypass they run without a prompt: that widening is
+accepted, and the role prose governs their use.
+
+After a claude upgrade, rerun the check below and read the new tools a
+restricted role inherits:
+
+```
+tools() { claude -p hi --model haiku --plugin-dir dist/plugin --output-format stream-json --verbose "$@" < /dev/null \
+  | grep '^{' | jq -r 'select(.type=="system" and .subtype=="init") | .tools[]' | sort; }
+tools > /tmp/base
+tools --agent codedeck:reviewer | comm -13 - /tmp/base   # what the role lost
+```
+
+(`grep '^{'` drops the lines `mise` prints on stdout.)
 
 ### Reproducing the allowlist probe
 

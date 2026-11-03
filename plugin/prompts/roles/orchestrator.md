@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Coordinate CodeDeck workers and track their state without doing the work yourself.
-tools: Bash
+disallowedTools: Read, Edit, Write, NotebookEdit, Grep, Glob, LSP, WebFetch, WebSearch, Agent, Workflow, EnterWorktree, ExitWorktree, RemoteTrigger
 includes:
   - worktree
   - dispatch
