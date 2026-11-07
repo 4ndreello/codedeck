@@ -1,5 +1,6 @@
 import net from "node:net";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { getPaths } from "../config/paths.js";
 import type { IpcRequest, IpcResponse } from "./protocol.js";
 
@@ -16,7 +17,8 @@ function ipcError(error: NonNullable<IpcResponse["error"]>): Error & { code: str
 
 export async function isDaemonRunning(): Promise<boolean> {
   const sock = getSocketPath();
-  if (!fs.existsSync(sock)) return false;
+  // A Windows named pipe is not a file to check; connecting is the probe.
+  if (process.platform !== "win32" && !fs.existsSync(sock)) return false;
   return new Promise((resolve) => {
     let done = false;
     const c = net.createConnection(sock, () => {
@@ -201,10 +203,12 @@ export class IpcClient {
     const { getPaths } = await import("../config/paths.js");
     const paths = getPaths();
     // Build daemon entry
-    const daemonScript = new URL("./daemon.js", import.meta.url).pathname;
+    // fileURLToPath, not URL.pathname: on Windows pathname is "/C:/...".
+    const daemonScript = fileURLToPath(new URL("./daemon.js", import.meta.url));
     // Use current node to run daemon
     const child = spawn(process.execPath, [daemonScript, "--daemon"], {
       detached: true,
+      windowsHide: true,
       stdio: ["ignore", "ignore", "ignore"],
       env: { ...process.env },
     });
@@ -225,8 +229,9 @@ export function createIpcServer(
 ): net.Server {
   const sockPath = getSocketPath();
   // Remove stale socket
+  // Named pipes (Windows) disappear with their owner and cannot be unlinked.
   try {
-    if (fs.existsSync(sockPath)) fs.unlinkSync(sockPath);
+    if (process.platform !== "win32" && fs.existsSync(sockPath)) fs.unlinkSync(sockPath);
   } catch {}
 
   const server = net.createServer((socket) => {

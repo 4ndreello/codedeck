@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { detectBinary, runCommandWithTimeout } from "../helpers.js";
+import { findLocalBinary } from "../../utils/command.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
@@ -14,7 +15,7 @@ function opencodeV2BinaryPath(homeDir: string = os.homedir()): string {
 
 function resolveOpencodeCommand(homeDir: string = os.homedir()): string {
   const localBin = opencodeV2BinaryPath(homeDir);
-  return fs.existsSync(localBin) ? localBin : "opencode";
+  return findLocalBinary(localBin) ?? "opencode";
 }
 
 export class OpencodeDriver extends SessionDriver {
@@ -59,8 +60,8 @@ export class OpencodeDriver extends SessionDriver {
   async detect(): Promise<AgentInstallation> {
     let res = await detectBinary("opencode");
     if (!res.installed) {
-      const localBin = opencodeV2BinaryPath();
-      if (fs.existsSync(localBin)) res = await detectBinary(localBin);
+      const localBin = findLocalBinary(opencodeV2BinaryPath());
+      if (localBin) res = await detectBinary(localBin);
     }
     if (!res.installed || !res.path) {
       this.detectedPath = undefined;

@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildScopedSpawn } from "../utils/process.js";
+import { resolveCommand, spawnTarget, type SpawnTarget } from "../utils/command.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,11 +73,15 @@ export function spawnDetached(opts: {
           memoryMax: opts.scope?.memoryMax,
           swapMax: opts.scope?.swapMax,
         });
+  // Scoping is Linux-only, so a scoped spawn never needs the Windows target.
+  const target: SpawnTarget = scoped ?? spawnTarget(opts.cmd, opts.args);
   try {
-    const proc = spawn(scoped?.cmd ?? opts.cmd, scoped?.args ?? opts.args, {
+    const proc = spawn(target.cmd, target.args, {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       detached: true,
+      windowsHide: true,
+      windowsVerbatimArguments: target.windowsVerbatimArguments,
       // stdin is "ignore", never a closed pipe: a closed pipe works for some
       // harnesses (they read EOF) but an OPEN one hangs forever waiting for
       // input that never comes. "ignore" removes the whole failure class.
@@ -93,37 +98,53 @@ export function spawnDetached(opts: {
   }
 }
 
+// execFile through the platform spawn target: on Windows a bare name gains
+// its PATHEXT spelling and an npm .cmd shim runs without EINVAL.
+export async function execCommand(
+  cmd: string,
+  args: string[],
+  opts: Parameters<typeof execFileAsync>[2] = {},
+): Promise<{ stdout: string; stderr: string }> {
+  const target = spawnTarget(cmd, args);
+  const { stdout, stderr } = await execFileAsync(target.cmd, target.args, {
+    windowsHide: true,
+    ...opts,
+    ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+  });
+  return { stdout: String(stdout), stderr: String(stderr) };
+}
+
 export async function detectBinary(
   cmd: string,
   versionArgs: string[] = ["--version"],
 ): Promise<{ installed: boolean; path?: string; version?: string; error?: string }> {
-  try {
-    const { stdout: whichOut } = await execFileAsync("which", [cmd]);
-    const path = whichOut.trim();
-    if (!path) return { installed: false };
-    let version: string | undefined;
-    try {
-      const { stdout } = await execFileAsync(cmd, versionArgs, { timeout: 5000 });
-      version = stdout.trim().split("\n")[0].slice(0, 200);
-    } catch {
-      try {
-        const { stdout } = await execFileAsync(cmd, ["--help"], { timeout: 5000 });
-        version = stdout.trim().split("\n")[0].slice(0, 200);
-      } catch (e) {
-        version = undefined;
-      }
-    }
-    return { installed: true, path, version };
-  } catch (e) {
-    // Try command -v fallback
+  // In-process PATH lookup instead of `which`: Windows has no `which`, and on
+  // POSIX this saves a process per harness.
+  let resolved = resolveCommand(cmd);
+  if (!resolved && process.platform !== "win32") {
+    // Login-shell fallback for installs only the user's shell profile puts on
+    // PATH (the daemon may have started with a minimal environment).
     try {
       const { stdout } = await execFileAsync("bash", ["-lc", `command -v ${cmd}`], { timeout: 3000 });
-      if (stdout.trim()) {
-        return { installed: true, path: stdout.trim(), version: undefined };
-      }
+      resolved = stdout.trim().split("\n")[0] || undefined;
     } catch {}
-    return { installed: false, error: e instanceof Error ? e.message : String(e) };
+    if (resolved) return { installed: true, path: resolved, version: undefined };
   }
+  if (!resolved) return { installed: false, error: `${cmd} not found on PATH` };
+
+  let version: string | undefined;
+  try {
+    const { stdout } = await execCommand(resolved, versionArgs, { timeout: 5000 });
+    version = stdout.trim().split("\n")[0].slice(0, 200);
+  } catch {
+    try {
+      const { stdout } = await execCommand(resolved, ["--help"], { timeout: 5000 });
+      version = stdout.trim().split("\n")[0].slice(0, 200);
+    } catch {
+      version = undefined;
+    }
+  }
+  return { installed: true, path: resolved, version };
 }
 
 export function safeJsonParse(s: string): unknown | null {
@@ -225,7 +246,7 @@ export async function runCommandWithTimeout(
   args: string[],
   opts?: RunCommandOptions,
 ): Promise<string> {
-  const { stdout } = await execFileAsync(cmd, args, {
+  const { stdout } = await execCommand(cmd, args, {
     cwd: opts?.cwd ?? os.tmpdir(),
     timeout: opts?.timeoutMs ?? 10000,
     maxBuffer: opts?.maxBuffer ?? 10 * 1024 * 1024,
