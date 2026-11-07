@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { detectBinary, runCommandWithTimeout } from "../helpers.js";
+import { findLocalBinary } from "../../utils/command.js";
 import type { AgentInstallation, DriverSession, ReattachRequest, StartOptions } from "../../core/driver.js";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentEvent } from "../../core/events.js";
@@ -218,8 +219,7 @@ export class AntigravityDriver extends SessionDriver {
   protected override getCommand(): string {
     if (this.detectedPath) return this.detectedPath;
     const localBin = path.join(os.homedir(), ".local", "bin", "agy");
-    if (fs.existsSync(localBin)) return localBin;
-    return "agy";
+    return findLocalBinary(localBin) ?? "agy";
   }
 
   protected override getEnv(_options: StartOptions): NodeJS.ProcessEnv {
@@ -252,8 +252,8 @@ export class AntigravityDriver extends SessionDriver {
     let res = await detectBinary("agy");
     if (!res.installed) {
       // Check default install target ~/.local/bin/agy if not in PATH
-      const localBin = path.join(os.homedir(), ".local", "bin", "agy");
-      if (fs.existsSync(localBin)) {
+      const localBin = findLocalBinary(path.join(os.homedir(), ".local", "bin", "agy"));
+      if (localBin) {
         res = await detectBinary(localBin);
       }
     }

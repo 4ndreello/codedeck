@@ -1,16 +1,13 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { AgentCapabilities } from "../../core/capabilities.js";
 import type { AgentInstallation, StartOptions } from "../../core/driver.js";
 import type { ListModelsOptions, ModelInfo, ProviderModels } from "../../core/models.js";
 import { runCommandWithTimeout } from "../helpers.js";
+import { resolveCommand } from "../../utils/command.js";
 import { createRuntimeHooks, SessionDriver } from "../session-driver.js";
 import { parseGrokLine } from "./parser.js";
-
-const execFileAsync = promisify(execFile);
 
 // Pure so the flag spellings are testable without spawning grok.
 // Measured against grok 1.0.70: headless `-p` writes Messages JSON when asked,
@@ -154,11 +151,5 @@ export class GrokDriver extends SessionDriver {
 }
 
 async function findGrokBinary(): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("which", ["grok"], { timeout: 3000 });
-    const bin = stdout.trim().split("\n")[0];
-    return bin.length > 0 ? bin : undefined;
-  } catch {
-    return undefined;
-  }
+  return resolveCommand("grok");
 }

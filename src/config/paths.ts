@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 
 export function getHomeDir(): string {
   return os.homedir();
@@ -35,13 +36,23 @@ export function getLegacyConfigFile(): string {
   return path.resolve(getHomeDir(), ".codedeck", "config.json");
 }
 
+// Node's IPC server on Windows is a named pipe, which must live under
+// \\.\pipe\; a filesystem path fails to listen. Derive the pipe name from
+// the data dir so CODEDECK_DIR overrides (tests, parallel installs) still get
+// their own daemon.
+export function daemonSocketPath(base: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== "win32") return path.join(base, "daemon.sock");
+  const id = createHash("sha256").update(base.toLowerCase()).digest("hex").slice(0, 16);
+  return `\\\\.\\pipe\\codedeck-${id}`;
+}
+
 export function getPaths() {
   const base = getCodedeckDir();
   const configBase = getConfigDir();
   return {
     base,
     db: path.join(base, "codedeck.db"),
-    daemonSock: path.join(base, "daemon.sock"),
+    daemonSock: daemonSocketPath(base),
     daemonPid: path.join(base, "daemon.pid"),
     daemonLock: path.join(base, "daemon.lock"),
     daemonLog: path.join(base, "daemon.log"),

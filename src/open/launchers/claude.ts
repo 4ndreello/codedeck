@@ -1,11 +1,10 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { promisify } from "node:util";
 import { DISPATCHER_PRESET, type OrchestratorMode } from "../../config/orchestrator-mode.js";
 import { getPaths } from "../../config/paths.js";
-import { detectBinary } from "../../drivers/helpers.js";
+import { detectBinary, execCommand } from "../../drivers/helpers.js";
+import { resolveCommand } from "../../utils/command.js";
 import { getRegistry } from "../../drivers/registry.js";
 import { autocompactArgs } from "../../core/autocompact.js";
 import { getCachedOrDiscoverModels, type HarnessModels } from "../../core/models.js";
@@ -43,7 +42,6 @@ const THEME_REF = `custom:${PLUGIN_NAME}:codedeck-ultra`;
  */
 export const CLAUDE_NOT_FOUND =
   "Claude Code was not found on PATH. Install Claude Code and ensure `claude` is available.";
-const execFileAsync = promisify(execFile);
 const SUPPORT_CACHE_FILE = "claude-support.json";
 
 interface SupportRecord {
@@ -51,17 +49,6 @@ interface SupportRecord {
   mtimeMs: number;
 }
 
-function findOnPath(command: string): string | undefined {
-  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
-    const candidate = path.resolve(entry || process.cwd(), command);
-    try {
-      if (fs.statSync(candidate).isFile()) {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      }
-    } catch {}
-  }
-}
 
 function readSupportRecords(): Record<string, SupportRecord> {
   try {
@@ -265,7 +252,7 @@ export async function preflightModel(model: string, fromConfig: boolean): Promis
  * hoping it answers the same way.
  */
 export async function resolveBinary(): Promise<string> {
-  const onPath = findOnPath("claude");
+  const onPath = resolveCommand("claude");
   if (onPath) return onPath;
 
   // Keep detectBinary's login-shell fallback for installations that PATH
@@ -298,7 +285,7 @@ export async function assertSupport(claudeBin: string, cwd: string): Promise<voi
   }
 
   try {
-    await execFileAsync(claudeBin, ["--append-system-prompt-file"], {
+    await execCommand(claudeBin, ["--append-system-prompt-file"], {
       cwd,
       env: sanitizeEnv(process.env),
       timeout: 5000,
