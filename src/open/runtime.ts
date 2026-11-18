@@ -247,9 +247,11 @@ export function withCodedeckOnPath(
   // case-sensitive object. Writing a second "PATH" beside it would hand the
   // child two entries and, depending on which one wins, a PATH holding only
   // the shim directory: no git, no node.
-  // With both spellings present, Node keeps the one that sorts first ("PATH"
-  // before "Path") and drops the rest, so read that one and leave only it.
-  const keys = Object.keys(env).filter((name) => name.toUpperCase() === "PATH").sort();
+  // With both spellings present, Node keeps the one that sorts first by code
+  // unit ("PATH" before "Path") and drops the rest, so read that one and
+  // leave only it. Not localeCompare: it orders "Path" first.
+  const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  const keys = Object.keys(env).filter((name) => name.toUpperCase() === "PATH").sort(byCodeUnit);
   const key = keys[0] ?? "PATH";
   const currentPath = env[key];
   const entries = currentPath ? currentPath.split(path.delimiter) : [];
