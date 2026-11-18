@@ -195,6 +195,11 @@ describe("power graceful shutdown", () => {
 
   it("reports power readiness on the doctor result", async () => {
     const daemon = new Daemon();
+    // Only the power field is under test. The real detectAll runs every
+    // installed harness's --version, which under a loaded full run took
+    // longer than the test timeout.
+    const registry = (daemon as unknown as { registry: { detectAll: () => Promise<unknown> } }).registry;
+    registry.detectAll = async () => ({});
     const { writes, socket } = fakeSocket();
     await (daemon as any).handleRequest({ id: "r1", method: "doctor", params: {} }, socket);
 
