@@ -1,3 +1,4 @@
+import os from "node:os";
 import { InvalidArgumentError, type Command } from "commander";
 import { isActiveStatus, shortSessionId, type SessionStatus } from "../../core/session.js";
 import { IpcClient } from "../../daemon/ipc.js";
@@ -186,7 +187,7 @@ function columnValue(col: PsColumnKey, s: PsSession): string {
     case "lastEvent":
       return (s.lastEvent || "-").replace(/[\r\n\t]+/g, " ");
     case "cwd":
-      return (s.worktree || s.cwd || "").replace(process.env.HOME || "", "~");
+      return tildify(s.worktree || s.cwd || "");
   }
 }
 
@@ -435,4 +436,18 @@ export function registerPsCommand(program: Command): void {
       console.log(renderPsTable(layout.sessions));
       if (overflowNote) console.log(overflowNote);
     });
+}
+
+// os.homedir(), not $HOME: Windows sets no HOME, and replace("", "~") would
+// prefix every path with a tilde.
+export function tildify(dir: string, home: string = os.homedir(), platform: NodeJS.Platform = process.platform): string {
+  if (!home) return dir;
+  // Windows paths compare case-insensitively.
+  const fold = (value: string) => (platform === "win32" ? value.toLowerCase() : value);
+  const head = fold(dir.slice(0, home.length));
+  if (head !== fold(home)) return dir;
+  // A path boundary must follow, or /home/me would turn /home/meow into ~ow.
+  const rest = dir.slice(home.length);
+  if (rest !== "" && rest[0] !== "/" && !(platform === "win32" && rest[0] === "\\")) return dir;
+  return `~${rest}`;
 }

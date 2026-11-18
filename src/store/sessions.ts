@@ -632,6 +632,14 @@ export function resolveUsageDateRange(params: UsageQueryParams = {}): { since: s
   };
 }
 
+// A loop, not /\/+$/: an end-anchored quantifier retries from every slash,
+// which is quadratic on a long run of them.
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
+}
+
 export function normalizeProjectName(row: { repository?: string | null; cwd?: string | null; worktree?: string | null }): string {
   const all = [row.repository, row.cwd, row.worktree].filter(Boolean).join(" ");
   if (all.includes("codedeck") || all.includes("3189bd7a") || all.includes("orchestrator-presets")) {
@@ -647,21 +655,24 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
     return "toupeira";
   }
 
+  // Windows paths arrive with backslashes; the matching below speaks "/".
+  const repository = row.repository?.replaceAll("\\", "/");
+
   // If explicit repository exists and is not a worktree folder
-  if (row.repository && !row.repository.includes(".codedeck/worktrees")) {
-    const clean = row.repository.replace(/\/+$/, "");
+  if (repository && !repository.includes(".codedeck/worktrees")) {
+    const clean = stripTrailingSlashes(repository);
     const parts = clean.split("/");
     return parts[parts.length - 1] || clean;
   }
 
-  const cwd = row.cwd || "";
+  const cwd = (row.cwd || "").replaceAll("\\", "/");
   const wtMatch = cwd.match(/(.*?)(?:\.worktrees|-wt)(?:\/.*)?$/);
   if (wtMatch && wtMatch[1]) {
-    const parts = wtMatch[1].replace(/\/+$/, "").split("/");
+    const parts = stripTrailingSlashes(wtMatch[1]).split("/");
     return parts[parts.length - 1] || wtMatch[1];
   }
 
-  const cleanCwd = cwd.replace(/\/+$/, "");
+  const cleanCwd = stripTrailingSlashes(cwd);
   const parts = cleanCwd.split("/");
   return parts[parts.length - 1] || "other";
 }

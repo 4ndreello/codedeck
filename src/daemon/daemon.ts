@@ -18,7 +18,7 @@ import { generateSessionId } from "../core/session.js";
 import { getGitInfo } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { killTree, processAlive, processStartTime, sleep } from "../utils/process.js";
+import { killTree, pidIdentity, processAlive, processStartTime, sleep, type PidIdentity } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
@@ -87,15 +87,25 @@ function validateSendMessage(raw: unknown): { message: string } | { code: string
   return { message };
 }
 
-// PID identity triple, same rule as the stop path: a recycled PID must
-// neither block a legitimate resume nor permit killing a stranger.
-function livePidIdentity(s: Session): boolean {
-  return (
-    s.pid != null &&
-    s.pidStartTime != null &&
-    processAlive(s.pid) &&
-    processStartTime(s.pid) === s.pidStartTime
-  );
+function sessionPidIdentity(s: Session): PidIdentity {
+  // Through the imported bindings, so a test spying on them steers this too.
+  return pidIdentity(s.pid, s.pidStartTime, { alive: processAlive, startTime: processStartTime });
+}
+
+// Whether the recorded PID may still be this session's harness. A recycled
+// PID must not block a legitimate resume. Where the platform cannot read
+// start times (Windows, macOS) a live PID is "unknown". It counts as live
+// only while the session could still own it: an active or orphaned row
+// whose exit this daemon has not seen. Blocking a resume there is
+// recoverable, a second harness on the same session is not. A finished row
+// keeps its pid, and Windows hands PIDs out again within minutes, so
+// trusting "unknown" there would queue every follow-up behind a stranger.
+// Killing is gated separately, never on "unknown".
+export function livePidIdentity(s: Session, exitObserved = false): boolean {
+  const identity = sessionPidIdentity(s);
+  if (identity === "match") return true;
+  if (identity !== "unknown" || exitObserved) return false;
+  return isActiveStatus(s.status) || s.status === "orphaned";
 }
 
 export interface WebHost {
@@ -338,7 +348,7 @@ class Daemon {
 
   async start(): Promise<void> {
     const paths = getPaths();
-    const isDead = (session: Session) => !livePidIdentity(session);
+    const isDead = (session: Session) => !this.pidMayBeLive(session);
     // Recover orphaned sessions
     await this.recover();
     const staleSessionIds = new Set(
@@ -434,7 +444,7 @@ class Daemon {
         now: new Date(),
         maxAgeHours,
         canResume: driver.capabilities().resume,
-        liveIdentity: livePidIdentity(session),
+        liveIdentity: this.pidMayBeLive(session),
       })) continue;
       if (this.sessionLocks.has(session.id)) continue;
 
@@ -503,14 +513,15 @@ class Daemon {
           this.sessions.setStatus(s.id, "failed", { lastEvent: "open session terminated before patch" });
           continue;
         }
-        const currentStart = processStartTime(s.pid);
-        const processPresent = processAlive(s.pid);
-        const identityVerified = s.pidStartTime != null && currentStart === s.pidStartTime;
+        const identity = sessionPidIdentity(s);
+        const currentStart = identity === "reused" ? processStartTime(s.pid) : undefined;
 
-        if (processPresent && identityVerified) {
-          // Head process still running interactively; remain working, no driver to attach
+        if (identity === "match" || identity === "unknown") {
+          // Head process still running interactively; remain working, no driver
+          // to attach. "unknown" is a live PID on a platform without start
+          // times: failing it would end a session the user still has open.
           continue;
-        } else if (!processPresent) {
+        } else if (identity === "gone") {
           // Closed normally while daemon was away
           const ev: AgentEvent = {
             type: "session.completed",
@@ -522,7 +533,7 @@ class Daemon {
           this.sessions.setStatus(s.id, "completed", { lastEvent: "closed while daemon was stopped" });
           continue;
         } else {
-          // PID recycled (processPresent is true but !identityVerified)
+          // PID recycled: alive, but provably not the recorded process
           const failure: FailureInfo = {
             code: "HARNESS_CRASH",
             blame: "harness",
@@ -946,7 +957,7 @@ class Daemon {
           : undefined;
         if (
           matchingSession &&
-          (isTerminalStatus(matchingSession.status) || !livePidIdentity(matchingSession))
+          (isTerminalStatus(matchingSession.status) || !this.pidMayBeLive(matchingSession))
         ) {
           const now = new Date();
           this.sessions.setStatus(matchingSession.id, "working", {
@@ -1064,7 +1075,7 @@ class Daemon {
         // actionable and release may finalize it to completed/failed — unless
         // its process is still alive under the same identity, which keeps
         // the send path's stop-first guard instead of orphaning it.
-        if (s.status === "interrupted" && livePidIdentity(s)) {
+        if (s.status === "interrupted" && this.pidMayBeLive(s)) {
           send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
           return;
         }
@@ -1167,7 +1178,7 @@ class Daemon {
         }
         // Power-interrupted sessions with a live process keep the old rule:
         // stop first, never queue behind a running harness.
-        if (s.status === "interrupted" && livePidIdentity(s)) {
+        if (s.status === "interrupted" && this.pidMayBeLive(s)) {
           send({ error: { code: "SESSION_BUSY", message: `Session ${s.id} is still running (stop it first)` } });
           return;
         }
@@ -1186,7 +1197,7 @@ class Daemon {
           ? busyHandle as { done?: boolean; drained?: boolean }
           : undefined;
         const runtimeBusy = busyHandle !== undefined && (busyState?.done !== true || busyState?.drained !== true);
-        const busy = s.status === "starting" || runtimeBusy || livePidIdentity(s);
+        const busy = s.status === "starting" || runtimeBusy || this.pidMayBeLive(s);
         if (busy) {
           // One-slot queue, last-wins: persist without holding the lifecycle
           // lock, then converge — the turn may have ended between the busy
@@ -1253,7 +1264,7 @@ class Daemon {
         }
         const handle = driver.getHandle?.(s.id);
         const hasRuntime = handle !== undefined;
-        const liveIdentity = livePidIdentity(s);
+        const liveIdentity = this.pidMayBeLive(s);
         if (isTerminalStatus(s.status) && !hasRuntime && !liveIdentity) {
           send({ error: { code: "SESSION_NOT_RUNNING", message: `Session ${s.id} is ${s.status}` } });
           return;
@@ -1794,7 +1805,7 @@ class Daemon {
       if (!nativeId) return false;
       if (s.status === "starting") return false;
       if (handle !== undefined && (hs?.done !== true || hs?.drained !== true)) return false;
-      if (livePidIdentity(s)) return false;
+      if (this.pidMayBeLive(s)) return false;
       message = s.pendingMessage;
       pendingAt = s.pendingAt;
       // Clear first so a crash mid-start cannot double-send; restored below
@@ -2079,10 +2090,14 @@ class Daemon {
     }
 
     // Bounded grace per session, in parallel so 5+ sessions fit the delay
-    // budget. Identity-checked: a recycled PID is never signaled.
+    // budget. Identity-checked: a recycled PID is never signaled. A row with
+    // no recorded start time (Windows, macOS, legacy rows) is signaled only
+    // when this daemon spawned it and still holds its runtime; otherwise
+    // killTree would have nothing to check and would signal whoever now owns
+    // that PID.
     await Promise.allSettled(
       actives
-        .filter((s) => s.pid != null)
+        .filter((s) => s.pid != null && (s.pidStartTime != null || this.hasLiveRuntime(s)))
         .map((s) => killTree(s.pid as number, 1500, s.pidStartTime)),
     );
     // Force any live runtime to consume complete lines before the final WAL
@@ -2107,6 +2122,26 @@ class Daemon {
       // EROFS/EIO with the FS already gone: abort the flush, still close.
       return [];
     }
+  }
+
+  private runtimeOf(session: Session): { done?: boolean } | undefined {
+    try {
+      const runtime = this.registry.get(session.agent).getHandle?.(session.id);
+      return typeof runtime === "object" && runtime !== null ? (runtime as { done?: boolean }) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // A runtime this daemon spawned that has not yet seen its process exit.
+  // Drivers keep finished runtimes around, so presence alone proves nothing.
+  private hasLiveRuntime(session: Session): boolean {
+    const runtime = this.runtimeOf(session);
+    return runtime !== undefined && runtime.done !== true;
+  }
+
+  private pidMayBeLive(session: Session): boolean {
+    return livePidIdentity(session, this.runtimeOf(session)?.done === true);
   }
 
   private prepareLiveRuntimes(sessions: Session[]): void {

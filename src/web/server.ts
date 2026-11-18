@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { InvalidArgumentError } from "commander";
+import { windowsSystemBinary } from "../utils/process.js";
 import { checkWebRequest, createWebSecurity, getTokenUrl, type WebSecurity } from "./security.js";
 
 import { DEFAULT_WEB_HOST, webBaseUrl } from "../config/web-host.js";
@@ -87,13 +88,17 @@ export function parseOptionalWebPort(raw: string | undefined): number | undefine
 }
 
 export function openBrowser(url: string): Promise<boolean> {
+  // Windows: not `cmd /c start`, which reads a `&` in the query string as a
+  // command separator. rundll32 hands the URL to the default browser as is.
+  // By absolute path: a bare name is looked up in the cwd first, which is the
+  // user's repo when `review` opens the page.
   const opener =
     process.platform === "darwin"
       ? "open"
       : process.platform === "win32"
-        ? "cmd"
+        ? windowsSystemBinary("rundll32.exe")
         : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
   return new Promise((resolve) => {
     try {
       const child = spawn(opener, args, { detached: true, stdio: "ignore" });

@@ -134,7 +134,7 @@ export function buildSettings(pluginDir: string, flags: OpenFlags): Record<strin
  * reads it off the tail of this same string.
  */
 export function sessionName(role: Role, cwd?: string): string {
-  const project = cwd?.split("/").filter(Boolean).at(-1)?.replace(/[\t\r\n]/g, " ").trim();
+  const project = cwd?.split(/[\\/]/).filter(Boolean).at(-1)?.replace(/[\t\r\n]/g, " ").trim();
   if (!project) return `CodeDeck · ${role}`;
   return `CodeDeck · ${project} · ${role}`;
 }
