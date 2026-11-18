@@ -355,14 +355,52 @@ function existingConfigBytes(file: string): string | undefined {
 
 let tempSequence = 0;
 
+/**
+ * O_NOFOLLOW where the platform has it. Windows does not: Node leaves the
+ * constant undefined there. The temporary is still safe without it, because
+ * O_CREAT | O_EXCL maps to CREATE_NEW, which fails on any existing entry,
+ * a symlink or junction included, instead of following it.
+ */
+export function noFollowFlag(constants: Record<string, number | undefined> = fs.constants): number {
+  return constants.O_NOFOLLOW ?? 0;
+}
+
+const RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/**
+ * rename(2) over an existing file. POSIX replaces atomically. Windows replaces
+ * too (MoveFileEx with REPLACE_EXISTING), but fails with EPERM/EACCES/EBUSY
+ * while another process briefly holds the target open: an antivirus scan, an
+ * editor, or a CLI reading the config at that instant. Retry for a moment
+ * before giving up.
+ */
+export function renameReplacing(
+  from: string,
+  to: string,
+  deps: { platform?: NodeJS.Platform; rename?: (from: string, to: string) => void; wait?: (ms: number) => void } = {},
+): void {
+  const rename = deps.rename ?? fs.renameSync;
+  const wait = deps.wait ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
+  const attempts = (deps.platform ?? process.platform) === "win32" ? 10 : 1;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (attempt >= attempts || !RENAME_RETRY_CODES.has(code)) throw error;
+      wait(25 * attempt);
+    }
+  }
+}
+
 /** Writes a complete config document without following a symlink. */
 export function writeConfigAtomically(file: string, contents: string): boolean {
   const absoluteFile = path.resolve(file);
   const parent = path.dirname(absoluteFile);
   ensureSecureDirectory(parent);
 
-  const noFollow = (fs.constants as typeof fs.constants & { O_NOFOLLOW?: number }).O_NOFOLLOW;
-  if (noFollow === undefined) throw new Error("O_NOFOLLOW is not supported on this platform");
+  const noFollow = noFollowFlag();
 
   if (existingConfigBytes(absoluteFile) === contents) return false;
 
@@ -407,9 +445,12 @@ export function writeConfigAtomically(file: string, contents: string): boolean {
       if (!isMissing(error)) throw error;
     }
 
-    fs.renameSync(temporary, absoluteFile);
+    renameReplacing(temporary, absoluteFile);
     renamed = true;
 
+    // Windows opens a directory read-only but refuses to fsync that handle
+    // (EPERM), and NTFS journals the rename's directory entry itself.
+    if (process.platform === "win32") return true;
     const directoryFlag = (fs.constants as typeof fs.constants & { O_DIRECTORY?: number }).O_DIRECTORY ?? 0;
     const directoryFd = fs.openSync(parent, fs.constants.O_RDONLY | directoryFlag | noFollow);
     try {

@@ -9,6 +9,7 @@ import { getPaths } from "../config/paths.js";
 import { getCliName } from "../cli/cli-name.js";
 import { INDENT, LOGO, renderFarewell, renderLogo } from "../cli/ui.js";
 import type { Role } from "../core/roles.js";
+import { spawnTarget } from "../utils/command.js";
 import { ptyUnavailableReason, startPtySession, type PtyLaunch, type PtySession } from "./pty.js";
 
 /**
@@ -147,6 +148,29 @@ function writeShim(file: string, entry: string, cliName?: string): void {
     { mode: 0o700 },
   );
   fs.chmodSync(file, 0o700);
+  if (process.platform === "win32") writeCmdShim(`${file}.cmd`, entry, cliName);
+}
+
+/** The .cmd twin of the sh shim, for Windows harnesses whose shell is cmd or PowerShell. */
+export function cmdShimContents(execPath: string, entry: string, cliName?: string): string {
+  // A batch file expands %VAR% even inside quotes; %% is a literal percent.
+  const literal = (value: string) => value.replaceAll("%", "%%");
+  const setName = cliName !== undefined ? `set "CODEDECK_CLI_NAME=${literal(cliName)}"\r\n` : "";
+  return `@echo off\r\n${setName}"${literal(execPath)}" "${literal(entry)}" %*\r\n`;
+}
+
+// cmd.exe and PowerShell cannot run the sh shim (Git Bash, which Claude
+// Code's Bash tool uses on Windows, can). Best effort: a failure here must
+// not drop the sh shim from PATH. Written only on change, because cmd.exe
+// reads a running batch file by offset and a rewrite under it misreads.
+function writeCmdShim(file: string, entry: string, cliName?: string): void {
+  const contents = cmdShimContents(process.execPath, entry, cliName);
+  try {
+    if (fs.readFileSync(file, "utf8") === contents) return;
+  } catch {}
+  try {
+    fs.writeFileSync(file, contents);
+  } catch {}
 }
 
 export function ensureCodedeckShim(): string | undefined {
@@ -192,14 +216,22 @@ export function sanitizeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function withCodedeckOnPath(env: NodeJS.ProcessEnv, binDir: string): NodeJS.ProcessEnv {
-  const currentPath = env.PATH;
+  // Windows spells it "Path", and a spread copy of process.env is a plain,
+  // case-sensitive object. Writing a second "PATH" beside it would hand the
+  // child two entries and, depending on which one wins, a PATH holding only
+  // the shim directory: no git, no node.
+  // With both spellings present, Node keeps the one that sorts first ("PATH"
+  // before "Path") and drops the rest, so read that one and leave only it.
+  const keys = Object.keys(env).filter((name) => name.toUpperCase() === "PATH").sort();
+  const key = keys[0] ?? "PATH";
+  const currentPath = env[key];
   const entries = currentPath ? currentPath.split(path.delimiter) : [];
-  if (entries[0] === binDir) return { ...env };
+  const next = { ...env };
+  for (const other of keys.slice(1)) delete next[other];
+  if (entries[0] === binDir) return next;
 
-  return {
-    ...env,
-    PATH: [binDir, ...entries].join(path.delimiter),
-  };
+  next[key] = [binDir, ...entries].join(path.delimiter);
+  return next;
 }
 
 /**
@@ -653,9 +685,13 @@ export function spawnHarness(
         });
         child = pty.child;
       } else {
-        child = spawnChild(bin, args, {
+        // On Windows a harness from npm is a .cmd shim, which Node refuses to
+        // spawn without a shell (EINVAL); spawnTarget runs its real entry.
+        const target = spawnTarget(bin, args, { env });
+        child = spawnChild(target.cmd, target.args, {
           cwd: opts.cwd,
           env,
+          ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
           // Keep Claude in the foreground process group so the terminal sends
           // the first Ctrl+C to it as well as to this parent guard.
           detached: false,

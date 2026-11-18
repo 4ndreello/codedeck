@@ -647,14 +647,17 @@ export function normalizeProjectName(row: { repository?: string | null; cwd?: st
     return "toupeira";
   }
 
+  // Windows paths arrive with backslashes; the matching below speaks "/".
+  const repository = row.repository?.replaceAll("\\", "/");
+
   // If explicit repository exists and is not a worktree folder
-  if (row.repository && !row.repository.includes(".codedeck/worktrees")) {
-    const clean = row.repository.replace(/\/+$/, "");
+  if (repository && !repository.includes(".codedeck/worktrees")) {
+    const clean = repository.replace(/\/+$/, "");
     const parts = clean.split("/");
     return parts[parts.length - 1] || clean;
   }
 
-  const cwd = row.cwd || "";
+  const cwd = (row.cwd || "").replaceAll("\\", "/");
   const wtMatch = cwd.match(/(.*?)(?:\.worktrees|-wt)(?:\/.*)?$/);
   if (wtMatch && wtMatch[1]) {
     const parts = wtMatch[1].replace(/\/+$/, "").split("/");

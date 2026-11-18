@@ -27,6 +27,7 @@ import { startLinkWatcher } from "../../open/link-watcher.js";
 import { ROLES, parseRole, resolvePluginDir, type Role } from "../../core/roles.js";
 import { getCliName } from "../cli-name.js";
 import { effectiveModel, resolveOpenModel, type OpenFlags } from "../../open/contract.js";
+import { spawnTarget } from "../../utils/command.js";
 import {
   buildArgs as buildOpencodeArgs,
   buildInlineConfig,
@@ -194,9 +195,12 @@ export function readOpencodeSessions(
   cwd?: string,
 ): OpencodeSessionRow[] | undefined {
   try {
+    const target = spawnTarget(bin, ["session", "list", "--format", "json", "-n", "50"]);
     const parsed: unknown = JSON.parse(
-      execFileSync(bin, ["session", "list", "--format", "json", "-n", "50"], {
+      execFileSync(target.cmd, target.args, {
         encoding: "utf8",
+        windowsHide: true,
+        ...(target.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         timeout: 10000,
         maxBuffer: 1024 * 1024,
         ...(cwd !== undefined ? { cwd } : {}),

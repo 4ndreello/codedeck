@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 export interface SpawnOptions {
   cwd: string;
@@ -155,10 +157,48 @@ export function processStartTime(pid: number): string | undefined {
   }
 }
 
+/** Whether processStartTime can answer here. It reads /proc, so Linux only. */
+export function startTimeSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "linux";
+}
+
+/**
+ * What a recorded PID is now:
+ * - "match": alive, and the start time recorded at spawn still matches.
+ * - "unknown": alive, but this platform cannot tell a recycled PID from the
+ *   original (Windows and macOS have no /proc). Guards must treat it as live,
+ *   so nothing resumes a second harness beside it, and nothing may kill it.
+ * - "reused": alive, but provably not the process that was recorded.
+ * - "gone": no such process.
+ */
+export type PidIdentity = "match" | "unknown" | "reused" | "gone";
+
+export interface PidIdentityDeps {
+  platform?: NodeJS.Platform;
+  alive?: (pid: number) => boolean;
+  startTime?: (pid: number) => string | undefined;
+}
+
+export function pidIdentity(
+  pid: number | null | undefined,
+  recordedStart: string | null | undefined,
+  deps: PidIdentityDeps = {},
+): PidIdentity {
+  const alive = deps.alive ?? processAlive;
+  if (pid == null || !alive(pid)) return "gone";
+  if (!startTimeSupported(deps.platform)) return "unknown";
+  // Where start times exist, a live PID without a matching one is someone
+  // else's: a row that never recorded one cannot prove it owns the PID.
+  if (recordedStart == null) return "reused";
+  const current = (deps.startTime ?? processStartTime)(pid);
+  return current !== undefined && current === recordedStart ? "match" : "reused";
+}
+
 // Harnesses run detached in their own process group, so signal the GROUP:
 // they spawn children of their own (omp sub-agents) that must die with them.
 // If an expected start time is supplied, refuse to signal a recycled PID.
 export async function killTree(pid: number, graceMs = 3000, expectedStartTime?: string): Promise<void> {
+  if (process.platform === "win32") return killTreeWindows(pid, expectedStartTime);
   const matchesExpectedLeader = (): boolean => {
     if (expectedStartTime === undefined) return true;
     const current = processStartTime(pid);
@@ -205,5 +245,40 @@ export async function killTree(pid: number, graceMs = 3000, expectedStartTime?: 
     signal("SIGKILL");
   }
   // Settle window so a follow-up start() doesn't race the dying process.
+  await sleep(100);
+}
+
+/**
+ * A Windows system program by absolute path. A bare name is looked up in the
+ * cwd before PATH, so a planted taskkill.exe or rundll32.exe in a repo would
+ * win.
+ */
+export function windowsSystemBinary(name: string, env: NodeJS.ProcessEnv = process.env): string {
+  const root = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  return path.win32.join(root, "System32", name);
+}
+
+// Windows has no process groups and no SIGTERM: process.kill(-pid) fails and
+// process.kill(pid) is TerminateProcess on the leader alone, which orphans
+// whatever the harness started (MCP servers, tool shells, sub-agents).
+// taskkill /T walks the parent-pid tree instead. There is no graceful step:
+// console programs ignore the WM_CLOSE a taskkill without /F sends.
+//
+// Same identity rule as the POSIX path: with an expected start time, a PID
+// that no longer carries it is never signaled. Windows cannot read one today,
+// so such a caller is refused outright rather than trusted.
+async function killTreeWindows(pid: number, expectedStartTime?: string): Promise<void> {
+  if (!processAlive(pid)) return;
+  if (expectedStartTime !== undefined && processStartTime(pid) !== expectedStartTime) return;
+  const { promise, resolve } = Promise.withResolvers<void>();
+  execFile(windowsSystemBinary("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: 10_000 }, (error) => {
+    if (error && processAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    resolve();
+  });
+  await promise;
   await sleep(100);
 }

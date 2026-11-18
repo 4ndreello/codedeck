@@ -18,7 +18,7 @@ import { generateSessionId } from "../core/session.js";
 import { getGitInfo } from "../git/repository.js";
 import { createWorktree } from "../git/worktree.js";
 import { getDiff } from "../git/diff.js";
-import { killTree, processAlive, processStartTime, sleep } from "../utils/process.js";
+import { killTree, pidIdentity, processAlive, processStartTime, sleep, type PidIdentity } from "../utils/process.js";
 import { readSessionProcessMetadata } from "../drivers/session-runtime.js";
 import type { AgentEvent } from "../core/events.js";
 import { loadConfig, resolveDefaultSandbox } from "../config/config.js";
@@ -87,15 +87,19 @@ function validateSendMessage(raw: unknown): { message: string } | { code: string
   return { message };
 }
 
-// PID identity triple, same rule as the stop path: a recycled PID must
-// neither block a legitimate resume nor permit killing a stranger.
+// Whether the recorded PID may still be this session's harness. A recycled
+// PID must not block a legitimate resume. Where the platform cannot read
+// start times (Windows, macOS) a live PID is "unknown" and counts as live
+// here: blocking a resume is recoverable, a second harness on the same
+// session is not. Killing is gated separately, never on "unknown".
+function sessionPidIdentity(s: Session): PidIdentity {
+  // Through the imported bindings, so a test spying on them steers this too.
+  return pidIdentity(s.pid, s.pidStartTime, { alive: processAlive, startTime: processStartTime });
+}
+
 function livePidIdentity(s: Session): boolean {
-  return (
-    s.pid != null &&
-    s.pidStartTime != null &&
-    processAlive(s.pid) &&
-    processStartTime(s.pid) === s.pidStartTime
-  );
+  const identity = sessionPidIdentity(s);
+  return identity === "match" || identity === "unknown";
 }
 
 export interface WebHost {
@@ -503,14 +507,15 @@ class Daemon {
           this.sessions.setStatus(s.id, "failed", { lastEvent: "open session terminated before patch" });
           continue;
         }
-        const currentStart = processStartTime(s.pid);
-        const processPresent = processAlive(s.pid);
-        const identityVerified = s.pidStartTime != null && currentStart === s.pidStartTime;
+        const identity = sessionPidIdentity(s);
+        const currentStart = identity === "reused" ? processStartTime(s.pid) : undefined;
 
-        if (processPresent && identityVerified) {
-          // Head process still running interactively; remain working, no driver to attach
+        if (identity === "match" || identity === "unknown") {
+          // Head process still running interactively; remain working, no driver
+          // to attach. "unknown" is a live PID on a platform without start
+          // times: failing it would end a session the user still has open.
           continue;
-        } else if (!processPresent) {
+        } else if (identity === "gone") {
           // Closed normally while daemon was away
           const ev: AgentEvent = {
             type: "session.completed",
@@ -522,7 +527,7 @@ class Daemon {
           this.sessions.setStatus(s.id, "completed", { lastEvent: "closed while daemon was stopped" });
           continue;
         } else {
-          // PID recycled (processPresent is true but !identityVerified)
+          // PID recycled: alive, but provably not the recorded process
           const failure: FailureInfo = {
             code: "HARNESS_CRASH",
             blame: "harness",
@@ -2079,10 +2084,14 @@ class Daemon {
     }
 
     // Bounded grace per session, in parallel so 5+ sessions fit the delay
-    // budget. Identity-checked: a recycled PID is never signaled.
+    // budget. Identity-checked: a recycled PID is never signaled. A row with
+    // no recorded start time (Windows, macOS, legacy rows) is signaled only
+    // when this daemon spawned it and still holds its runtime; otherwise
+    // killTree would have nothing to check and would signal whoever now owns
+    // that PID.
     await Promise.allSettled(
       actives
-        .filter((s) => s.pid != null)
+        .filter((s) => s.pid != null && (s.pidStartTime != null || this.hasLiveRuntime(s)))
         .map((s) => killTree(s.pid as number, 1500, s.pidStartTime)),
     );
     // Force any live runtime to consume complete lines before the final WAL
@@ -2106,6 +2115,15 @@ class Daemon {
     } catch {
       // EROFS/EIO with the FS already gone: abort the flush, still close.
       return [];
+    }
+  }
+
+  private hasLiveRuntime(session: Session): boolean {
+    try {
+      const runtime = this.registry.get(session.agent).getHandle?.(session.id);
+      return runtime !== undefined && runtime !== null;
+    } catch {
+      return false;
     }
   }
 
