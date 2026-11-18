@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { tildify } from "../src/cli/commands/ps.js";
 import { noFollowFlag, renameReplacing } from "../src/config/config.js";
 import { sessionName } from "../src/open/launchers/claude.js";
-import { cmdShimContents, withCodedeckOnPath } from "../src/open/runtime.js";
+import { cmdShimContents, codedeckShimEnv, withCodedeckOnPath } from "../src/open/runtime.js";
 import { pidIdentity, windowsSystemBinary } from "../src/utils/process.js";
 
 function errno(code: string): NodeJS.ErrnoException {
@@ -63,23 +63,36 @@ describe("open on Windows", () => {
   it("prepends the shim directory to Path instead of adding a second PATH", () => {
     const env = { Path: `\\Windows${path.delimiter}\\Git\\cmd`, USERPROFILE: "\\Users\\me" };
 
-    const result = withCodedeckOnPath(env, binDir);
+    const result = withCodedeckOnPath(env, binDir, "win32");
 
     expect(Object.keys(result).filter((key) => key.toUpperCase() === "PATH")).toEqual(["Path"]);
     expect(result.Path).toBe(`${binDir}${path.delimiter}\\Windows${path.delimiter}\\Git\\cmd`);
-    expect(withCodedeckOnPath(result, binDir)).toEqual(result);
+    expect(withCodedeckOnPath(result, binDir, "win32")).toEqual(result);
   });
 
   it("keeps only the PATH spelling Node would keep when both exist", () => {
-    const result = withCodedeckOnPath({ Path: "\\stale", PATH: "\\Windows" }, binDir);
+    const result = withCodedeckOnPath({ Path: "\\stale", PATH: "\\Windows" }, binDir, "win32");
 
     expect(result).toEqual({ PATH: `${binDir}${path.delimiter}\\Windows` });
   });
 
-  it("writes a .cmd shim that keeps a percent sign literal", () => {
-    expect(cmdShimContents("C:\\Program Files\\nodejs\\node.exe", "C:\\100%\\cli\\index.js", "cdk")).toBe(
-      '@echo off\r\nset "CODEDECK_CLI_NAME=cdk"\r\n"C:\\Program Files\\nodejs\\node.exe" "C:\\100%%\\cli\\index.js" %*\r\n',
-    );
+  it("leaves other spellings alone on POSIX, where they are distinct variables", () => {
+    const result = withCodedeckOnPath({ Path: "/mine", PATH: "/usr/bin" }, "/cd/bin", "linux");
+
+    expect(result).toEqual({ Path: "/mine", PATH: `/cd/bin${path.delimiter}/usr/bin` });
+  });
+
+  it("writes a .cmd shim that names no path, so the console codepage cannot garble it", () => {
+    const shim = cmdShimContents("cdk");
+
+    expect(shim).toContain('set "CODEDECK_CLI_NAME=cdk"\r\n');
+    expect(shim).toContain('"%CODEDECK_NODE%" "%CODEDECK_ENTRY%" %*\r\n');
+    expect(shim).not.toMatch(/[A-Za-z]:\\/);
+    expect(codedeckShimEnv("win32")).toEqual({
+      CODEDECK_NODE: process.execPath,
+      CODEDECK_ENTRY: expect.stringMatching(/index\.js$/),
+    });
+    expect(codedeckShimEnv("linux")).toEqual({});
   });
 
   it("names a session after the last folder of a Windows cwd", () => {

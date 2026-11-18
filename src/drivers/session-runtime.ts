@@ -369,6 +369,13 @@ export class SessionRuntime {
     resolve();
   }
   async stop(graceMs = 3000): Promise<void> {
+    // The exit was already observed, so this PID may belong to someone else
+    // by now. Without a start time to check (Windows, macOS) processMatches
+    // would trust any live process under it, and killTree would take it down.
+    if (this.done) {
+      this.stopRequested = true;
+      return;
+    }
     if (!this.processMatches()) {
       // The process raced us to exit (or changed identity). Close this runtime
       // without synthesizing a conflicting harness failure; the daemon owns
